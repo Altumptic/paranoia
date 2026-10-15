@@ -17,18 +17,24 @@
 
 mod analysis;
 pub mod api;
+mod demangle;
 pub mod disasm;
 mod loader;
 mod metrics;
 pub mod model;
+mod pseudo;
 mod strings;
+mod tools;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
 pub use loader::detect;
 pub use model::*;
+pub use demangle::demangle;
+pub use pseudo::{PseudoLine, Pseudocode};
+pub use tools::{parse_pattern, Callee, Hit, SearchKind};
 
 use analysis::{Analysis, CodeSource};
 use disasm::{Disassembler, NameLookup};
@@ -51,6 +57,14 @@ pub struct Annotations {
     pub names: BTreeMap<u64, String>,
     #[serde(default)]
     pub comments: BTreeMap<u64, String>,
+    /// Functions defined by hand (IDA's `P`).
+    #[serde(default)]
+    pub functions: BTreeSet<u64>,
+    #[serde(default)]
+    pub bookmarks: BTreeMap<u64, String>,
+    /// Patched bytes by file offset.
+    #[serde(default)]
+    pub patches: BTreeMap<u64, u8>,
 }
 
 /// A loaded binary plus everything we learned about it.
@@ -69,6 +83,8 @@ pub struct Binary {
     strings: Vec<StringEntry>,
     string_by_va: HashMap<u64, usize>,
     annotations: Annotations,
+    /// Original values of patched bytes, by file offset.
+    original_bytes: BTreeMap<u64, u8>,
 }
 
 impl Binary {
@@ -121,14 +137,15 @@ impl Binary {
 
         let import_slots = info.imports.iter().enumerate().filter(|(_, i)| i.address != 0).map(|(n, i)| (i.address, n)).collect();
         let mut static_names = HashMap::new();
+        let pretty = |n: &str| demangle::demangle(n).unwrap_or_else(|| n.to_string());
         for s in &loaded.symbols {
             if matches!(s.kind, SymbolKind::Function | SymbolKind::Object) {
-                static_names.entry(s.address).or_insert_with(|| s.name.clone());
+                static_names.entry(s.address).or_insert_with(|| pretty(&s.name));
             }
         }
         for e in &info.exports {
             if e.address != 0 {
-                static_names.entry(e.address).or_insert_with(|| e.name.clone());
+                static_names.entry(e.address).or_insert_with(|| pretty(&e.name));
             }
         }
 
@@ -146,6 +163,7 @@ impl Binary {
             strings: Vec::new(),
             string_by_va: HashMap::new(),
             annotations: Annotations::default(),
+            original_bytes: BTreeMap::new(),
         })
     }
 
@@ -228,7 +246,7 @@ impl Binary {
 
         if self.analysis.is_none() {
             let mut seeds = self.seeds.clone();
-            seeds.extend(self.annotations.names.keys().filter(|a| self.is_executable(**a)).map(|&address| Seed {
+            seeds.extend(self.annotations.functions.iter().filter(|a| self.is_executable(**a)).map(|&address| Seed {
                 address,
                 source: FunctionSource::User,
                 end: None,
@@ -286,7 +304,8 @@ impl Binary {
             return n.clone();
         }
         if let Some(imp) = f.thunk_slot.and_then(|s| self.import_slots.get(&s)) {
-            return format!("j_{}", self.info.imports[*imp].name);
+            let n = &self.info.imports[*imp].name;
+            return format!("j_{}", demangle::demangle(n).unwrap_or_else(|| n.clone()));
         }
         if f.address == self.info.entry {
             return "start".into();
@@ -329,7 +348,8 @@ impl Binary {
             return Some(n.clone());
         }
         if let Some(&i) = self.import_slots.get(&va) {
-            return Some(self.info.imports[i].name.clone());
+            let n = &self.info.imports[i].name;
+            return Some(demangle::demangle(n).unwrap_or_else(|| n.clone()));
         }
         let a = self.analysis.as_ref()?;
         let (start, _) = a.block_index.get_key_value(&va)?;
@@ -511,8 +531,15 @@ impl Binary {
         &self.annotations
     }
 
+    /// Restores saved annotations: patches are re-applied and user functions re-analyzed.
     pub fn set_annotations(&mut self, a: Annotations) {
+        let had_functions = !a.functions.is_empty();
+        self.revert_patches();
         self.annotations = a;
+        self.apply_saved_patches();
+        if had_functions && self.analysis.is_some() {
+            self.reanalyze();
+        }
     }
 
     /// Renames an address. An empty name removes the user name.

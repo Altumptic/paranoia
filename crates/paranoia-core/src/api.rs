@@ -49,6 +49,24 @@ struct Offset {
     offset: u64,
 }
 
+#[derive(Deserialize)]
+struct AdvSearch {
+    kind: crate::SearchKind,
+    query: String,
+}
+
+#[derive(Deserialize)]
+struct Patch {
+    offset: u64,
+    hex: String,
+}
+
+#[derive(Deserialize)]
+struct Bookmark {
+    va: u64,
+    text: Option<String>,
+}
+
 fn default_limit() -> usize {
     200
 }
@@ -92,6 +110,7 @@ impl Session {
             }
             "previousAnchor" => to(b.previous_anchor(args::<Va>(args_v)?.va)),
             "graph" => to(b.function_graph(args::<Va>(args_v)?.va)),
+            "pseudocode" => to(b.pseudocode(args::<Va>(args_v)?.va)),
             "functionAt" => to(b.function_at(args::<Va>(args_v)?.va)),
             "xrefs" => to(b.xrefs_to(args::<Va>(args_v)?.va)),
             "addressInfo" => to(b.address_info(args::<Va>(args_v)?.va)),
@@ -119,6 +138,36 @@ impl Session {
             "setAnnotations" => {
                 let a: Annotations = args(args_v)?;
                 b.set_annotations(a);
+                Ok(Value::Null)
+            }
+            "callees" => to(b.callees(args::<Va>(args_v)?.va)),
+            "searchAdvanced" => {
+                let a: AdvSearch = args(args_v)?;
+                to(b.search_advanced(a.kind, &a.query)?)
+            }
+            "makeFunction" => {
+                b.make_function(args::<Va>(args_v)?.va)?;
+                Ok(Value::Null)
+            }
+            "reanalyze" => {
+                b.reanalyze();
+                to(b.analyze())
+            }
+            "patch" => {
+                let a: Patch = args(args_v)?;
+                let bytes = hex::decode(a.hex.replace(' ', "")).map_err(|e| format!("invalid hex: {e}"))?;
+                b.patch(a.offset, &bytes)?;
+                Ok(Value::Null)
+            }
+            "revertPatches" => {
+                b.revert_patches();
+                Ok(Value::Null)
+            }
+            "patchedOffsets" => to(b.patched_offsets()),
+            "exportIdc" => Ok(Value::String(b.export_idc())),
+            "setBookmark" => {
+                let a: Bookmark = args(args_v)?;
+                b.set_bookmark(a.va, a.text.as_deref());
                 Ok(Value::Null)
             }
             "version" => Ok(json!(env!("CARGO_PKG_VERSION"))),

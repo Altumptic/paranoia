@@ -1,28 +1,38 @@
-import { Binary, Cpu, FileCode2, FolderOpen, GitBranch, Lock, Network, Search, Trash2, Zap } from "lucide-react";
+import { ArrowUpRight, Binary, Cpu, FileCode2, FolderOpen, GitBranch, Lock, Network, Trash2, Zap } from "lucide-react";
 
-import { isDesktop } from "../engine/client";
+import { getBackend, isDesktop } from "../engine/client";
 import { pickFile } from "../files";
 import { archLabel, fmtSize, formatLabel, useStore } from "../store";
 import { Whale } from "./Logo";
+import { ThemeToggle } from "./ThemeToggle";
 
 const FEATURES = [
-  { icon: FileCode2, title: "PE · ELF · Mach-O", text: "Headers, sections, imports, exports, symbols and universal binaries." },
-  { icon: Cpu, title: "x86 · x86-64 · AArch64", text: "Fast disassembly with symbol-aware operands and IDA-style labels." },
-  { icon: GitBranch, title: "Control-flow graphs", text: "Recursive-descent analysis, basic blocks and GPU-composited graphs." },
-  { icon: Network, title: "Cross references", text: "Calls, jumps and data references — strings show where they're used." },
-  { icon: Lock, title: "Local & private", text: "No accounts, no telemetry. Your binaries never leave this machine." },
-  { icon: Zap, title: "Built in Rust", text: "Memory-safe engine hardened against malformed and hostile files." },
+  { icon: FileCode2, title: "Every major format", text: "PE, ELF and Mach-O — including universal binaries, forwarders and chained fixups." },
+  { icon: Cpu, title: "x86, x86-64, AArch64", text: "Symbol-aware disassembly with IDA-style labels, thunks and string annotations." },
+  { icon: GitBranch, title: "Graphs & pseudocode", text: "Recursive-descent analysis, control-flow graphs and a readable C-like view." },
+  { icon: Network, title: "Cross references", text: "Calls, jumps and data references, both directions, one keystroke away." },
+  { icon: Lock, title: "Private by design", text: "No accounts and no telemetry. Files are analyzed on this machine only." },
+  { icon: Zap, title: "Native Rust engine", text: "Fast, memory-safe and hardened against malformed and hostile inputs." },
 ];
 
 const SHORTCUTS: [string, string][] = [
   ["Ctrl O", "Open file"],
-  ["Ctrl K", "Command palette / go to"],
-  ["Space", "Toggle graph ↔ listing"],
+  ["Ctrl K", "Go to anything"],
+  ["Space", "Graph ↔ listing"],
+  ["Tab", "Pseudocode"],
   ["N", "Rename"],
   [";", "Comment"],
   ["X", "Cross references"],
-  ["Esc", "Navigate back"],
+  ["Esc", "Back"],
 ];
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "Late night reversing?";
+  if (h < 12) return "Good morning.";
+  if (h < 18) return "Good afternoon.";
+  return "Good evening.";
+}
 
 function ago(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000);
@@ -45,68 +55,66 @@ export function Welcome() {
   return (
     <div className="welcome">
       <div className="titlebar-drag" />
-      <div className="welcome-bg" aria-hidden>
-        <div className="welcome-grid" />
-        <div className="welcome-glow" />
-      </div>
+      <header className="welcome-top">
+        <div className="brand">
+          <Whale size={34} />
+          <span className="wordmark">Paranoia</span>
+        </div>
+        <div className="welcome-top-right">
+          <span className="badge">Community Edition</span>
+          <ThemeToggle />
+        </div>
+      </header>
 
-      <div className="welcome-inner">
-        <header className="hero">
-          <div className="hero-mark">
-            <div className="hero-ring" />
-            <Whale size={150} glow />
-          </div>
-          <div className="hero-text">
-            <h1>Paranoia</h1>
-            <p className="tagline">Reverse engineering without limits.</p>
-            <div className="hero-pills">
-              <span>OPEN SOURCE</span>
-              <i />
-              <span className="hl">LOCAL-FIRST</span>
-              <i />
-              <span>FAST</span>
-              <i />
-              <span>MODULAR</span>
+      <main className="welcome-inner">
+        <section className="hero">
+          <Whale size={92} className="hero-whale" />
+          <h1>{greeting()}</h1>
+          <p className="tagline">What are we taking apart today?</p>
+        </section>
+
+        <section
+          className="composer"
+          onClick={choose}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && choose()}
+        >
+          <div className="composer-body">
+            <div className="composer-icon">
+              <Binary size={20} />
+            </div>
+            <div>
+              <div className="composer-title">Drop an executable, library or object file</div>
+              <div className="composer-sub">or click to browse — PE · ELF · Mach-O · x86 · x86-64 · AArch64</div>
             </div>
           </div>
-        </header>
+          <div className="composer-foot">
+            <span className="composer-note">
+              <Lock size={12} /> {isDesktop ? "Analyzed natively on this computer" : "Analyzed in your browser with WebAssembly"} — nothing is uploaded
+            </span>
+            <button
+              className="btn primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                choose();
+              }}
+            >
+              <FolderOpen size={15} /> Open file
+              <span className="kbd on-accent">Ctrl O</span>
+            </button>
+          </div>
+        </section>
 
         <div className="welcome-cols">
-          <section className="dropzone" onClick={choose} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && choose()}>
-            <div className="dropzone-icon">
-              <Binary size={26} />
-            </div>
-            <div className="dropzone-title">Open a binary to start</div>
-            <div className="dropzone-sub">
-              Drop an executable, library or object file here, or <span className="link">browse</span>.
-            </div>
-            <div className="dropzone-actions">
-              <button
-                className="btn primary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  choose();
-                }}
-              >
-                <FolderOpen size={15} /> Open file
-              </button>
-              <span className="kbd">Ctrl</span>
-              <span className="kbd">O</span>
-            </div>
-            <div className="dropzone-foot">
-              <Lock size={12} /> Analysis runs {isDesktop ? "natively on this computer" : "in your browser via WebAssembly"} — nothing is uploaded.
-            </div>
-          </section>
-
-          <section className="recent">
+          <section className="panel-card">
             <div className="section-title">
-              Recent
+              Recent files
               {recent.length > 0 && <span className="count">{recent.length}</span>}
             </div>
             {recent.length === 0 ? (
               <div className="recent-empty">
-                <Search size={18} />
-                <span>Files you analyze show up here. Renames and comments are saved per file hash.</span>
+                Files you analyze appear here. Names and comments are kept per file hash, so they follow the binary wherever it lives.
               </div>
             ) : (
               <ul className="recent-list">
@@ -117,7 +125,7 @@ export function Welcome() {
                       onClick={() => {
                         if (r.path) open({ kind: "path", path: r.path });
                         else {
-                          toast(`Re-open ${r.name} to continue — your annotations are kept.`);
+                          toast(`Choose ${r.name} again to continue — your annotations are kept.`);
                           choose();
                         }
                       }}
@@ -128,12 +136,12 @@ export function Welcome() {
                       <span className="recent-meta">
                         {archLabel(r.arch)} · {fmtSize(r.size)} · {ago(r.openedAt)}
                       </span>
+                      <ArrowUpRight size={14} className="recent-go" />
                     </button>
                     <button
                       className="icon-btn recent-x"
                       title="Remove from list"
                       onClick={async () => {
-                        const { getBackend } = await import("../engine/client");
                         await getBackend().removeRecent(r.sha256);
                         useStore.getState().loadRecent();
                       }}
@@ -144,10 +152,10 @@ export function Welcome() {
                 ))}
               </ul>
             )}
+          </section>
 
-            <div className="section-title" style={{ marginTop: 22 }}>
-              Shortcuts
-            </div>
+          <section className="panel-card">
+            <div className="section-title">Keyboard</div>
             <div className="shortcuts">
               {SHORTCUTS.map(([k, v]) => (
                 <div key={k} className="shortcut">
@@ -165,26 +173,24 @@ export function Welcome() {
           </section>
         </div>
 
-        <div className="features">
+        <section className="features">
           {FEATURES.map((f) => (
             <div key={f.title} className="feature">
               <f.icon size={18} className="feature-icon" />
-              <div>
-                <div className="feature-title">{f.title}</div>
-                <div className="feature-text">{f.text}</div>
-              </div>
+              <div className="feature-title">{f.title}</div>
+              <div className="feature-text">{f.text}</div>
             </div>
           ))}
-        </div>
+        </section>
 
         <footer className="welcome-foot">
-          <span>Paranoia Community Edition · v0.1.0</span>
+          <span>Paranoia v0.1.0</span>
           <span className="dot" />
-          <span>Apache-2.0</span>
+          <span>Open source · Apache-2.0</span>
           <span className="dot" />
           <span>{isDesktop ? "Native engine" : "WebAssembly engine"}</span>
         </footer>
-      </div>
+      </main>
     </div>
   );
 }

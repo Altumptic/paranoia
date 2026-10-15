@@ -44,6 +44,8 @@ enum Cmd {
         #[arg(short = 'n', long, default_value_t = 40)]
         count: usize,
     },
+    /// C-like pseudocode for the function at an address or name.
+    Pseudo { file: PathBuf, at: String },
     /// Cross references to an address.
     Xrefs { file: PathBuf, at: String },
 }
@@ -187,6 +189,22 @@ fn main() -> Result<()> {
             }
             for i in &insns {
                 print_insn(i);
+            }
+        }
+        Cmd::Pseudo { file, at } => {
+            let mut bin = open(&file)?;
+            bin.analyze();
+            let va = resolve(&bin, &at)?;
+            let p = bin.pseudocode(va).context("no function at that address")?;
+            if cli.json {
+                return print_json(&p);
+            }
+            if let Some(n) = &p.note {
+                println!("// {n}");
+            }
+            for l in &p.lines {
+                let text: String = l.tokens.iter().map(|t| t.t.as_str()).collect();
+                println!("{}{}", "    ".repeat(l.indent as usize), text);
             }
         }
         Cmd::Xrefs { file, at } => {

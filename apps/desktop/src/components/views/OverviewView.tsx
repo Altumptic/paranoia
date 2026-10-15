@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { BinaryInfo } from "../../engine/types";
 import { archLabel, fmtAddr, fmtSize, formatLabel, useStore } from "../../store";
+import { cssVar, useTheme } from "../../theme";
 
 export function OverviewView() {
   const info = useStore((s) => s.info)!;
@@ -159,8 +160,14 @@ function HashRow({ k, v }: { k: string; v: string }) {
   );
 }
 
+function withAlpha(hex: string, a: number): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  return m ? `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${a})` : hex;
+}
+
 /** Area chart of entropy across the file, drawn on a canvas for crispness at any DPI. */
 function EntropyChart({ info }: { info: BinaryInfo }) {
+  const [, , theme] = useTheme();
   const ref = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<{ x: number; i: number } | null>(null);
   const data = info.entropy_map;
@@ -178,10 +185,12 @@ function EntropyChart({ info }: { info: BinaryInfo }) {
       g.scale(dpr, dpr);
       g.clearRect(0, 0, w, h);
       // Reference lines at 4, 6 and 7.2 (packed / encrypted territory).
+      const accent = cssVar("--accent");
+      const grid = cssVar("--line-2");
       for (const [lvl, col] of [
-        [4, "rgba(255,255,255,0.05)"],
-        [6, "rgba(255,255,255,0.05)"],
-        [7.2, "rgba(255,107,107,0.25)"],
+        [4, grid],
+        [6, grid],
+        [7.2, withAlpha(cssVar("--danger"), 0.45)],
       ] as const) {
         const y = h - (lvl / 8) * h;
         g.strokeStyle = col;
@@ -194,8 +203,8 @@ function EntropyChart({ info }: { info: BinaryInfo }) {
       g.setLineDash([]);
       if (data.length < 2) return;
       const grad = g.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, "rgba(46,230,166,0.45)");
-      grad.addColorStop(1, "rgba(46,230,166,0.02)");
+      grad.addColorStop(0, withAlpha(accent, 0.38));
+      grad.addColorStop(1, withAlpha(accent, 0.02));
       const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - (v / 8) * (h - 2) - 1] as const);
       g.beginPath();
       g.moveTo(0, h);
@@ -206,7 +215,7 @@ function EntropyChart({ info }: { info: BinaryInfo }) {
       g.fill();
       g.beginPath();
       pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-      g.strokeStyle = "#2ee6a6";
+      g.strokeStyle = accent;
       g.lineWidth = 1.25;
       g.stroke();
     };
@@ -214,7 +223,7 @@ function EntropyChart({ info }: { info: BinaryInfo }) {
     const ro = new ResizeObserver(draw);
     ro.observe(c);
     return () => ro.disconnect();
-  }, [data]);
+  }, [data, theme]);
 
   const chunk = info.file_size / Math.max(1, data.length);
   return (
