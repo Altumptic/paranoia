@@ -1,0 +1,20 @@
+[package]
+name = "paranoia-cli"
+description = "Command-line front-end for the Paranoia reverse-engineering engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "paranoia"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
+paranoia-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

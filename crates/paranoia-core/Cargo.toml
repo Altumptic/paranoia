@@ -1,0 +1,22 @@
+[package]
+name = "paranoia-core"
+description = "Binary analysis engine for Paranoia: PE/ELF/Mach-O loading, disassembly, CFG and xrefs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+goblin = "0.10.7"
+hex = "0.4.3"
+iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
+md-5 = "0.11.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+thiserror.workspace = true
+yaxpeax-arch = "0.3.2"
+yaxpeax-arm = "0.5.0"

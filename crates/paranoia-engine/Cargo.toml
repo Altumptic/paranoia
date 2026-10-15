@@ -1,0 +1,20 @@
+[package]
+name = "paranoia-engine"
+description = "Native analysis engine process for the Paranoia desktop app (JSON-RPC over stdio)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "paranoia-engine"
+path = "src/main.rs"
+
+[dependencies]
+paranoia-core.workspace = true
+paranoia-db.workspace = true
+serde.workspace = true
+serde_json.workspace = true
