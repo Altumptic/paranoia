@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cpp_demangle",
  "goblin",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-db"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "redb",
  "serde",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "paranoia-core",
  "paranoia-db",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "paranoia-core",
  "serde_json",
