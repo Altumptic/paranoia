@@ -70,13 +70,7 @@ pub struct Perms {
 
 impl std::fmt::Display for Perms {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}{}{}",
-            if self.r { 'r' } else { '-' },
-            if self.w { 'w' } else { '-' },
-            if self.x { 'x' } else { '-' }
-        )
+        write!(f, "{}{}{}", if self.r { 'r' } else { '-' }, if self.w { 'w' } else { '-' }, if self.x { 'x' } else { '-' })
     }
 }
 

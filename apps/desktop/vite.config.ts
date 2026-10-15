@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   clearScreen: false,
-  server: { port: 1420, strictPort: true },
+  server: { port: 1420, strictPort: true, watch: { ignored: ["**/release/**", "**/dist/**"] } },
   worker: { format: "es" },
   build: {
     target: "es2022",

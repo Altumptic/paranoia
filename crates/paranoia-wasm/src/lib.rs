@@ -7,6 +7,9 @@
 //! failure; either way the reply (JSON value or error message) is left in the
 //! result buffer until the next call.
 
+// The initializers below are already `const`; clippy misreports them through the macro.
+#![allow(clippy::missing_const_for_thread_local)]
+
 use std::cell::RefCell;
 
 use paranoia_core::api::Session;

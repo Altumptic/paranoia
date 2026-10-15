@@ -1,6 +1,4 @@
-use goblin::mach::{
-    constants::cputype as cpu, header, load_command::CommandVariant, Mach, MachO, SingleArch,
-};
+use goblin::mach::{constants::cputype as cpu, header, load_command::CommandVariant, Mach, MachO, SingleArch};
 
 use super::macho_bind::{bind_opcodes, chained_fixups, Seg};
 use super::{Loaded, MapRange, Seed};
@@ -27,7 +25,8 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
                 .position(|a| a.cputype == cpu::CPU_TYPE_ARM64)
                 .or_else(|| arches.iter().position(|a| a.cputype == cpu::CPU_TYPE_X86_64))
                 .unwrap_or(0);
-            let names: Vec<&str> = arches.iter().map(|a| cpu::get_arch_name_from_types(a.cputype, a.cpusubtype & 0x00ff_ffff).unwrap_or("?")).collect();
+            let names: Vec<&str> =
+                arches.iter().map(|a| cpu::get_arch_name_from_types(a.cputype, a.cpusubtype & 0x00ff_ffff).unwrap_or("?")).collect();
             match fat.get(pick)? {
                 SingleArch::MachO(_) => {
                     let fa = &arches[pick];
@@ -36,10 +35,15 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
                     let m = MachO::parse(slice, 0)?;
                     let mut out = load_single(slice, &m)?;
                     out.slice = Some((start, slice.len()));
-                    out.headers.insert(0, KeyValue { key: "Universal binary".into(), value: format!("{} (analyzing {})", names.join(", "), names[pick]) });
+                    out.headers.insert(
+                        0,
+                        KeyValue { key: "Universal binary".into(), value: format!("{} (analyzing {})", names.join(", "), names[pick]) },
+                    );
                     Ok(out)
                 }
-                SingleArch::Archive(_) => Err(goblin::error::Error::Malformed("static archive inside universal binary is not supported yet".into())),
+                SingleArch::Archive(_) => {
+                    Err(goblin::error::Error::Malformed("static archive inside universal binary is not supported yet".into()))
+                }
             }
         }
     }
@@ -85,9 +89,17 @@ fn load_single(bytes: &[u8], m: &MachO) -> goblin::error::Result<Loaded> {
         if segname == "__TEXT" {
             text_vmaddr = seg.vmaddr;
         }
-        let perms = Perms { r: seg.initprot & VM_PROT_READ != 0, w: seg.initprot & VM_PROT_WRITE != 0, x: seg.initprot & VM_PROT_EXECUTE != 0 };
+        let perms =
+            Perms { r: seg.initprot & VM_PROT_READ != 0, w: seg.initprot & VM_PROT_WRITE != 0, x: seg.initprot & VM_PROT_EXECUTE != 0 };
         if segname != "__PAGEZERO" {
-            out.ranges.push(MapRange { name: segname.clone(), vaddr: seg.vmaddr, vsize: seg.vmsize, offset: seg.fileoff, file_size: seg.filesize, perms });
+            out.ranges.push(MapRange {
+                name: segname.clone(),
+                vaddr: seg.vmaddr,
+                vsize: seg.vmsize,
+                offset: seg.fileoff,
+                file_size: seg.filesize,
+                perms,
+            });
         }
         for (sect, _) in seg.sections()?.iter() {
             let zerofill = matches!(sect.flags & 0xff, 0x1 | 0xc | 0x12);
@@ -135,7 +147,7 @@ fn load_single(bytes: &[u8], m: &MachO) -> goblin::error::Result<Loaded> {
         if name.is_empty() || nl.n_type & N_STAB != 0 || nl.n_type & N_TYPE != N_SECT {
             continue;
         }
-        let in_code = out.sections.get((nl.n_sect as usize).wrapping_sub(1)).is_some_and(|s| s.perms.x);
+        let in_code = out.sections.get(nl.n_sect.wrapping_sub(1)).is_some_and(|s| s.perms.x);
         let kind = if in_code { SymbolKind::Function } else { SymbolKind::Object };
         out.symbols.push(Symbol { name: name.to_string(), address: nl.n_value, size: 0, kind, global: nl.n_type & N_EXT != 0 });
         if in_code {
@@ -144,7 +156,8 @@ fn load_single(bytes: &[u8], m: &MachO) -> goblin::error::Result<Loaded> {
     }
 
     // Imports: dyld bind opcodes (classic) or chained fixups (macOS 12+ / iOS 15+).
-    let segs: Vec<Seg> = m.segments.iter().map(|s| Seg { vmaddr: s.vmaddr, vmsize: s.vmsize, fileoff: s.fileoff, filesize: s.filesize }).collect();
+    let segs: Vec<Seg> =
+        m.segments.iter().map(|s| Seg { vmaddr: s.vmaddr, vmsize: s.vmsize, fileoff: s.fileoff, filesize: s.filesize }).collect();
     let ptr = if m.is_64 { 8 } else { 4 };
     let blob = |off: u32, size: u32| {
         let start = (off as usize).min(bytes.len());
@@ -188,7 +201,10 @@ fn load_single(bytes: &[u8], m: &MachO) -> goblin::error::Result<Loaded> {
         let data = &bytes[start..start.saturating_add(size as usize).min(bytes.len())];
         for e in walk_export_trie(data, &m.libs) {
             let address = e.address.map(|a| text_vmaddr.wrapping_add(a)).unwrap_or(0);
-            if address != 0 && e.forward.is_none() && out.sections.iter().any(|s| s.perms.x && address >= s.vaddr && address < s.vaddr + s.vsize) {
+            if address != 0
+                && e.forward.is_none()
+                && out.sections.iter().any(|s| s.perms.x && address >= s.vaddr && address < s.vaddr + s.vsize)
+            {
                 out.seeds.push(Seed { address, source: FunctionSource::Export, end: None });
             }
             out.exports.push(Export { name: e.name, address, ordinal: None, forward: e.forward });
@@ -279,7 +295,6 @@ fn cstr<'a>(data: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
 /// Iterative walk of a dyld export trie with cycle and size limits.
 fn walk_export_trie(data: &[u8], libs: &[&str]) -> Vec<TrieExport> {
     const EXPORT_SYMBOL_FLAGS_REEXPORT: u64 = 0x08;
-    const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u64 = 0x10;
     let mut out = Vec::new();
     let mut visited = std::collections::HashSet::new();
     let mut stack: Vec<(usize, Vec<u8>)> = vec![(0, Vec::new())];
@@ -299,10 +314,8 @@ fn walk_export_trie(data: &[u8], libs: &[&str]) -> Vec<TrieExport> {
                     // libs[0] is "self"; ordinals are 1-based into the remaining list.
                     let lib = libs.get(ordinal).copied().unwrap_or("?");
                     out.push(TrieExport { forward: Some(format!("{lib}!{}", sym.as_deref().unwrap_or(&name))), name, address: None });
-                } else if flags & EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER != 0 {
-                    let stub = uleb(data, &mut pos);
-                    out.push(TrieExport { name, address: stub, forward: None });
                 } else {
+                    // Regular and stub-and-resolver exports both start with the address.
                     let address = uleb(data, &mut pos);
                     out.push(TrieExport { name, address, forward: None });
                 }

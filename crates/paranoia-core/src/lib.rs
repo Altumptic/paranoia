@@ -30,9 +30,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+pub use demangle::demangle;
 pub use loader::detect;
 pub use model::*;
-pub use demangle::demangle;
 pub use pseudo::{PseudoLine, Pseudocode};
 pub use tools::{parse_pattern, Callee, Hit, SearchKind};
 
@@ -396,7 +396,9 @@ impl Binary {
                 } else if let Some(f) = a.and_then(|a| a.by_start.get(&t)).map(|&i| &a.unwrap().functions[i]) {
                     if let Some(&ii) = f.thunk_slot.and_then(|s| self.import_slots.get(&s)) {
                         let imp = &self.info.imports[ii];
-                        ins.comment = Some(format!("{}!{}", imp.library, imp.name));
+                        if !imp.library.is_empty() {
+                            ins.comment = Some(format!("{}!{}", imp.library, imp.name));
+                        }
                     }
                 }
             }
@@ -481,45 +483,77 @@ impl Binary {
         let hex = q.trim_start_matches("0x").trim_start_matches("0X");
         if let Ok(addr) = u64::from_str_radix(hex, 16) {
             if self.range_of(addr).is_some() {
-                hits.push(SearchHit { kind: "address".into(), label: format!("{addr:#x}"), detail: self.name_at(addr).unwrap_or_default(), address: addr });
+                hits.push(SearchHit {
+                    kind: "address".into(),
+                    label: format!("{addr:#x}"),
+                    detail: self.name_at(addr).unwrap_or_default(),
+                    address: addr,
+                });
             }
         }
         let ql = q.to_lowercase();
         let m = |s: &str| s.to_lowercase().contains(&ql);
-        for f in self.functions() {
-            if hits.len() >= limit {
-                return hits;
+        let rank = |s: &str| {
+            let l = s.to_lowercase();
+            if l == ql {
+                0
+            } else if l.starts_with(&ql) {
+                1
+            } else {
+                2
             }
+        };
+        // Collect everything that matches, then order by match quality.
+        let mut found: Vec<(u8, u8, SearchHit)> = Vec::new();
+        for f in self.functions() {
             if m(&f.name) {
-                hits.push(SearchHit { kind: "function".into(), label: f.name, detail: format!("{} instructions", f.instructions), address: f.address });
+                found.push((
+                    rank(&f.name),
+                    0,
+                    SearchHit {
+                        kind: "function".into(),
+                        detail: format!("{} instructions", f.instructions),
+                        address: f.address,
+                        label: f.name,
+                    },
+                ));
             }
         }
         for i in &self.info.imports {
-            if hits.len() >= limit {
-                return hits;
-            }
             if m(&i.name) {
-                hits.push(SearchHit { kind: "import".into(), label: i.name.clone(), detail: i.library.clone(), address: i.address });
+                found.push((
+                    rank(&i.name),
+                    1,
+                    SearchHit { kind: "import".into(), label: i.name.clone(), detail: i.library.clone(), address: i.address },
+                ));
             }
         }
         for e in &self.info.exports {
-            if hits.len() >= limit {
-                return hits;
-            }
             if e.address != 0 && m(&e.name) {
-                hits.push(SearchHit { kind: "export".into(), label: e.name.clone(), detail: "export".into(), address: e.address });
+                found.push((
+                    rank(&e.name),
+                    2,
+                    SearchHit { kind: "export".into(), label: e.name.clone(), detail: "export".into(), address: e.address },
+                ));
             }
         }
         for s in &self.strings {
-            if hits.len() >= limit {
-                return hits;
+            if found.len() > limit * 4 {
+                break;
             }
             if let Some(a) = s.address {
                 if m(&s.value) {
-                    hits.push(SearchHit { kind: "string".into(), label: s.value.chars().take(80).collect(), detail: s.section.clone().unwrap_or_default(), address: a });
+                    let label: String = s.value.chars().take(80).collect();
+                    found.push((
+                        rank(&s.value),
+                        3,
+                        SearchHit { kind: "string".into(), label, detail: s.section.clone().unwrap_or_default(), address: a },
+                    ));
                 }
             }
         }
+        found.sort_by_key(|(r, k, h)| (*r, *k, h.label.len()));
+        hits.extend(found.into_iter().map(|(_, _, h)| h).take(limit.saturating_sub(hits.len())));
         hits
     }
 

@@ -65,6 +65,13 @@ impl Engine {
                 }
                 Ok(Value::Null)
             }
+            "export_patched" => {
+                let h = r.handle.ok_or("missing handle")?;
+                let path = r.path.ok_or("missing path")?;
+                let s = self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))?;
+                std::fs::write(&path, s.binary().file_bytes()).map_err(|e| format!("cannot write {path}: {e}"))?;
+                Ok(Value::Null)
+            }
             "store" => self.store_op(r.method.as_deref().unwrap_or(""), r.args),
             "ping" => Ok(json!({ "version": env!("CARGO_PKG_VERSION") })),
             other => Err(format!("unknown op `{other}`")),
@@ -101,7 +108,10 @@ impl Engine {
 }
 
 fn panic_message(p: Box<dyn std::any::Any + Send>) -> String {
-    p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown panic".into())
+    p.downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".into())
 }
 
 fn main() {

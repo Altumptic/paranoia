@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("paranoia", {
   openDialog: () => ipcRenderer.invoke("dialog:open"),
   info: () => ipcRenderer.invoke("app:info"),
   reveal: (p) => ipcRenderer.invoke("app:reveal", p),
+  saveDialog: (name, filters) => ipcRenderer.invoke("dialog:save", name, filters),
+  writeText: (p, text) => ipcRenderer.invoke("file:write-text", p, text),
   setTitleBar: (color, symbolColor) => ipcRenderer.send("app:titlebar", { color, symbolColor }),
   pathForFile: (file) => {
     try {

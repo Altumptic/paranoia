@@ -8,6 +8,10 @@ import type {
   AnalysisStats,
   Annotations,
   BinaryInfo,
+  Callee,
+  Hit,
+  Pseudocode,
+  SearchKind,
   FunctionGraph,
   FunctionSummary,
   Instruction,
@@ -42,6 +46,8 @@ export interface Backend {
   recent(): Promise<RecentFile[]>;
   addRecent(r: RecentFile): Promise<void>;
   removeRecent(sha256: string): Promise<void>;
+  /** Engine-level request (desktop only). */
+  raw(req: Record<string, unknown>): Promise<unknown>;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -81,6 +87,10 @@ class WasmBackend implements Backend {
 
   async close(handle: number): Promise<void> {
     await this.send({ op: "close", handle });
+  }
+
+  raw(): Promise<unknown> {
+    return Promise.reject(new Error("not available in the browser build"));
   }
 
   // Browser persistence is best-effort: storage can be unavailable (private mode, quotas).
@@ -137,6 +147,8 @@ export interface DesktopBridge {
   openDialog(): Promise<string | null>;
   info(): Promise<{ version: string; engine: string; electron: string; platform: string }>;
   reveal(path: string): Promise<void>;
+  saveDialog(defaultName: string, filters: { name: string; extensions: string[] }[]): Promise<string | null>;
+  writeText(path: string, text: string): Promise<void>;
   setTitleBar(color: string, symbolColor: string): void;
   pathForFile(file: File): string | null;
   onOpenPath(cb: (path: string) => void): () => void;
@@ -156,6 +168,10 @@ class DesktopBackend implements Backend {
 
   private req<T>(r: Record<string, unknown>): Promise<T> {
     return this.bridge.engine(r) as Promise<T>;
+  }
+
+  raw(r: Record<string, unknown>): Promise<unknown> {
+    return this.bridge.engine(r);
   }
 
   open(src: OpenSource): Promise<number> {
@@ -241,6 +257,28 @@ export class Session {
   setComment = (va: number, text: string) => this.c<null>("setComment", { va, text });
   annotations = () => this.c<Annotations>("annotations");
   setAnnotations = (a: Annotations) => this.c<null>("setAnnotations", a);
+  pseudocode = (va: number) => this.c<Pseudocode | null>("pseudocode", { va });
+  callees = (va: number) => this.c<Callee[]>("callees", { va });
+  searchAdvanced = (kind: SearchKind, query: string) => this.c<Hit[]>("searchAdvanced", { kind, query });
+  makeFunction = (va: number) => this.c<null>("makeFunction", { va });
+  reanalyze = () => this.c<AnalysisStats>("reanalyze");
+  patch = (offset: number, hex: string) => this.c<null>("patch", { offset, hex });
+  revertPatches = () => this.c<null>("revertPatches");
+  patchedOffsets = () => this.c<number[]>("patchedOffsets");
+  exportIdc = () => this.c<string>("exportIdc");
+  setBookmark = (va: number, text: string | null) => this.c<null>("setBookmark", { va, text });
+
+  /** Writes the (patched) file. Desktop: straight to disk; browser: returns the bytes. */
+  async exportPatched(path: string | null): Promise<Uint8Array | null> {
+    if (this.backend.kind === "native" && path) {
+      await this.backend.raw({ op: "export_patched", handle: this.handle, path });
+      return null;
+    }
+    const info = await this.info();
+    const out = new Uint8Array(info.file_size);
+    for (let off = 0; off < info.file_size; off += 1 << 20) out.set(await this.read(off, Math.min(1 << 20, info.file_size - off)), off);
+    return out;
+  }
 
   async read(offset: number, len: number): Promise<Uint8Array> {
     const hex = await this.c<string>("read", { offset, len });

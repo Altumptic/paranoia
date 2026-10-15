@@ -1,4 +1,4 @@
-import { ArrowDownAZ, ArrowDownWideNarrow, ChevronDown, ChevronRight, Filter, Link2 } from "lucide-react";
+import { ArrowDownAZ, ArrowDownWideNarrow, Bookmark, ChevronDown, ChevronRight, Filter, Link2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { FunctionSummary, StringEntry, Symbol } from "../engine/types";
@@ -41,6 +41,7 @@ export function Sidebar() {
       {tab === "strings" && <StringsPanel />}
       {tab === "sections" && <SectionsPanel />}
       {tab === "symbols" && <SymbolsPanel />}
+      {tab === "bookmarks" && <BookmarksPanel />}
     </div>
   );
 }
@@ -348,6 +349,44 @@ function SymbolsPanel() {
             </button>
           )}
         />
+      )}
+    </>
+  );
+}
+
+function BookmarksPanel() {
+  const marks = useStore((s) => s.annotations.bookmarks ?? {});
+  const info = useStore((s) => s.info);
+  const st = useStore();
+  const rows = Object.entries(marks)
+    .map(([k, v]) => ({ va: Number(k), text: v }))
+    .sort((a, b) => a.va - b.va);
+  return (
+    <>
+      <Header title="Bookmarks" count={rows.length} />
+      {rows.length === 0 ? (
+        <div className="empty small">
+          <div>
+            <Bookmark size={18} />
+            <p>
+              Press <span className="kbd">Alt M</span> anywhere to bookmark the current address.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="bookmarks">
+          {rows.map((b) => (
+            <div key={b.va} className="bookmark">
+              <button className="bookmark-main" onClick={() => st.goto(b.va)}>
+                <span className="bookmark-text">{b.text}</span>
+                <span className="mono row-addr">{fmtAddr(b.va, info)}</span>
+              </button>
+              <button className="icon-btn" title="Remove bookmark" onClick={() => st.bookmark(b.va, null)}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </>
   );

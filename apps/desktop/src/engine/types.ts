@@ -188,4 +188,36 @@ export interface SearchHit {
 export interface Annotations {
   names: Record<string, string>;
   comments: Record<string, string>;
+  functions?: number[];
+  bookmarks?: Record<string, string>;
+  patches?: Record<string, number>;
+}
+
+export interface PseudoLine {
+  address: number | null;
+  indent: number;
+  tokens: Token[];
+}
+
+export interface Pseudocode {
+  address: number;
+  name: string;
+  lines: PseudoLine[];
+  note: string | null;
+}
+
+export interface Callee {
+  address: number;
+  name: string;
+  count: number;
+  is_import: boolean;
+}
+
+export type SearchKind = "bytes" | "text" | "immediate";
+
+export interface Hit {
+  address: number | null;
+  offset: number;
+  function: string | null;
+  preview: string;
 }

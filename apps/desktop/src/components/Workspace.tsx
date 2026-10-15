@@ -2,7 +2,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Binary,
+  Bookmark,
   Box,
+  FileText,
   Braces,
   Code2,
   FileOutput,
@@ -30,6 +32,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { DisassemblyView } from "./views/DisassemblyView";
 import { GraphView } from "./views/GraphView";
 import { HexView } from "./views/HexView";
+import { PseudocodeView } from "./views/PseudocodeView";
+import { AppMenu } from "./AppMenu";
 import { OverviewView } from "./views/OverviewView";
 
 const SIDEBAR: { id: SidebarTab; icon: typeof Box; label: string }[] = [
@@ -39,13 +43,15 @@ const SIDEBAR: { id: SidebarTab; icon: typeof Box; label: string }[] = [
   { id: "strings", icon: Quote, label: "Strings" },
   { id: "sections", icon: Box, label: "Sections" },
   { id: "symbols", icon: Code2, label: "Symbols" },
+  { id: "bookmarks", icon: Bookmark, label: "Bookmarks" },
 ];
 
 const TABS: { id: CenterTab; icon: typeof Box; label: string; key: string }[] = [
   { id: "overview", icon: LayoutDashboard, label: "Overview", key: "1" },
   { id: "disasm", icon: Code2, label: "Disassembly", key: "2" },
   { id: "graph", icon: GitBranch, label: "Graph", key: "3" },
-  { id: "hex", icon: Binary, label: "Hex", key: "4" },
+  { id: "pseudo", icon: FileText, label: "Pseudocode", key: "4" },
+  { id: "hex", icon: Binary, label: "Hex", key: "5" },
 ];
 
 export function Workspace() {
@@ -108,6 +114,7 @@ export function Workspace() {
           >
             <PanelRight size={16} />
           </button>
+          <AppMenu />
         </div>
       </header>
 
@@ -164,6 +171,7 @@ export function Workspace() {
               {st.centerTab === "overview" && <OverviewView />}
               {st.centerTab === "disasm" && <DisassemblyView />}
               {st.centerTab === "graph" && <GraphView />}
+              {st.centerTab === "pseudo" && <PseudocodeView />}
               {st.centerTab === "hex" && <HexView />}
             </div>
           </Panel>

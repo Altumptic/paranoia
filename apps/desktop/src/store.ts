@@ -1,10 +1,10 @@
 import { create } from "zustand";
 
 import { getBackend, Session, type OpenSource, type RecentFile } from "./engine/client";
-import type { AnalysisStats, BinaryInfo, FunctionSummary } from "./engine/types";
+import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, SearchKind } from "./engine/types";
 
-export type SidebarTab = "functions" | "imports" | "exports" | "strings" | "sections" | "symbols";
-export type CenterTab = "overview" | "disasm" | "graph" | "hex";
+export type SidebarTab = "functions" | "imports" | "exports" | "strings" | "sections" | "symbols" | "bookmarks";
+export type CenterTab = "overview" | "disasm" | "graph" | "pseudo" | "hex";
 
 export interface Toast {
   id: number;
@@ -36,7 +36,10 @@ interface State {
   /** Bumped after edits so views refetch. */
   revision: number;
   toasts: Toast[];
-  dialog: null | { kind: "rename" | "comment"; va: number; initial: string };
+  dialog: null | { kind: "rename" | "comment" | "bookmark"; va: number; initial: string };
+  annotations: Annotations;
+  search: SearchKind | null;
+  menuOpen: boolean;
 
   open(src: OpenSource): Promise<void>;
   close(): Promise<void>;
@@ -47,6 +50,13 @@ interface State {
   forward(): void;
   rename(va: number, name: string): Promise<void>;
   comment(va: number, text: string): Promise<void>;
+  makeFunction(va: number): Promise<void>;
+  bookmark(va: number, text: string | null): Promise<void>;
+  reanalyze(): Promise<void>;
+  patch(offset: number, hex: string): Promise<void>;
+  revertPatches(): Promise<void>;
+  exportIdc(): Promise<void>;
+  savePatched(): Promise<void>;
   set<K extends keyof State>(key: K, value: State[K]): void;
   toast(text: string, kind?: Toast["kind"]): void;
 }
@@ -73,6 +83,9 @@ export const useStore = create<State>((set, get) => ({
   revision: 0,
   toasts: [],
   dialog: null,
+  annotations: { names: {}, comments: {} },
+  search: null,
+  menuOpen: false,
 
   async open(src) {
     const name = src.kind === "bytes" ? src.name : (src.path.split(/[\\/]/).pop() ?? src.path);
@@ -85,7 +98,7 @@ export const useStore = create<State>((set, get) => ({
       const backend = getBackend();
       const saved = await backend.loadAnnotations(info.hashes.sha256).catch(() => null);
       if (saved) await session.setAnnotations(saved);
-      const [stats, functions] = await Promise.all([session.stats(), session.functions()]);
+      const [stats, functions, annotations] = await Promise.all([session.stats(), session.functions(), session.annotations()]);
       if (prev) prev.close().catch(() => {});
       const path = src.kind === "path" ? src.path : null;
       const start = info.entry || functions[0]?.address || null;
@@ -94,6 +107,7 @@ export const useStore = create<State>((set, get) => ({
         info,
         stats,
         functions,
+        annotations,
         path,
         loading: null,
         cursor: start,
@@ -135,7 +149,7 @@ export const useStore = create<State>((set, get) => ({
     let tab = opts?.tab ?? centerTab;
     if (tab === "overview") tab = "disasm";
     // Data (import slots, strings, globals) is shown as bytes rather than bogus instructions.
-    if (!opts?.tab && (tab === "disasm" || tab === "graph") && !isCode(get().info, va)) tab = "hex";
+    if (!opts?.tab && (tab === "disasm" || tab === "graph" || tab === "pseudo") && !isCode(get().info, va)) tab = "hex";
     if (record && history[historyIndex] !== va) {
       const h = history.slice(0, historyIndex + 1);
       h.push(va);
@@ -170,16 +184,86 @@ export const useStore = create<State>((set, get) => ({
     const { session, info } = get();
     if (!session || !info) return;
     await session.rename(va, name);
-    await persist(session, info);
-    set({ functions: await session.functions(), revision: get().revision + 1 });
+    set({ annotations: await persist(session, info), functions: await session.functions(), revision: get().revision + 1 });
   },
 
   async comment(va, text) {
     const { session, info } = get();
     if (!session || !info) return;
     await session.setComment(va, text);
-    await persist(session, info);
-    set({ revision: get().revision + 1 });
+    set({ annotations: await persist(session, info), revision: get().revision + 1 });
+  },
+
+  async makeFunction(va) {
+    const { session, info } = get();
+    if (!session || !info) return;
+    try {
+      await session.makeFunction(va);
+      const [functions, stats] = await Promise.all([session.functions(), session.stats()]);
+      set({ functions, stats, annotations: await persist(session, info), revision: get().revision + 1 });
+      get().toast(`Function created at ${hex(va)}`, "success");
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async bookmark(va, text) {
+    const { session, info } = get();
+    if (!session || !info) return;
+    await session.setBookmark(va, text);
+    set({ annotations: await persist(session, info) });
+  },
+
+  async reanalyze() {
+    const { session } = get();
+    if (!session) return;
+    set({ loading: { name: get().info?.file_name ?? "", phase: "Re-running auto-analysis…" } });
+    const stats = await session.reanalyze();
+    set({ stats, functions: await session.functions(), loading: null, revision: get().revision + 1 });
+  },
+
+  async patch(offset, hexBytes) {
+    const { session, info } = get();
+    if (!session || !info) return;
+    try {
+      await session.patch(offset, hexBytes);
+      set({ annotations: await persist(session, info), revision: get().revision + 1 });
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async revertPatches() {
+    const { session, info } = get();
+    if (!session || !info) return;
+    await session.revertPatches();
+    set({ annotations: await persist(session, info), revision: get().revision + 1 });
+    get().toast("All patches reverted", "success");
+  },
+
+  async exportIdc() {
+    const { session, info } = get();
+    if (!session || !info) return;
+    const text = await session.exportIdc();
+    const name = `${info.file_name}.idc`;
+    await saveText(name, text, [{ name: "IDC script", extensions: ["idc"] }]);
+  },
+
+  async savePatched() {
+    const { session, info } = get();
+    if (!session || !info) return;
+    const { desktop } = await import("./engine/client");
+    const dot = info.file_name.lastIndexOf(".");
+    const name = dot > 0 ? `${info.file_name.slice(0, dot)}.patched${info.file_name.slice(dot)}` : `${info.file_name}.patched`;
+    if (desktop) {
+      const path = await desktop.saveDialog(name, [{ name: "All files", extensions: ["*"] }]);
+      if (!path) return;
+      await session.exportPatched(path);
+      get().toast(`Saved ${path}`, "success");
+    } else {
+      const bytes = await session.exportPatched(null);
+      if (bytes) download(name, new Blob([bytes as BlobPart]));
+    }
   },
 
   set(key, value) {
@@ -199,9 +283,31 @@ function isCode(info: BinaryInfo | null, va: number): boolean {
   return s.length === 0 ? true : s.some((x) => x.perms.x);
 }
 
-async function persist(session: Session, info: BinaryInfo) {
+async function persist(session: Session, info: BinaryInfo): Promise<Annotations> {
   const a = await session.annotations();
   await getBackend().saveAnnotations(info.hashes.sha256, a);
+  return a;
+}
+
+function download(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function saveText(name: string, text: string, filters: { name: string; extensions: string[] }[]) {
+  const { desktop } = await import("./engine/client");
+  if (desktop) {
+    const path = await desktop.saveDialog(name, filters);
+    if (!path) return;
+    await desktop.writeText(path, text);
+    useStore.getState().toast(`Saved ${path}`, "success");
+  } else {
+    download(name, new Blob([text], { type: "text/plain" }));
+  }
 }
 
 // ------------------------------------------------------------------------------------------------

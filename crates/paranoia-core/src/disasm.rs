@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 use iced_x86::{
-    Decoder, DecoderOptions, FlowControl, Formatter, FormatterOutput, FormatterTextKind, IntelFormatter, OpKind,
-    Register, SymbolResolver, SymbolResult,
+    Decoder, DecoderOptions, FlowControl, Formatter, FormatterOutput, FormatterTextKind, IntelFormatter, OpKind, Register, SymbolResolver,
+    SymbolResult,
 };
 use yaxpeax_arch::{Decoder as _, U8Reader};
 use yaxpeax_arm::armv8::a64::{InstDecoder, Opcode, Operand, SizeCode};
@@ -390,7 +390,9 @@ fn render_arm64(bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Ve
         let target = summary.target.or(summary.data_ref);
         let mut operands = tokenize_arm(ops);
         // Replace `$+0x40` style PC offsets with the resolved address / name.
-        if let Some(t) = summary.target.or(if inst.opcode == Opcode::ADR || inst.opcode == Opcode::ADRP { pc_value(&inst, ip) } else { None }) {
+        if let Some(t) =
+            summary.target.or(if inst.opcode == Opcode::ADR || inst.opcode == Opcode::ADRP { pc_value(&inst, ip) } else { None })
+        {
             for tok in operands.iter_mut() {
                 if tok.t.starts_with('$') {
                     match names.name_at(t) {
@@ -450,15 +452,16 @@ fn tokenize_arm(s: &str) -> Vec<Token> {
                 i += 1;
             }
             let word: String = chars[start..i].iter().collect();
-            let k = if word.starts_with('#') || word.starts_with("0x") || word.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '-') {
-                TokenKind::Number
-            } else if word.starts_with('$') {
-                TokenKind::Address
-            } else if is_arm_register(&word) {
-                TokenKind::Register
-            } else {
-                TokenKind::Keyword
-            };
+            let k =
+                if word.starts_with('#') || word.starts_with("0x") || word.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '-') {
+                    TokenKind::Number
+                } else if word.starts_with('$') {
+                    TokenKind::Address
+                } else if is_arm_register(&word) {
+                    TokenKind::Register
+                } else {
+                    TokenKind::Keyword
+                };
             push(&mut out, word, k);
         } else {
             push(&mut out, c.to_string(), TokenKind::Punct);

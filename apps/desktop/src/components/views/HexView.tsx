@@ -19,6 +19,9 @@ export function HexView() {
   const session = useStore((s) => s.session)!;
   const info = useStore((s) => s.info)!;
   const cursor = useStore((s) => s.cursor);
+  const revision = useStore((s) => s.revision);
+  const patches = useStore((s) => s.annotations.patches ?? {});
+  const [nibble, setNibble] = useState<number | null>(null);
   const [pages, setPages] = useState<Map<number, Uint8Array>>(new Map());
   const [sel, setSel] = useState<number | null>(null);
   const [gotoText, setGotoText] = useState("");
@@ -54,6 +57,11 @@ export function HexView() {
     }
   }, [items, pages, session]);
 
+  useEffect(() => {
+    inflight.current.clear();
+    setPages(new Map());
+  }, [revision]);
+
   // Follow the global cursor (VA -> file offset).
   useEffect(() => {
     if (cursor == null) return;
@@ -73,6 +81,7 @@ export function HexView() {
 
   const select = (off: number) => {
     setSel(off);
+    setNibble(null);
     const va = vaOf(off);
     if (va != null) useStore.getState().setCursor(va);
   };
@@ -102,6 +111,7 @@ export function HexView() {
           onChange={(e) => setGotoText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && jump()}
         />
+        <span className="muted small">Select a byte and type hex digits to patch</span>
         {sel != null && (
           <div className="hex-inspect mono">
             <span>
@@ -142,7 +152,36 @@ export function HexView() {
         </span>
         <span className="h-ascii">ASCII</span>
       </div>
-      <div ref={parent} className="hex-scroll mono">
+      <div
+        ref={parent}
+        className="hex-scroll mono"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (sel == null) return;
+          const move = (d: number) => {
+            const n = Math.min(size - 1, Math.max(0, sel + d));
+            select(n);
+            v.scrollToIndex(Math.floor(n / COLS), { align: "auto" });
+          };
+          if (e.key === "ArrowRight") return move(1), e.preventDefault();
+          if (e.key === "ArrowLeft") return move(-1), e.preventDefault();
+          if (e.key === "ArrowDown") return move(COLS), e.preventDefault();
+          if (e.key === "ArrowUp") return move(-COLS), e.preventDefault();
+          if (e.key === "Escape") return setNibble(null);
+          // Typing hex digits patches the selected byte (two digits per byte).
+          if (/^[0-9a-fA-F]$/.test(e.key) && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            const d = parseInt(e.key, 16);
+            if (nibble == null) setNibble(d);
+            else {
+              const b = (nibble << 4) | d;
+              setNibble(null);
+              useStore.getState().patch(sel, b.toString(16).padStart(2, "0"));
+              move(1);
+            }
+          }
+        }}
+      >
         <div style={{ height: v.getTotalSize(), position: "relative" }}>
           {items.map((r) => {
             const base = r.index * COLS;
@@ -155,12 +194,17 @@ export function HexView() {
               const b = byteAt(off);
               const s = sel === off;
               cells.push(
-                <span key={i} className={`hb ${b == null ? "bl" : byteClass(b)} ${s ? "sel" : ""} ${i === 8 ? "gap" : ""}`} onMouseDown={() => select(off)}>
-                  {b == null ? "··" : hex(b, 2)}
+                <span
+                  key={i}
+                  className={`hb ${b == null ? "bl" : byteClass(b)} ${s ? "sel" : ""} ${s && nibble != null ? "editing" : ""} ${i === 8 ? "gap" : ""} ${String(off) in patches ? "patched" : ""}`}
+                  onMouseDown={() => select(off)}
+                  title={String(off) in patches ? "Patched byte" : undefined}
+                >
+                  {b == null ? "··" : s && nibble != null ? `${nibble.toString(16).toUpperCase()}_` : hex(b, 2)}
                 </span>,
               );
               chars.push(
-                <span key={i} className={`ha ${b == null ? "bl" : byteClass(b)} ${s ? "sel" : ""}`} onMouseDown={() => select(off)}>
+                <span key={i} className={`ha ${b == null ? "bl" : byteClass(b)} ${s ? "sel" : ""} ${String(off) in patches ? "patched" : ""}`} onMouseDown={() => select(off)}>
                   {b == null ? " " : b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."}
                 </span>,
               );

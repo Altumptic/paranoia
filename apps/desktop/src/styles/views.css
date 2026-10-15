@@ -134,8 +134,7 @@
   border-radius: 50%;
 }
 .mitigation.on .mit-dot {
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow);
+  background: var(--ok);
 }
 .mitigation.off .mit-dot {
   background: transparent;
@@ -345,7 +344,7 @@
   font-size: 12.5px;
   contain: strict;
   background:
-    linear-gradient(90deg, transparent 0, transparent 196px, color-mix(in srgb, var(--text) 1.5%, transparent) 196px, color-mix(in srgb, var(--text) 1.5%, transparent) 197px, transparent 197px),
+    linear-gradient(90deg, transparent 0, transparent 262px, color-mix(in srgb, var(--text) 5%, transparent) 262px, color-mix(in srgb, var(--text) 5%, transparent) 263px, transparent 263px),
     var(--bg-0);
 }
 .lrow {
@@ -371,10 +370,49 @@
 .listing:focus .lrow.ins.sel {
   background: color-mix(in srgb, var(--accent) 13%, transparent);
 }
+.jump-arrows {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.ja path {
+  fill: none;
+  stroke-width: 1.2;
+}
+.ja {
+  opacity: 0.8;
+}
+.ja.cond path {
+  stroke: var(--syn-jump);
+}
+.ja.uncond path {
+  stroke: var(--muted);
+}
+.ja.cond .ja-head {
+  fill: var(--syn-jump);
+}
+.ja.uncond .ja-head {
+  fill: var(--muted);
+}
+.ja.back path:first-child {
+  stroke-dasharray: 3 2;
+}
+.ja.hot {
+  opacity: 1;
+}
+.ja.hot path {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.ja.hot .ja-head {
+  fill: var(--accent);
+}
 .l-addr {
   flex: none;
-  width: 196px;
-  padding-left: 14px;
+  width: 262px;
+  padding-left: 66px;
   color: var(--syn-addr);
   overflow: hidden;
 }
@@ -820,4 +858,261 @@
 .ha.b0,
 .ha.bff {
   color: var(--faint);
+}
+
+/* ================= Pseudocode ================= */
+
+.pseudo-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.pseudo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.pseudo-title {
+  font-weight: 600;
+  color: var(--syn-sym);
+}
+.flex1 {
+  flex: 1;
+}
+.pseudo {
+  flex: 1;
+  overflow: auto;
+  outline: none;
+  padding: 10px 0 40px;
+  font-size: 13px;
+  line-height: 21px;
+  background: var(--bg-0);
+}
+.pl {
+  display: flex;
+  white-space: pre;
+  cursor: text;
+}
+.pl:hover {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.pl.active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.pl-gutter {
+  flex: none;
+  width: 70px;
+  padding: 0 12px 0 10px;
+  text-align: right;
+  color: var(--faint);
+  font-size: 11px;
+  user-select: none;
+}
+.p-kw {
+  color: var(--syn-call) !important;
+  font-weight: 500;
+}
+.t-str {
+  color: var(--syn-string);
+}
+
+/* ================= Menus & search ================= */
+
+.menu-anchor {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  right: 0;
+  top: 36px;
+  z-index: 30;
+  min-width: 300px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+  box-shadow: var(--shadow);
+  animation: fade-in 0.12s ease-out;
+}
+.menu-group + .menu-group {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+.menu-item:hover {
+  background: var(--bg-hover);
+}
+.menu-item svg {
+  color: var(--muted);
+}
+.menu-item span:nth-child(2) {
+  flex: 1;
+}
+.menu-item.danger,
+.menu-item.danger svg {
+  color: var(--danger);
+}
+.menu-keys {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+}
+.search-modal {
+  width: min(760px, 94vw);
+}
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-3);
+  margin-bottom: 12px;
+}
+.seg-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.seg-btn.on {
+  background: var(--bg-2);
+  color: var(--text);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow-color) 15%, transparent);
+}
+.seg-btn .kbd {
+  height: 16px;
+  font-size: 9.5px;
+}
+.search-row {
+  display: flex;
+  gap: 8px;
+}
+.search-row .input {
+  height: 36px;
+  font-size: 13.5px;
+}
+.search-row .btn {
+  height: 36px;
+  min-width: 90px;
+  justify-content: center;
+}
+.search-error {
+  margin-top: 10px;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.search-results {
+  margin-top: 12px;
+}
+.search-count {
+  margin-bottom: 6px;
+}
+.search-results ul {
+  list-style: none;
+  margin: 0 -6px;
+  padding: 0;
+  max-height: 46vh;
+  overflow: auto;
+}
+.hit {
+  display: grid;
+  grid-template-columns: 130px 1fr 1.2fr;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.hit:hover {
+  background: var(--bg-hover);
+}
+.hit-addr {
+  color: var(--accent);
+}
+.hit-fn,
+.hit-prev {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hit-prev {
+  color: var(--muted);
+}
+
+/* ================= Bookmarks ================= */
+
+.bookmarks {
+  overflow: auto;
+  padding: 6px;
+}
+.bookmark {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+.bookmark:hover {
+  background: var(--bg-hover);
+}
+.bookmark-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 8px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.bookmark-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ================= Hex editing ================= */
+
+.hb.patched,
+.ha.patched {
+  color: var(--accent) !important;
+  font-weight: 700;
+}
+.hb.editing {
+  outline: 1.5px solid var(--accent);
+  border-radius: 2px;
 }
