@@ -1,7 +1,7 @@
-import { ArrowDownRight, Braces, MessageSquare, PenLine, Share2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Bookmark, Braces, MessageSquare, PenLine, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { AddressInfo, FunctionSummary, Xref } from "../engine/types";
+import type { AddressInfo, Callee, FunctionSummary, Xref } from "../engine/types";
 import { fmtAddr, hex, useStore } from "../store";
 
 const KIND_LABEL: Record<Xref["kind"], string> = { call: "call", jump: "jmp", data: "data" };
@@ -17,6 +17,8 @@ export function Inspector() {
   const [xrefs, setXrefs] = useState<Xref[]>([]);
   const [fnXrefs, setFnXrefs] = useState<Xref[]>([]);
   const [comment, setComment] = useState<string | null>(null);
+  const [callees, setCallees] = useState<Callee[]>([]);
+  const bookmark = useStore((s) => (cursor != null ? s.annotations.bookmarks?.[String(cursor)] : undefined));
 
   useEffect(() => {
     if (cursor == null) return;
@@ -24,7 +26,9 @@ export function Inspector() {
     (async () => {
       const [a, f, x, ann] = await Promise.all([session.addressInfo(cursor), session.functionAt(cursor), session.xrefs(cursor), session.annotations()]);
       const fx = f && f.address !== cursor ? await session.xrefs(f.address) : [];
+      const calls = f ? await session.callees(f.address) : [];
       if (!live) return;
+      setCallees(calls);
       setAddr(a);
       setFn(f);
       setXrefs(x);
@@ -67,6 +71,13 @@ export function Inspector() {
             <button className="btn sm" onClick={() => openDialog("comment")} title="Comment (;)">
               <MessageSquare size={13} /> Comment
             </button>
+            <button
+              className={`icon-btn ${bookmark ? "active" : ""}`}
+              title={bookmark ? `Bookmarked: ${bookmark}` : "Bookmark (Alt+M)"}
+              onClick={() => useStore.getState().set("dialog", { kind: "bookmark", va: cursor, initial: bookmark ?? "" })}
+            >
+              <Bookmark size={14} />
+            </button>
           </div>
           {comment && <div className="insp-comment selectable">{comment}</div>}
         </section>
@@ -104,6 +115,25 @@ export function Inspector() {
         )}
 
         <XrefList title={`References to ${addr.name ?? fmtAddr(cursor, info)}`} xrefs={xrefs} />
+        {fn && callees.length > 0 && (
+          <section className="insp-card">
+            <div className="insp-card-title">
+              <ArrowUpRight size={13} /> <span className="ellipsis">Calls from {fn.name}</span>
+              <span className="count">{callees.length}</span>
+            </div>
+            <ul className="xref-list">
+              {callees.map((c) => (
+                <li key={c.address}>
+                  <button className="xref" onClick={() => goto(c.address)}>
+                    <span className={`xref-kind ${c.is_import ? "xk-data" : "xk-call"}`}>{c.is_import ? "imp" : "call"}</span>
+                    <span className="xref-fn">{c.name}</span>
+                    {c.count > 1 && <span className="count">×{c.count}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {fn && fn.address !== cursor && <XrefList title={`Callers of ${fn.name}`} xrefs={fnXrefs} />}
       </div>
     </div>

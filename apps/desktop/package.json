@@ -43,7 +43,7 @@
     "productName": "Paranoia",
     "copyright": "Copyright © 2026 Paranoia contributors",
     "directories": {
-      "output": "release",
+      "output": "out",
       "buildResources": "build"
     },
     "files": [

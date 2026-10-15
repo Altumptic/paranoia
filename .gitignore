@@ -24,6 +24,7 @@ Thumbs.db
 
 # Packaged builds
 apps/desktop/release/
+apps/desktop/out/
 
 # Original design drops (copies live in assets/brand)
 /src/

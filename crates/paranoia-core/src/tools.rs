@@ -158,11 +158,20 @@ impl Binary {
                                 | OpKind::Immediate32to64
                         ) && (i.immediate(k) == value || i.immediate(k) as u32 as u64 == value)
                     });
-                    hit |= (0..i.op_count()).any(|k| i.op_kind(k) == OpKind::Memory && !i.is_ip_rel_memory_operand() && i.memory_displacement64() == value && value != 0);
+                    hit |= (0..i.op_count()).any(|k| {
+                        i.op_kind(k) == OpKind::Memory && !i.is_ip_rel_memory_operand() && i.memory_displacement64() == value && value != 0
+                    });
                     if hit {
                         let ins = self.disassemble(i.ip(), 1).ok().and_then(|v| v.into_iter().next());
-                        let text = ins.map(|x| format!("{} {}", x.mnemonic, x.operands.iter().map(|t| t.t.as_str()).collect::<String>())).unwrap_or_default();
-                        hits.push(Hit { address: Some(i.ip()), offset: self.va_to_offset(i.ip()).unwrap_or(0), function: Some(self.function_name(f)), preview: text });
+                        let text = ins
+                            .map(|x| format!("{} {}", x.mnemonic, x.operands.iter().map(|t| t.t.as_str()).collect::<String>()))
+                            .unwrap_or_default();
+                        hits.push(Hit {
+                            address: Some(i.ip()),
+                            offset: self.va_to_offset(i.ip()).unwrap_or(0),
+                            function: Some(self.function_name(f)),
+                            preview: text,
+                        });
                         if hits.len() >= MAX_HITS {
                             return Ok(hits);
                         }

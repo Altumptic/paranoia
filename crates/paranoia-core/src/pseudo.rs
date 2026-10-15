@@ -80,7 +80,11 @@ impl Expr {
     }
     fn num(v: i128) -> Self {
         let s = if v < 0 {
-            if -v < 10 { format!("-{}", -v) } else { format!("-0x{:x}", -v) }
+            if -v < 10 {
+                format!("-{}", -v)
+            } else {
+                format!("-0x{:x}", -v)
+            }
         } else if v < 10 {
             v.to_string()
         } else {
@@ -232,7 +236,13 @@ impl Ctx<'_> {
         // Stack slots.
         let sdisp = disp as i64 as i128;
         if index == Register::None && (Some(base) == self.frame_reg || base == Register::RSP || base == Register::ESP) {
-            let name = if base == Register::RSP || base == Register::ESP { format!("var_{:X}", sdisp) } else if sdisp < 0 { format!("var_{:X}", -sdisp) } else { format!("arg_{:X}", sdisp) };
+            let name = if base == Register::RSP || base == Register::ESP {
+                format!("var_{:X}", sdisp)
+            } else if sdisp < 0 {
+                format!("var_{:X}", -sdisp)
+            } else {
+                format!("arg_{:X}", sdisp)
+            };
             let e = Expr::tok(name, TokenKind::Register);
             return if deref { e } else { Expr(vec![Token { t: "&".into(), k: TokenKind::Punct }], false).cat(e) };
         }
@@ -289,7 +299,11 @@ impl Ctx<'_> {
                     _ => v as i128,
                 };
                 // Small negatives read better signed; masks read better unsigned.
-                if (-4096..0).contains(&signed) { Expr::num(signed) } else { Expr::num(v as i128) }
+                if (-4096..0).contains(&signed) {
+                    Expr::num(signed)
+                } else {
+                    Expr::num(v as i128)
+                }
             }
             _ => Expr::tok("?", TokenKind::Text),
         }
@@ -320,7 +334,9 @@ fn is_prologue_noise(ins: &Ins, frame: Option<Register>) -> bool {
     match ins.mnemonic() {
         Mnemonic::Push | Mnemonic::Pop => ins.op_kind(0) == OpKind::Register && is_callee_saved(ins.op_register(0)),
         Mnemonic::Sub | Mnemonic::Add => {
-            ins.op_kind(0) == OpKind::Register && matches!(ins.op_register(0), Register::RSP | Register::ESP) && ins.op_kind(1) != OpKind::Register
+            ins.op_kind(0) == OpKind::Register
+                && matches!(ins.op_register(0), Register::RSP | Register::ESP)
+                && ins.op_kind(1) != OpKind::Register
         }
         Mnemonic::Mov => {
             ins.op_kind(0) == OpKind::Register
@@ -401,10 +417,8 @@ impl Binary {
                         let r = i.op_register(o).full_register();
                         let is_dst = o == 0 && !matches!(i.mnemonic(), Mnemonic::Cmp | Mnemonic::Test | Mnemonic::Push);
                         let self_xor = i.mnemonic() == Mnemonic::Xor && i.op_count() == 2 && i.op_register(0) == i.op_register(1);
-                        if !is_dst && !written.contains(&r) && conv.contains(&r) && !self_xor {
-                            if !args.contains(&r) {
-                                args.push(r);
-                            }
+                        if !is_dst && !written.contains(&r) && conv.contains(&r) && !self_xor && !args.contains(&r) {
+                            args.push(r);
                         }
                         if is_dst {
                             written.insert(r);
@@ -482,7 +496,10 @@ fn writes_rax_before_ret(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edg
     blocks.values().any(|(v, _)| {
         v.last().is_some_and(|l| l.mnemonic() == Mnemonic::Ret)
             && v.iter().rev().skip(1).take(6).any(|i| {
-                i.op_count() > 0 && i.op_kind(0) == OpKind::Register && i.op_register(0).full_register() == Register::RAX && i.mnemonic() != Mnemonic::Push
+                i.op_count() > 0
+                    && i.op_kind(0) == OpKind::Register
+                    && i.op_register(0).full_register() == Register::RAX
+                    && i.mnemonic() != Mnemonic::Push
                     || i.mnemonic() == Mnemonic::Call
             })
     })
@@ -516,7 +533,11 @@ fn emit_range(
             if ctx.labels.contains(&start) && has_outside_jump_to(blocks, order, i, j + 1, start) {
                 label(out, start, indent);
             }
-            out.push(PseudoLine { address: Some(start), indent, tokens: vec![Token { t: "do".into(), k: TokenKind::Keyword }, Token { t: " {".into(), k: TokenKind::Punct }] });
+            out.push(PseudoLine {
+                address: Some(start),
+                indent,
+                tokens: vec![Token { t: "do".into(), k: TokenKind::Keyword }, Token { t: " {".into(), k: TokenKind::Punct }],
+            });
             // Body without the final conditional jump.
             emit_range_tail_cond(ctx, blocks, order, i, j + 1, indent + 1, out, emitted);
             let (last_insns, _) = &blocks[&order[j]];
@@ -528,14 +549,15 @@ fn emit_range(
             continue;
         }
 
-        if ctx.labels.contains(&start) && i > from {
-            label(out, start, indent);
-        } else if ctx.labels.contains(&start) && has_outside_jump_to(blocks, order, from, to, start) {
+        if ctx.labels.contains(&start) && (i > from || has_outside_jump_to(blocks, order, from, to, start)) {
             label(out, start, indent);
         }
 
         let last = insns.last();
-        let is_jcc = last.is_some_and(|l| l.condition_code() != ConditionCode::None && matches!(l.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64));
+        let is_jcc = last.is_some_and(|l| {
+            l.condition_code() != ConditionCode::None
+                && matches!(l.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64)
+        });
         let body_end = if is_jcc { insns.len() - 1 } else { insns.len() };
         emit_insns(ctx, &insns[..body_end], indent, out, &pos, order, i);
 
@@ -544,7 +566,11 @@ fn emit_range(
             let target = jcc.near_branch_target();
             // if (!cond) { fallthrough blocks } when the jump skips forward over a single-entry region.
             if let Some(&tj) = pos.get(&target) {
-                if tj > i + 1 && tj <= to && single_entry(blocks, order, &pos, i + 1, tj) && !region_escapes(blocks, order, i + 1, tj, target) {
+                if tj > i + 1
+                    && tj <= to
+                    && single_entry(blocks, order, &pos, i + 1, tj)
+                    && !region_escapes(blocks, order, i + 1, tj, target)
+                {
                     let mut l = Line::default();
                     l.kw("if").p(" (").extend(condition(ctx, insns, negate(jcc.condition_code()))).p(") {");
                     out.push(PseudoLine { address: Some(jcc.ip()), indent, tokens: l.toks });
@@ -555,11 +581,20 @@ fn emit_range(
                 }
             }
             let mut l = Line::default();
-            l.kw("if").p(" (").extend(condition(ctx, insns, jcc.condition_code())).p(") ").kw("goto").sp().extend(ctx.name_or(target, "loc_")).p(";");
+            l.kw("if")
+                .p(" (")
+                .extend(condition(ctx, insns, jcc.condition_code()))
+                .p(") ")
+                .kw("goto")
+                .sp()
+                .extend(ctx.name_or(target, "loc_"))
+                .p(";");
             out.push(PseudoLine { address: Some(jcc.ip()), indent, tokens: l.toks });
         } else if let Some(l) = last {
             // Unconditional jump to the block that follows anyway: drop it.
-            if matches!(l.mnemonic(), Mnemonic::Jmp) && matches!(l.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64) {
+            if matches!(l.mnemonic(), Mnemonic::Jmp)
+                && matches!(l.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64)
+            {
                 let t = l.near_branch_target();
                 let next = order.get(i + 1).copied();
                 if Some(t) != next || i + 1 >= to {
@@ -614,15 +649,33 @@ fn emit_range_tail_cond(
     emit_insns(ctx, &insns[..insns.len().saturating_sub(1)], indent, out, &pos, order, to - 1);
 }
 
-fn emit_insns_with_branches(ctx: &mut Ctx, insns: &[Ins], indent: u8, out: &mut Vec<PseudoLine>, pos: &HashMap<u64, usize>, order: &[u64], here: usize) {
+fn emit_insns_with_branches(
+    ctx: &mut Ctx,
+    insns: &[Ins],
+    indent: u8,
+    out: &mut Vec<PseudoLine>,
+    pos: &HashMap<u64, usize>,
+    order: &[u64],
+    here: usize,
+) {
     let last = insns.last();
-    let is_jcc = last.is_some_and(|l| l.condition_code() != ConditionCode::None && matches!(l.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64));
+    let is_jcc = last.is_some_and(|l| {
+        l.condition_code() != ConditionCode::None
+            && matches!(l.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64)
+    });
     let end = if is_jcc { insns.len() - 1 } else { insns.len() };
     emit_insns(ctx, &insns[..end], indent, out, pos, order, here);
     if is_jcc {
         let j = last.unwrap();
         let mut l = Line::default();
-        l.kw("if").p(" (").extend(condition(ctx, insns, j.condition_code())).p(") ").kw("goto").sp().extend(ctx.name_or(j.near_branch_target(), "loc_")).p(";");
+        l.kw("if")
+            .p(" (")
+            .extend(condition(ctx, insns, j.condition_code()))
+            .p(") ")
+            .kw("goto")
+            .sp()
+            .extend(ctx.name_or(j.near_branch_target(), "loc_"))
+            .p(";");
         out.push(PseudoLine { address: Some(j.ip()), indent, tokens: l.toks });
     }
 }
@@ -635,7 +688,13 @@ fn label(out: &mut Vec<PseudoLine>, at: u64, indent: u8) {
     });
 }
 
-fn single_entry(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>, order: &[u64], pos: &HashMap<u64, usize>, from: usize, to: usize) -> bool {
+fn single_entry(
+    blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>,
+    order: &[u64],
+    pos: &HashMap<u64, usize>,
+    from: usize,
+    to: usize,
+) -> bool {
     // No block outside [from, to) jumps into (from, to).
     let inside: BTreeSet<u64> = order[from..to].iter().copied().collect();
     for (a, (_, succs)) in blocks {
@@ -658,7 +717,13 @@ fn region_escapes(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>, o
     order[from..to].iter().any(|a| blocks[a].1.iter().any(|e| e.to < first && e.to != join))
 }
 
-fn has_outside_jump_to(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>, order: &[u64], from: usize, to: usize, target: u64) -> bool {
+fn has_outside_jump_to(
+    blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>,
+    order: &[u64],
+    from: usize,
+    to: usize,
+    target: u64,
+) -> bool {
     let inside: BTreeSet<u64> = order[from..to].iter().copied().collect();
     blocks.iter().any(|(a, (_, s))| !inside.contains(a) && s.iter().any(|e| e.to == target && e.kind != crate::model::EdgeKind::Fall))
 }
@@ -700,7 +765,11 @@ fn condition(ctx: &Ctx, insns: &[Ins], cc: ConditionCode) -> Expr {
     match (flags, cc) {
         (Some(Flags::Cmp(a, b)), cc) if cond_op(cc, false).0 != "?" => {
             let (op, signed) = cond_op(cc, false);
-            let a = if signed || op == "==" || op == "!=" { a } else { Expr(vec![Token { t: "(unsigned)".into(), k: TokenKind::Keyword }], false).cat(a.wrap()) };
+            let a = if signed || op == "==" || op == "!=" {
+                a
+            } else {
+                Expr(vec![Token { t: "(unsigned)".into(), k: TokenKind::Keyword }], false).cat(a.wrap())
+            };
             Expr::binop(a, op, b)
         }
         (Some(Flags::Test(a, b)), ConditionCode::e | ConditionCode::ne) => {
@@ -711,7 +780,10 @@ fn condition(ctx: &Ctx, insns: &[Ins], cc: ConditionCode) -> Expr {
                 Expr::binop(Expr::binop(a, "&", b), if eq { "==" } else { "!=" }, Expr::num(0))
             }
         }
-        (Some(Flags::Test(a, b)), ConditionCode::s | ConditionCode::ns | ConditionCode::l | ConditionCode::ge | ConditionCode::le | ConditionCode::g) => {
+        (
+            Some(Flags::Test(a, b)),
+            ConditionCode::s | ConditionCode::ns | ConditionCode::l | ConditionCode::ge | ConditionCode::le | ConditionCode::g,
+        ) => {
             let v = if a.text() == b.text() { a } else { Expr::binop(a, "&", b) };
             let op = match cc {
                 ConditionCode::s | ConditionCode::l => "<",
@@ -755,7 +827,15 @@ fn writes_flags(i: &Ins) -> bool {
     )
 }
 
-fn emit_insns(ctx: &mut Ctx, insns: &[Ins], indent: u8, out: &mut Vec<PseudoLine>, _pos: &HashMap<u64, usize>, _order: &[u64], _here: usize) {
+fn emit_insns(
+    ctx: &mut Ctx,
+    insns: &[Ins],
+    indent: u8,
+    out: &mut Vec<PseudoLine>,
+    _pos: &HashMap<u64, usize>,
+    _order: &[u64],
+    _here: usize,
+) {
     for (n, ins) in insns.iter().enumerate() {
         if is_prologue_noise(ins, ctx.frame_reg) {
             continue;
@@ -785,10 +865,24 @@ fn emit_insns(ctx: &mut Ctx, insns: &[Ins], indent: u8, out: &mut Vec<PseudoLine
             Mnemonic::Lea => {
                 l.extend(dst()).p(" = ").extend(ctx.mem(ins, false)).p(";");
             }
-            Mnemonic::Xor if ins.op_count() == 2 && ins.op_kind(0) == OpKind::Register && ins.op_kind(1) == OpKind::Register && ins.op_register(0) == ins.op_register(1) => {
+            Mnemonic::Xor
+                if ins.op_count() == 2
+                    && ins.op_kind(0) == OpKind::Register
+                    && ins.op_kind(1) == OpKind::Register
+                    && ins.op_register(0) == ins.op_register(1) =>
+            {
                 l.extend(dst()).p(" = ").extend(Expr::num(0)).p(";");
             }
-            Mnemonic::Add | Mnemonic::Sub | Mnemonic::And | Mnemonic::Or | Mnemonic::Xor | Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar | Mnemonic::Rol | Mnemonic::Ror => {
+            Mnemonic::Add
+            | Mnemonic::Sub
+            | Mnemonic::And
+            | Mnemonic::Or
+            | Mnemonic::Xor
+            | Mnemonic::Shl
+            | Mnemonic::Shr
+            | Mnemonic::Sar
+            | Mnemonic::Rol
+            | Mnemonic::Ror => {
                 let op = match m {
                     Mnemonic::Add => "+=",
                     Mnemonic::Sub => "-=",
@@ -837,10 +931,14 @@ fn emit_insns(ctx: &mut Ctx, insns: &[Ins], indent: u8, out: &mut Vec<PseudoLine
                     ctx.name_or(ins.near_branch_target(), "sub_")
                 } else {
                     let e = ctx.op(ins, 0);
-                    if ins.op_kind(0) == OpKind::Memory && ins.is_ip_rel_memory_operand() || ins.memory_base() == Register::None && ins.op_kind(0) == OpKind::Memory {
+                    if ins.op_kind(0) == OpKind::Memory && ins.is_ip_rel_memory_operand()
+                        || ins.memory_base() == Register::None && ins.op_kind(0) == OpKind::Memory
+                    {
                         e
                     } else {
-                        Expr(vec![Token { t: "((void (*)())".into(), k: TokenKind::Keyword }], false).cat(e).cat(Expr::tok(")", TokenKind::Punct))
+                        Expr(vec![Token { t: "((void (*)())".into(), k: TokenKind::Keyword }], false)
+                            .cat(e)
+                            .cat(Expr::tok(")", TokenKind::Punct))
                     }
                 };
                 let reg = if ctx.bits == 64 { "rax" } else { "eax" };
@@ -851,19 +949,37 @@ fn emit_insns(ctx: &mut Ctx, insns: &[Ins], indent: u8, out: &mut Vec<PseudoLine
                 continue;
             }
             Mnemonic::Ret => {
-                let returns_value = insns[..n].iter().rev().take(6).any(|i| i.op_count() > 0 && i.op_kind(0) == OpKind::Register && i.op_register(0).full_register() == Register::RAX || i.mnemonic() == Mnemonic::Call);
+                let returns_value = insns[..n].iter().rev().take(6).any(|i| {
+                    i.op_count() > 0 && i.op_kind(0) == OpKind::Register && i.op_register(0).full_register() == Register::RAX
+                        || i.mnemonic() == Mnemonic::Call
+                });
                 if returns_value {
                     l.kw("return").sp().push(if ctx.bits == 64 { "rax" } else { "eax" }, TokenKind::Register).p(";");
                 } else {
                     l.kw("return").p(";");
                 }
             }
-            Mnemonic::Jmp => continue, // handled by the block emitter
+            Mnemonic::Jmp if !matches!(ins.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64) => {
+                // `jmp [slot]` is a tail call (import thunks); `jmp reg` is a computed jump.
+                if ins.op_kind(0) == OpKind::Memory {
+                    l.kw("return").sp().extend(ctx.op(ins, 0)).p("(").extend(args_expr(ctx)).p(");");
+                } else {
+                    l.kw("goto").p(" *").extend(ctx.op(ins, 0)).p(";");
+                }
+            }
+            Mnemonic::Jmp => continue, // direct jumps are handled by the block emitter
             _ if ins.condition_code() != ConditionCode::None && format!("{m:?}").starts_with("Set") => {
                 l.extend(dst()).p(" = ").extend(condition(ctx, &insns[..=n], ins.condition_code())).p(";");
             }
             _ if ins.condition_code() != ConditionCode::None && format!("{m:?}").starts_with("Cmov") => {
-                l.kw("if").p(" (").extend(condition(ctx, &insns[..=n], ins.condition_code())).p(") ").extend(dst()).p(" = ").extend(src(1)).p(";");
+                l.kw("if")
+                    .p(" (")
+                    .extend(condition(ctx, &insns[..=n], ins.condition_code()))
+                    .p(") ")
+                    .extend(dst())
+                    .p(" = ")
+                    .extend(src(1))
+                    .p(";");
             }
             Mnemonic::Cmpxchg => {
                 let reg = if ctx.bits == 64 { "rax" } else { "eax" };

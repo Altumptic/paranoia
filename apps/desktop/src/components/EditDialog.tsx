@@ -29,17 +29,20 @@ export function EditDialog() {
       }
       await st.rename(dialog.va, v);
       st.toast(v ? `Renamed to ${v}` : "Name reset", "success");
+    } else if (dialog.kind === "bookmark") {
+      await st.bookmark(dialog.va, value.trim() ? value.trim() : null);
+      st.toast(value.trim() ? "Bookmark saved" : "Bookmark removed", "success");
     } else {
       await st.comment(dialog.va, value);
     }
   };
 
-  const isRename = dialog.kind === "rename";
+  const isRename = dialog.kind === "rename" || dialog.kind === "bookmark";
   return (
     <div className="modal-veil" onMouseDown={close}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">
-          {isRename ? "Rename" : "Comment"} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
+          {dialog.kind === "rename" ? "Rename" : dialog.kind === "bookmark" ? "Bookmark" : "Comment"} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
         </div>
         {isRename ? (
           <input
@@ -47,7 +50,7 @@ export function EditDialog() {
             className="input mono"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Leave empty to restore the automatic name"
+            placeholder={dialog.kind === "bookmark" ? "Describe this location — leave empty to remove" : "Leave empty to restore the automatic name"}
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
               if (e.key === "Escape") close();

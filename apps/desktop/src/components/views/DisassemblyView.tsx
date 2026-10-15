@@ -54,6 +54,34 @@ export function DisassemblyView() {
     return out;
   }, [insns, fnStarts]);
 
+  // IDA-style jump arrows for branches whose source and target are both loaded.
+  const LANES = 8;
+  const arrows = useMemo(() => {
+    const rowByAddr = new Map<number, number>();
+    rows.forEach((r, i) => {
+      if (r.kind === "ins") rowByAddr.set(r.ins.address, i);
+    });
+    const list: { from: number; to: number; cond: boolean; src: number; dst: number; lane: number }[] = [];
+    rows.forEach((r, i) => {
+      if (r.kind !== "ins" || r.ins.target == null || (r.ins.flow !== "jump" && r.ins.flow !== "condjump")) return;
+      const t = rowByAddr.get(r.ins.target);
+      if (t == null || t === i) return;
+      list.push({ from: i, to: t, cond: r.ins.flow === "condjump", src: r.ins.address, dst: r.ins.target, lane: 0 });
+    });
+    // Shorter spans take the inner lanes.
+    list.sort((a, b) => Math.abs(a.to - a.from) - Math.abs(b.to - b.from));
+    const used: [number, number][][] = Array.from({ length: LANES }, () => []);
+    for (const a of list) {
+      const lo = Math.min(a.from, a.to);
+      const hi = Math.max(a.from, a.to);
+      let lane = used.findIndex((spans) => spans.every(([l, h]) => hi < l || lo > h));
+      if (lane < 0) lane = LANES - 1;
+      used[lane].push([lo, hi]);
+      a.lane = lane;
+    }
+    return list;
+  }, [rows]);
+
   const rowOf = useCallback((va: number) => rows.findIndex((r) => r.kind === "ins" && r.ins.address <= va && va < r.ins.address + Math.max(1, r.ins.size)), [rows]);
 
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => parent.current, estimateSize: () => ROW, overscan: 30 });
@@ -216,6 +244,15 @@ export function DisassemblyView() {
       case "X":
         s.set("inspectorOpen", true);
         break;
+      case "p":
+      case "P":
+        e.preventDefault();
+        if (cursor != null) s.makeFunction(cur?.address ?? cursor);
+        break;
+      case "Tab":
+        e.preventDefault();
+        s.set("centerTab", "pseudo");
+        break;
       case "b":
       case "B":
         s.set("showBytes", !s.showBytes);
@@ -252,6 +289,29 @@ export function DisassemblyView() {
         }}
       >
         <div style={{ height: v.getTotalSize(), position: "relative" }}>
+          <svg className="jump-arrows" width={LANES * 6 + 12} height={v.getTotalSize()} aria-hidden>
+            {(() => {
+              const first = items[0]?.index ?? 0;
+              const last = items[items.length - 1]?.index ?? 0;
+              const right = LANES * 6 + 10;
+              const curAddr = cursorIdx >= 0 ? insns[cursorIdx]?.address : undefined;
+              return arrows
+                .filter((a) => Math.max(a.from, a.to) >= first && Math.min(a.from, a.to) <= last)
+                .map((a, k) => {
+                  const x = right - 8 - a.lane * 6;
+                  const y1 = a.from * ROW + ROW / 2;
+                  const y2 = a.to * ROW + ROW / 2;
+                  const hot = a.src === curAddr || a.dst === curAddr;
+                  const cls = `ja ${a.cond ? "cond" : "uncond"} ${hot ? "hot" : ""} ${a.to < a.from ? "back" : ""}`;
+                  return (
+                    <g key={k} className={cls}>
+                      <path d={`M${right},${y1} H${x} V${y2} H${right - 1}`} />
+                      <path className="ja-head" d={`M${right - 5},${y2 - 3} L${right},${y2} L${right - 5},${y2 + 3} z`} />
+                    </g>
+                  );
+                });
+            })()}
+          </svg>
           {items.map((vr) => {
             const r = rows[vr.index];
             const style = { transform: `translateY(${vr.start}px)`, height: ROW };

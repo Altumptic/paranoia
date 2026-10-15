@@ -200,8 +200,8 @@ pub fn chained_fixups(file: &[u8], blob: &[u8], segs: &[Seg], image_base: u64) -
             let page_count = u16_at(blob, base + 20)? as u64;
             let (stride, ordinal_bits, next_shift, next_mask, bind_bit) = match pointer_format {
                 1 | 7 | 9 => (8u64, 16u32, 51u32, 0x7ffu64, 62u32), // ARM64E variants
-                12 => (8, 24, 51, 0x7ff, 62),                      // ARM64E_USERLAND24
-                2 | 6 => (4, 24, 51, 0xfff, 63),                   // PTR_64 / PTR_64_OFFSET
+                12 => (8, 24, 51, 0x7ff, 62),                       // ARM64E_USERLAND24
+                2 | 6 => (4, 24, 51, 0xfff, 63),                    // PTR_64 / PTR_64_OFFSET
                 _ => continue,                                      // 32-bit and firmware formats
             };
             for page in 0..page_count {
@@ -235,9 +235,7 @@ pub fn chained_fixups(file: &[u8], blob: &[u8], segs: &[Seg], image_base: u64) -
 }
 
 fn va_to_off(segs: &[Seg], va: u64) -> Option<usize> {
-    segs.iter()
-        .find(|s| va >= s.vmaddr && va - s.vmaddr < s.filesize.min(s.vmsize))
-        .map(|s| (s.fileoff + (va - s.vmaddr)) as usize)
+    segs.iter().find(|s| va >= s.vmaddr && va - s.vmaddr < s.filesize.min(s.vmsize)).map(|s| (s.fileoff + (va - s.vmaddr)) as usize)
 }
 
 #[cfg(test)]

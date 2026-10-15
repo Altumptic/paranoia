@@ -93,7 +93,9 @@ function createWindow() {
 
 ipcMain.handle("engine:request", (_e, req) => {
   // Only forward the protocol's known operations.
-  if (!req || !["open", "call", "close", "store", "ping"].includes(req.op)) throw new Error("invalid engine request");
+  if (!req || !["open", "call", "close", "store", "ping", "export_patched"].includes(req.op)) throw new Error("invalid engine request");
+  // Exports may only go to a path the user just picked in a save dialog.
+  if (req.op === "export_patched" && req.path !== lastSavePath) throw new Error("export path was not chosen by the user");
   return engine.request(req);
 });
 
@@ -107,6 +109,20 @@ ipcMain.handle("dialog:open", async () => {
     ],
   });
   return r.canceled ? null : r.filePaths[0];
+});
+
+/** The most recent path the user confirmed in a save dialog; file writes are limited to it. */
+let lastSavePath = null;
+
+ipcMain.handle("dialog:save", async (_e, defaultName, filters) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: String(defaultName ?? "export"), filters: Array.isArray(filters) ? filters : [] });
+  lastSavePath = r.canceled ? null : r.filePath;
+  return lastSavePath;
+});
+
+ipcMain.handle("file:write-text", async (_e, p, text) => {
+  if (!p || p !== lastSavePath || typeof text !== "string") throw new Error("write path was not chosen by the user");
+  await fs.promises.writeFile(p, text, "utf8");
 });
 
 ipcMain.handle("app:info", () => ({ version: app.getVersion(), engine: engineExe(), electron: process.versions.electron, platform: process.platform }));

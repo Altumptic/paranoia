@@ -87,11 +87,7 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     }
     out.mitigation("Force integrity", has(DLL_FORCE_INTEGRITY), "signature checked at load time");
     out.mitigation("AppContainer", has(DLL_APPCONTAINER), "must run inside an AppContainer");
-    let signed = pe
-        .header
-        .optional_header
-        .and_then(|o| o.data_directories.get_certificate_table().map(|d| d.size > 0))
-        .unwrap_or(false);
+    let signed = pe.header.optional_header.and_then(|o| o.data_directories.get_certificate_table().map(|d| d.size > 0)).unwrap_or(false);
     out.mitigation("Authenticode", signed, if signed { "certificate table present" } else { "not signed" });
 
     // Sections ------------------------------------------------------------
@@ -117,7 +113,14 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
             entropy: 0.0,
             flags: c as u64,
         });
-        out.ranges.push(MapRange { name, vaddr, vsize, offset: s.pointer_to_raw_data as u64, file_size: raw_size.min(vsize.max(raw_size)), perms });
+        out.ranges.push(MapRange {
+            name,
+            vaddr,
+            vsize,
+            offset: s.pointer_to_raw_data as u64,
+            file_size: raw_size.min(vsize.max(raw_size)),
+            perms,
+        });
     }
     // The PE headers themselves are mapped at the image base.
     if let Some(opt) = &pe.header.optional_header {
@@ -217,7 +220,13 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     if let Some(tls) = &pe.tls_data {
         for cb in &tls.callbacks {
             out.seeds.push(Seed { address: *cb, source: FunctionSource::Entry, end: None });
-            out.symbols.push(Symbol { name: format!("TlsCallback_{:x}", cb), address: *cb, size: 0, kind: SymbolKind::Function, global: false });
+            out.symbols.push(Symbol {
+                name: format!("TlsCallback_{:x}", cb),
+                address: *cb,
+                size: 0,
+                kind: SymbolKind::Function,
+                global: false,
+            });
         }
     }
     if is_dotnet {
