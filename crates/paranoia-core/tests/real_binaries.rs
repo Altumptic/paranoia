@@ -45,7 +45,7 @@ fn windows_pe32() {
 
 #[test]
 fn linux_elf() {
-    if let Some((p, b)) = sample(&["/bin/ls", "/usr/bin/ls"]) {
+    if let Some((p, b)) = sample(&["/bin/ls", "/usr/bin/ls"]).filter(|_| cfg!(target_os = "linux")) {
         check(&p, b, Format::Elf);
     }
 }
