@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="assets/brand/app-icon-128.png" width="96" alt="Paranoia" />
-
-# Paranoia
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark.png" />
+  <img src="assets/brand/lockup-light.png" width="420" alt="Paranoia" />
+</picture>
 
 **An open, local-first reverse engineering platform.**
 Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF and Mach-O — in a fast, private desktop app built on Rust.

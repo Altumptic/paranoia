@@ -3,7 +3,7 @@ import { ArrowUpRight, Binary, Cpu, FileCode2, FolderOpen, GitBranch, Lock, Netw
 import { getBackend, isDesktop } from "../engine/client";
 import { pickFile } from "../files";
 import { archLabel, fmtSize, formatLabel, useStore } from "../store";
-import { Whale } from "./Logo";
+import { AppIcon, Whale } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 
 const FEATURES = [
@@ -68,7 +68,7 @@ export function Welcome() {
 
       <main className="welcome-inner">
         <section className="hero">
-          <Whale size={92} className="hero-whale" />
+          <AppIcon size={88} className="hero-whale" />
           <h1>{greeting()}</h1>
           <p className="tagline">What are we taking apart today?</p>
         </section>
@@ -184,7 +184,7 @@ export function Welcome() {
         </section>
 
         <footer className="welcome-foot">
-          <span>Paranoia v0.1.0</span>
+          <span>Paranoia v0.1.1</span>
           <span className="dot" />
           <span>Open source · Apache-2.0</span>
           <span className="dot" />
