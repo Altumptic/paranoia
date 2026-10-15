@@ -9,10 +9,13 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+cpp_demangle = "0.5.1"
 goblin = "0.10.7"
 hex = "0.4.3"
 iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
 md-5 = "0.11.0"
+msvc-demangler = "0.11.0"
+rustc-demangle = "0.1.28"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha1 = "0.11.0"

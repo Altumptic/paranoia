@@ -2,7 +2,7 @@
 // privileged (files, the native engine) goes through the narrow bridge in
 // preload.cjs.
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, shell, session } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 
@@ -47,11 +47,11 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 640,
     show: false,
-    backgroundColor: "#050908",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f1e1d" : "#f5f4ee",
     title: "Paranoia",
     icon: path.join(ROOT, "build", "icon.png"),
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: "#08100e", symbolColor: "#a4b8b1", height: 47 },
+    titleBarOverlay: nativeTheme.shouldUseDarkColors ? { color: "#1f1e1d", symbolColor: "#c3c1b8", height: 47 } : { color: "#f5f4ee", symbolColor: "#4d4c48", height: 47 },
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -110,6 +110,14 @@ ipcMain.handle("dialog:open", async () => {
 });
 
 ipcMain.handle("app:info", () => ({ version: app.getVersion(), engine: engineExe(), electron: process.versions.electron, platform: process.platform }));
+
+ipcMain.on("app:titlebar", (_e, c) => {
+  const hex = /^#[0-9a-f]{6}$/i;
+  if (win && c && hex.test(c.color) && hex.test(c.symbolColor)) {
+    win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: 47 });
+    win.setBackgroundColor(c.color);
+  }
+});
 
 ipcMain.handle("app:reveal", (_e, p) => {
   if (typeof p === "string" && fs.existsSync(p)) shell.showItemInFolder(p);

@@ -26,6 +26,7 @@ import { Inspector } from "./Inspector";
 import { Whale } from "./Logo";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
+import { ThemeToggle } from "./ThemeToggle";
 import { DisassemblyView } from "./views/DisassemblyView";
 import { GraphView } from "./views/GraphView";
 import { HexView } from "./views/HexView";
@@ -60,7 +61,7 @@ export function Workspace() {
     <div className="workspace">
       <header className="topbar">
         <div className="brand" onClick={() => st.set("centerTab", "overview")} title="Overview">
-          <Whale size={30} />
+          <Whale size={28} />
           <span className="wordmark">Paranoia</span>
         </div>
         <div className="nav-btns">
@@ -90,6 +91,7 @@ export function Workspace() {
         </button>
 
         <div className="topbar-right">
+          <ThemeToggle />
           <span className="badge accent" title="All analysis happens locally">
             <ShieldCheck size={12} /> Local
           </span>

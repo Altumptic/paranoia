@@ -137,6 +137,7 @@ export interface DesktopBridge {
   openDialog(): Promise<string | null>;
   info(): Promise<{ version: string; engine: string; electron: string; platform: string }>;
   reveal(path: string): Promise<void>;
+  setTitleBar(color: string, symbolColor: string): void;
   pathForFile(file: File): string | null;
   onOpenPath(cb: (path: string) => void): () => void;
   onEngineRestarted(cb: (reason: string) => void): () => void;

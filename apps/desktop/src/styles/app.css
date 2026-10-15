@@ -1,57 +1,167 @@
 /* Paranoia design tokens + base styles. Dark "deep sea" theme by default. */
 
+/* Light "ivory" theme is the base; "warm graphite" dark follows the OS
+   unless the user picks a theme (html[data-theme]). */
 :root {
-  --bg-0: #050908;
-  --bg-1: #080e0d;
-  --bg-2: #0b1312;
-  --bg-3: #101b19;
-  --bg-4: #152321;
-  --bg-hover: #13201e;
-  --bg-active: #0f2a24;
-  --line: #172623;
-  --line-2: #1f3330;
-  --line-strong: #29453f;
-
-  --text: #d6e4df;
-  --text-2: #a4b8b1;
-  --muted: #6c837c;
-  --faint: #45584f;
-
-  --accent: #2ee6a6;
-  --accent-2: #19c48f;
-  --accent-soft: rgba(46, 230, 166, 0.12);
-  --accent-glow: rgba(46, 230, 166, 0.35);
-  --accent-ink: #032018;
-
-  --warn: #f5b84a;
-  --danger: #ff6b6b;
-  --info: #66b8ff;
-  --violet: #b490ff;
-
-  /* Disassembly syntax */
-  --syn-addr: #4f6a62;
-  --syn-bytes: #3e524b;
-  --syn-mnem: #d6e4df;
-  --syn-call: #2ee6a6;
-  --syn-jump: #f5b84a;
-  --syn-ret: #ff7a85;
-  --syn-reg: #7cc4ff;
-  --syn-num: #f0a86b;
-  --syn-sym: #8af5cf;
-  --syn-kw: #8c9fa8;
-  --syn-punct: #6b7f78;
-  --syn-comment: #5d7a70;
-  --syn-user-comment: #c9b06b;
-  --syn-label: #2ee6a6;
-  --syn-string: #e6d27a;
-
-  --radius: 10px;
-  --radius-sm: 6px;
-  --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  --bg-0: #faf9f5;
+  --bg-1: #f5f4ee;
+  --bg-2: #ffffff;
+  --bg-3: #f0eee6;
+  --bg-4: #e8e6dc;
+  --bg-hover: #efede4;
+  --bg-active: #f5e6dd;
+  --line: #e6e3d8;
+  --line-2: #ddd9cc;
+  --line-strong: #c9c4b4;
+  --text: #1f1e1d;
+  --text-2: #4d4c48;
+  --muted: #7d7b74;
+  --faint: #aeaba1;
+  --accent: #c96442;
+  --accent-2: #b4552f;
+  --accent-ink: #ffffff;
+  --warn: #b7791f;
+  --danger: #c0392b;
+  --info: #3a6ea5;
+  --violet: #7a5aa6;
+  --ok: #4f8a5b;
+  --fmt-pe: #3a6ea5;
+  --fmt-elf: #a0632a;
+  --fmt-macho: #7a5aa6;
+  --edge-true: #4f8a5b;
+  --edge-false: #c0392b;
+  --edge-uncond: #3a6ea5;
+  --edge-fall: #a9a59a;
+  --syn-addr: #9b988e;
+  --syn-bytes: #b8b4a8;
+  --syn-mnem: #1f1e1d;
+  --syn-call: #c0552f;
+  --syn-jump: #9a6512;
+  --syn-ret: #b42c2c;
+  --syn-reg: #2f5f94;
+  --syn-num: #9a4d1f;
+  --syn-sym: #1f6b5c;
+  --syn-kw: #7d7b74;
+  --syn-punct: #8c897f;
+  --syn-comment: #8c897f;
+  --syn-user-comment: #9a6512;
+  --syn-label: #c96442;
+  --syn-string: #7a5a12;
+  --veil: #1f1e1d;
+  --shadow-color: #4a3f2c;
+  color-scheme: light;
+  --kraft: #d4a27f;
+  --accent-soft: color-mix(in srgb, var(--accent) 11%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 28%, transparent);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 8%, transparent),
+    0 10px 30px color-mix(in srgb, var(--shadow-color) 14%, transparent);
   --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
   --row-h: 22px;
+}
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-0: #262624;
+    --bg-1: #1f1e1d;
+    --bg-2: #30302e;
+    --bg-3: #2b2a28;
+    --bg-4: #3a3936;
+    --bg-hover: #353432;
+    --bg-active: #3e322b;
+    --line: #3a3936;
+    --line-2: #44433f;
+    --line-strong: #5a5853;
+    --text: #f5f4ee;
+    --text-2: #c3c1b8;
+    --muted: #96948b;
+    --faint: #6c6a63;
+    --accent: #d97757;
+    --accent-2: #e08a6d;
+    --accent-ink: #1f1e1d;
+    --warn: #e0a95a;
+    --danger: #ec7b6f;
+    --info: #86aedb;
+    --violet: #b9a0de;
+    --ok: #86bf8f;
+    --fmt-pe: #86aedb;
+    --fmt-elf: #e0a95a;
+    --fmt-macho: #b9a0de;
+    --edge-true: #86bf8f;
+    --edge-false: #ec7b6f;
+    --edge-uncond: #86aedb;
+    --edge-fall: #6c6a63;
+    --syn-addr: #7a7870;
+    --syn-bytes: #5f5d57;
+    --syn-mnem: #ece9df;
+    --syn-call: #e58a69;
+    --syn-jump: #e3bc72;
+    --syn-ret: #f08a80;
+    --syn-reg: #92b9df;
+    --syn-num: #e6aa78;
+    --syn-sym: #9fd0bf;
+    --syn-kw: #96948b;
+    --syn-punct: #807e76;
+    --syn-comment: #807e76;
+    --syn-user-comment: #e3bc72;
+    --syn-label: #e08a6d;
+    --syn-string: #dcc48e;
+    --veil: #000000;
+    --shadow-color: #000000;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg-0: #262624;
+  --bg-1: #1f1e1d;
+  --bg-2: #30302e;
+  --bg-3: #2b2a28;
+  --bg-4: #3a3936;
+  --bg-hover: #353432;
+  --bg-active: #3e322b;
+  --line: #3a3936;
+  --line-2: #44433f;
+  --line-strong: #5a5853;
+  --text: #f5f4ee;
+  --text-2: #c3c1b8;
+  --muted: #96948b;
+  --faint: #6c6a63;
+  --accent: #d97757;
+  --accent-2: #e08a6d;
+  --accent-ink: #1f1e1d;
+  --warn: #e0a95a;
+  --danger: #ec7b6f;
+  --info: #86aedb;
+  --violet: #b9a0de;
+  --ok: #86bf8f;
+  --fmt-pe: #86aedb;
+  --fmt-elf: #e0a95a;
+  --fmt-macho: #b9a0de;
+  --edge-true: #86bf8f;
+  --edge-false: #ec7b6f;
+  --edge-uncond: #86aedb;
+  --edge-fall: #6c6a63;
+  --syn-addr: #7a7870;
+  --syn-bytes: #5f5d57;
+  --syn-mnem: #ece9df;
+  --syn-call: #e58a69;
+  --syn-jump: #e3bc72;
+  --syn-ret: #f08a80;
+  --syn-reg: #92b9df;
+  --syn-num: #e6aa78;
+  --syn-sym: #9fd0bf;
+  --syn-kw: #96948b;
+  --syn-punct: #807e76;
+  --syn-comment: #807e76;
+  --syn-user-comment: #e3bc72;
+  --syn-label: #e08a6d;
+  --syn-string: #dcc48e;
+  --veil: #000000;
+  --shadow-color: #000000;
   color-scheme: dark;
 }
 
@@ -89,7 +199,7 @@ textarea {
 }
 
 ::selection {
-  background: rgba(46, 230, 166, 0.28);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 ::-webkit-scrollbar {
@@ -100,13 +210,13 @@ textarea {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1b2b28;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #26403a;
+  background: color-mix(in srgb, var(--text) 28%, transparent);
   background-clip: padding-box;
   border: 2px solid transparent;
 }
@@ -132,9 +242,9 @@ textarea {
   gap: 8px;
   height: 32px;
   padding: 0 14px;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid var(--line-2);
-  background: var(--bg-3);
+  background: var(--bg-2);
   cursor: pointer;
   transition:
     background 0.15s,
@@ -150,16 +260,13 @@ textarea {
   transform: translateY(1px);
 }
 .btn.primary {
-  background: linear-gradient(180deg, #34f0b1, #1cc892);
+  background: var(--accent);
   border-color: transparent;
   color: var(--accent-ink);
   font-weight: 600;
-  box-shadow:
-    0 0 0 1px rgba(46, 230, 166, 0.25),
-    0 6px 24px rgba(46, 230, 166, 0.22);
 }
 .btn.primary:hover {
-  background: linear-gradient(180deg, #4bf5be, #22d39c);
+  background: var(--accent-2);
 }
 .btn.ghost {
   background: transparent;
@@ -233,17 +340,17 @@ textarea {
 .badge.accent {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(46, 230, 166, 0.25);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .badge.warn {
   color: var(--warn);
-  background: rgba(245, 184, 74, 0.1);
-  border-color: rgba(245, 184, 74, 0.25);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 25%, transparent);
 }
 .badge.danger {
   color: var(--danger);
-  background: rgba(255, 107, 107, 0.1);
-  border-color: rgba(255, 107, 107, 0.25);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
 .input {
@@ -252,15 +359,15 @@ textarea {
   padding: 0 10px;
   border-radius: 7px;
   border: 1px solid var(--line-2);
-  background: var(--bg-1);
+  background: var(--bg-2);
   outline: none;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
 }
 .input:focus {
-  border-color: rgba(46, 230, 166, 0.5);
-  box-shadow: 0 0 0 3px rgba(46, 230, 166, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .input::placeholder {
   color: var(--faint);
@@ -279,7 +386,7 @@ textarea {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 2px solid rgba(46, 230, 166, 0.2);
+  border: 2px solid color-mix(in srgb, var(--accent) 20%, transparent);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
