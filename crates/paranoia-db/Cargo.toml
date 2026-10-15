@@ -1,0 +1,15 @@
+[package]
+name = "paranoia-db"
+description = "Local workspace store (annotations, recent files) for Paranoia, backed by redb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+redb = "4.4.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true

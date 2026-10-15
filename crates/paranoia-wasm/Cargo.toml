@@ -1,0 +1,17 @@
+[package]
+name = "paranoia-wasm"
+description = "WebAssembly bindings for the Paranoia engine (powers the in-browser build)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+paranoia-core.workspace = true
+serde_json.workspace = true

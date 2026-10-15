@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / frontend
+node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/target/
+
+# Engine build output (regenerate with `npm run wasm`)
+apps/desktop/src/engine/paranoia.wasm
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.log
+
+# Local tooling
+.claude/
+
+# Packaged builds
+apps/desktop/release/
+
+# Original design drops (copies live in assets/brand)
+/src/

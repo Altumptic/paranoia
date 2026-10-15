@@ -1,0 +1,114 @@
+{
+  "name": "@paranoia/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "wasm": "node ../../scripts/build-wasm.mjs",
+    "engine": "cargo build --release -p paranoia-engine",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "app": "npm run build && electron .",
+    "app:dev": "node ../../scripts/dev-desktop.mjs",
+    "dist": "npm run wasm && npm run engine && npm run build && electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "@dagrejs/dagre": "^1.1.8",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@tanstack/react-virtual": "^3.14.20",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
+    "lucide-react": "^1.57.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-resizable-panels": "^2.1.9",
+    "typescript": "5.7",
+    "vite": "^6.4.4",
+    "zustand": "^5.0.15"
+  },
+  "description": "Paranoia — open-source reverse engineering platform",
+  "author": "Paranoia contributors",
+  "homepage": "https://github.com/paranoia-re/paranoia",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "app.paranoia.desktop",
+    "productName": "Paranoia",
+    "copyright": "Copyright © 2026 Paranoia contributors",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../target/release/paranoia-engine.exe",
+        "to": "engine/paranoia-engine.exe"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Paranoia-${version}-${arch}-${target}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Paranoia",
+      "uninstallDisplayName": "Paranoia",
+      "artifactName": "Paranoia-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Paranoia-${version}-portable.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "extraResources": [
+        {
+          "from": "../../target/release/paranoia-engine",
+          "to": "engine/paranoia-engine"
+        }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "extraResources": [
+        {
+          "from": "../../target/release/paranoia-engine",
+          "to": "engine/paranoia-engine"
+        }
+      ]
+    }
+  }
+}
