@@ -44,6 +44,8 @@ enum Cmd {
         #[arg(short = 'n', long, default_value_t = 40)]
         count: usize,
     },
+    /// Basic blocks and edges of the function at an address or name.
+    Cfg { file: PathBuf, at: String },
     /// C-like pseudocode for the function at an address or name.
     Pseudo { file: PathBuf, at: String },
     /// Cross references to an address.
@@ -189,6 +191,20 @@ fn main() -> Result<()> {
             }
             for i in &insns {
                 print_insn(i);
+            }
+        }
+        Cmd::Cfg { file, at } => {
+            let mut bin = open(&file)?;
+            bin.analyze();
+            let va = resolve(&bin, &at)?;
+            let g = bin.function_graph(va).context("no function at that address")?;
+            if cli.json {
+                return print_json(&g);
+            }
+            println!("{} ({} blocks)", g.name, g.blocks.len());
+            for b in &g.blocks {
+                let succ: Vec<String> = b.succs.iter().map(|e| format!("{:?}:{:#x}", e.kind, e.to)).collect();
+                println!("  {:#x}..{:#x}  {}", b.start, b.end, succ.join(" "));
             }
         }
         Cmd::Pseudo { file, at } => {

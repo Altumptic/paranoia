@@ -60,6 +60,8 @@ pub struct Function {
 pub struct XrefRec {
     pub from: u64,
     pub kind: XrefKind,
+    /// Access size for data references (0 = unknown / not a memory access).
+    pub size: u8,
 }
 
 #[derive(Debug, Default)]
@@ -88,9 +90,11 @@ pub trait CodeSource {
     fn code_at(&self, va: u64) -> Option<&[u8]>;
     /// Import name if `va` is an import slot.
     fn import_at(&self, va: u64) -> Option<&str>;
+    /// Bytes readable at any mapped `va` (jump tables live in data sections).
+    fn read_at(&self, va: u64) -> Option<&[u8]>;
 }
 
-pub fn run(src: &dyn CodeSource, dis: &mut Disassembler, seeds: &[Seed], arm: bool) -> Analysis {
+pub fn run(src: &dyn CodeSource, dis: &mut Disassembler, seeds: &[Seed], skip: &BTreeSet<u64>, arm: bool, bits: u32) -> Analysis {
     let mut a = Analysis::default();
     let noreturn: BTreeSet<&str> = NORETURN.iter().copied().collect();
 
@@ -123,7 +127,7 @@ pub fn run(src: &dyn CodeSource, dis: &mut Disassembler, seeds: &[Seed], arm: bo
         if a.by_start.contains_key(&seed.address) {
             continue;
         }
-        let Some(f) = explore(src, dis, seed, &queued, &noreturn, &noreturn_funcs, arm, &mut a.xrefs) else { continue };
+        let Some(f) = explore(src, dis, seed, &queued, &noreturn, &noreturn_funcs, arm, bits, &mut a.xrefs) else { continue };
 
         // Single-instruction jump through an import slot = thunk to a no-return import?
         if let Some(slot) = f.thunk_slot {
@@ -132,7 +136,7 @@ pub fn run(src: &dyn CodeSource, dis: &mut Disassembler, seeds: &[Seed], arm: bo
             }
         }
         for &c in &f.calls {
-            if queued.insert(c) && src.code_at(c).is_some() {
+            if !skip.contains(&c) && queued.insert(c) && src.code_at(c).is_some() {
                 queue.push_back(Seed { address: c, source: FunctionSource::Call, end: None });
             }
         }
@@ -180,6 +184,7 @@ fn explore(
     noreturn: &BTreeSet<&str>,
     noreturn_funcs: &BTreeSet<u64>,
     arm: bool,
+    bits: u32,
     xrefs: &mut HashMap<u64, Vec<XrefRec>>,
 ) -> Option<Function> {
     let start = seed.address;
@@ -213,11 +218,11 @@ fn explore(
             let next = va + d.len as u64;
 
             if let Some(r) = d.data_ref {
-                xrefs.entry(r).or_default().push(XrefRec { from: va, kind: XrefKind::Data });
+                xrefs.entry(r).or_default().push(XrefRec { from: va, kind: XrefKind::Data, size: d.mem_size });
             }
             if let Some(slot) = d.indirect_slot {
                 let kind = if d.flow == Flow::Call { XrefKind::Call } else { XrefKind::Jump };
-                xrefs.entry(slot).or_default().push(XrefRec { from: va, kind });
+                xrefs.entry(slot).or_default().push(XrefRec { from: va, kind, size: 0 });
             }
 
             match d.flow {
@@ -225,7 +230,7 @@ fn explore(
                 Flow::Call => {
                     let mut returns = true;
                     if let Some(t) = d.target {
-                        xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Call });
+                        xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Call, size: 0 });
                         if src.code_at(t).is_some() {
                             calls.insert(t);
                         }
@@ -240,9 +245,30 @@ fn explore(
                         break;
                     }
                 }
+                Flow::Jump if d.target.is_none() && bits != 0 => {
+                    // Indirect jump: try to recover a switch table.
+                    if let Some(sw) = crate::switch::recover(src, bits, block_start, va, d.len as u64) {
+                        xrefs.entry(sw.table).or_default().push(XrefRec {
+                            from: va,
+                            kind: XrefKind::Data,
+                            size: if bits == 64 { 4 } else { 4 },
+                        });
+                        let mut seen = BTreeSet::new();
+                        for t in sw.targets {
+                            if !seen.insert(t) {
+                                continue;
+                            }
+                            xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Jump, size: 0 });
+                            edges.entry(va).or_default().push(Edge { to: t, kind: EdgeKind::Case });
+                            leaders.insert(t);
+                            work.push(t);
+                        }
+                    }
+                    break;
+                }
                 Flow::Jump => {
                     if let Some(t) = d.target {
-                        xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Jump });
+                        xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Jump, size: 0 });
                         // Jumping to another function's start (or outside known bounds) is a tail call.
                         let tail = (t != start && other_functions.contains(&t)) || !in_bounds(t) || src.code_at(t).is_none();
                         if tail {
@@ -259,7 +285,7 @@ fn explore(
                 }
                 Flow::CondJump => {
                     if let Some(t) = d.target {
-                        xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Jump });
+                        xrefs.entry(t).or_default().push(XrefRec { from: va, kind: XrefKind::Jump, size: 0 });
                         if src.code_at(t).is_some() {
                             edges.entry(va).or_default().push(Edge { to: t, kind: EdgeKind::True });
                             leaders.insert(t);

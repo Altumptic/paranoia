@@ -99,3 +99,28 @@ fn corrupted_inputs_do_not_panic() {
         }
     }
 }
+
+/// Jump tables in a large Windows DLL become `case` edges, and listings over data work.
+#[test]
+fn switch_tables_and_data_listing() {
+    let Some((p, b)) = sample(&["C:/Windows/System32/shell32.dll"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    let mut cases = 0;
+    for f in bin.functions().iter().filter(|f| f.blocks > 8) {
+        if cases > 20 {
+            break;
+        }
+        if let Some(g) = bin.function_graph(f.address) {
+            cases += g.blocks.iter().flat_map(|b| &b.succs).filter(|e| e.kind == paranoia_core::EdgeKind::Case).count();
+        }
+    }
+    assert!(cases > 20, "only {cases} switch cases recovered");
+    // Every section start renders without error.
+    for s in bin.info().sections.clone() {
+        if s.vaddr != 0 && s.raw_size > 0 {
+            let l = bin.disassemble(s.vaddr, 200).unwrap();
+            assert!(!l.is_empty(), "{}", s.name);
+        }
+    }
+}

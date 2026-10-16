@@ -50,6 +50,26 @@ struct Offset {
 }
 
 #[derive(Deserialize)]
+struct GraphArgs {
+    va: u64,
+    up: Option<u32>,
+    down: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct ItemArgs {
+    va: u64,
+    kind: crate::ItemKind,
+    count: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct InsnPatchArgs {
+    va: u64,
+    op: crate::InsnPatch,
+}
+
+#[derive(Deserialize)]
 struct AdvSearch {
     kind: crate::SearchKind,
     query: String,
@@ -125,11 +145,13 @@ impl Session {
             "offsetToVa" => to(b.offset_to_va(args::<Offset>(args_v)?.offset)),
             "vaToOffset" => to(b.va_to_offset(args::<Va>(args_v)?.va)),
             "rename" => {
+                b.checkpoint();
                 let a: Rename = args(args_v)?;
                 b.rename(a.va, &a.text);
                 Ok(Value::Null)
             }
             "setComment" => {
+                b.checkpoint();
                 let a: Rename = args(args_v)?;
                 b.set_comment(a.va, &a.text);
                 Ok(Value::Null)
@@ -146,6 +168,7 @@ impl Session {
                 to(b.search_advanced(a.kind, &a.query)?)
             }
             "makeFunction" => {
+                b.checkpoint();
                 b.make_function(args::<Va>(args_v)?.va)?;
                 Ok(Value::Null)
             }
@@ -154,6 +177,7 @@ impl Session {
                 to(b.analyze())
             }
             "patch" => {
+                b.checkpoint();
                 let a: Patch = args(args_v)?;
                 let bytes = hex::decode(a.hex.replace(' ', "")).map_err(|e| format!("invalid hex: {e}"))?;
                 b.patch(a.offset, &bytes)?;
@@ -166,10 +190,54 @@ impl Session {
             "patchedOffsets" => to(b.patched_offsets()),
             "exportIdc" => Ok(Value::String(b.export_idc())),
             "setBookmark" => {
+                b.checkpoint();
                 let a: Bookmark = args(args_v)?;
                 b.set_bookmark(a.va, a.text.as_deref());
                 Ok(Value::Null)
             }
+            "frame" => to(b.frame(args::<Va>(args_v)?.va)),
+            "names" => to(b.names()),
+            "callGraph" => {
+                let a: GraphArgs = args(args_v)?;
+                to(b.call_graph(a.va, a.up.unwrap_or(1), a.down.unwrap_or(2)))
+            }
+            "setItem" => {
+                let a: ItemArgs = args(args_v)?;
+                b.checkpoint();
+                b.set_item(a.va, a.kind, a.count.unwrap_or(1))?;
+                Ok(Value::Null)
+            }
+            "cycleData" => {
+                let va = args::<Va>(args_v)?.va;
+                b.checkpoint();
+                to(b.cycle_data(va)?)
+            }
+            "makeString" => {
+                let va = args::<Va>(args_v)?.va;
+                b.checkpoint();
+                b.make_string(va)?;
+                Ok(Value::Null)
+            }
+            "makeCode" => {
+                let va = args::<Va>(args_v)?.va;
+                b.checkpoint();
+                b.make_code(va)?;
+                Ok(Value::Null)
+            }
+            "undefine" => {
+                let va = args::<Va>(args_v)?.va;
+                b.checkpoint();
+                to(b.undefine(va))
+            }
+            "patchInstruction" => {
+                let a: InsnPatchArgs = args(args_v)?;
+                b.checkpoint();
+                b.patch_instruction(a.va, a.op)?;
+                Ok(Value::Null)
+            }
+            "undo" => to(b.undo()),
+            "redo" => to(b.redo()),
+            "history" => to(b.history()),
             "version" => Ok(json!(env!("CARGO_PKG_VERSION"))),
             _ => Err(format!("unknown method `{method}`")),
         }
