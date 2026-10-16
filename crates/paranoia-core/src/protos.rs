@@ -2,6 +2,9 @@
 //! argument set-up instructions (`; lpFileName`) and to give pseudocode calls
 //! the right number of arguments — IDA does the same with its type libraries.
 
+use crate::model::{Arch, Format, Instruction, TokenKind};
+use crate::Binary;
+
 pub struct Proto {
     pub ret: &'static str,
     pub params: &'static [&'static str],
@@ -265,28 +268,8 @@ pub fn signature(name: &str, p: &Proto) -> String {
     format!("{} {}({})", p.ret, name, p.params.join(", "))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lookups() {
-        assert_eq!(lookup("CreateFileW").unwrap().params.len(), 7);
-        assert!(lookup("__imp_CreateFileW").is_some());
-        assert!(lookup("_malloc").is_some());
-        assert!(lookup("memcpy@@GLIBC_2.14").is_some());
-        assert!(lookup("j_strlen").is_some());
-        assert_eq!(param_name("LPCWSTR lpFileName"), "lpFileName");
-        assert_eq!(param_name("char *const argv[]"), "argv");
-        assert!(lookup("NotAnApi").is_none());
-    }
-}
-
 // ------------------------------------------------------------------------------------------------
 // Call-site annotation
-
-use crate::model::{Arch, Format, Instruction, TokenKind};
-use crate::Binary;
 
 /// Which argument a register or stack store carries, per calling convention.
 fn arg_index(arch: Arch, format: Format, dst: &str) -> Option<usize> {
@@ -396,5 +379,22 @@ impl Binary {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookups() {
+        assert_eq!(lookup("CreateFileW").unwrap().params.len(), 7);
+        assert!(lookup("__imp_CreateFileW").is_some());
+        assert!(lookup("_malloc").is_some());
+        assert!(lookup("memcpy@@GLIBC_2.14").is_some());
+        assert!(lookup("j_strlen").is_some());
+        assert_eq!(param_name("LPCWSTR lpFileName"), "lpFileName");
+        assert_eq!(param_name("char *const argv[]"), "argv");
+        assert!(lookup("NotAnApi").is_none());
     }
 }

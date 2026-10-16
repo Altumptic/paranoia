@@ -1,7 +1,7 @@
-import { ArrowDownRight, ArrowUpRight, Bookmark, Braces, MessageSquare, PenLine, Share2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Bookmark, Braces, Layers, MessageSquare, PenLine, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { AddressInfo, Callee, FunctionSummary, Xref } from "../engine/types";
+import type { AddressInfo, Callee, Frame, FunctionSummary, Xref } from "../engine/types";
 import { fmtAddr, hex, useStore } from "../store";
 
 const KIND_LABEL: Record<Xref["kind"], string> = { call: "call", jump: "jmp", data: "data" };
@@ -18,6 +18,7 @@ export function Inspector() {
   const [fnXrefs, setFnXrefs] = useState<Xref[]>([]);
   const [comment, setComment] = useState<string | null>(null);
   const [callees, setCallees] = useState<Callee[]>([]);
+  const [frame, setFrame] = useState<Frame | null>(null);
   const bookmark = useStore((s) => (cursor != null ? s.annotations.bookmarks?.[String(cursor)] : undefined));
 
   useEffect(() => {
@@ -27,8 +28,10 @@ export function Inspector() {
       const [a, f, x, ann] = await Promise.all([session.addressInfo(cursor), session.functionAt(cursor), session.xrefs(cursor), session.annotations()]);
       const fx = f && f.address !== cursor ? await session.xrefs(f.address) : [];
       const calls = f ? await session.callees(f.address) : [];
+      const fr = f ? await session.frame(f.address) : null;
       if (!live) return;
       setCallees(calls);
+      setFrame(fr);
       setAddr(a);
       setFn(f);
       setXrefs(x);
@@ -115,6 +118,31 @@ export function Inspector() {
         )}
 
         <XrefList title={`References to ${addr.name ?? fmtAddr(cursor, info)}`} xrefs={xrefs} />
+        {frame && frame.vars.length > 0 && (
+          <section className="insp-card">
+            <div className="insp-card-title">
+              <Layers size={13} /> <span className="ellipsis">Stack frame</span>
+              <span className="count">{frame.vars.length}</span>
+            </div>
+            <div className="insp-sub mono" style={{ marginBottom: 6 }}>
+              base {frame.base} · locals {frame.local_size.toString(16).toUpperCase()}h{frame.saved.length ? ` · saves ${frame.saved.join(", ")}` : ""}
+            </div>
+            <table className="frame-table mono">
+              <tbody>
+                {frame.vars.slice(0, 200).map((v) => (
+                  <tr key={v.offset} onClick={() => goto(v.first_use)} title={`first used at ${fmtAddr(v.first_use, info)}`}>
+                    <td className="fr-off">{v.offset < 0 ? "-" : "+"}{Math.abs(v.offset).toString(16).toUpperCase()}</td>
+                    <td className="fr-name">{v.name}</td>
+                    <td className="fr-size">{v.size ? `${v.size}b` : ""}</td>
+                    <td className="fr-rw">
+                      {v.reads ? <span className="xk-data">r{v.reads}</span> : null} {v.writes ? <span className="xk-jump">w{v.writes}</span> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
         {fn && callees.length > 0 && (
           <section className="insp-card">
             <div className="insp-card-title">

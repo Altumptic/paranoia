@@ -248,11 +248,7 @@ fn explore(
                 Flow::Jump if d.target.is_none() && bits != 0 => {
                     // Indirect jump: try to recover a switch table.
                     if let Some(sw) = crate::switch::recover(src, bits, block_start, va, d.len as u64) {
-                        xrefs.entry(sw.table).or_default().push(XrefRec {
-                            from: va,
-                            kind: XrefKind::Data,
-                            size: if bits == 64 { 4 } else { 4 },
-                        });
+                        xrefs.entry(sw.table).or_default().push(XrefRec { from: va, kind: XrefKind::Data, size: 4 });
                         let mut seen = BTreeSet::new();
                         for t in sw.targets {
                             if !seen.insert(t) {

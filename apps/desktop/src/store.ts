@@ -1,10 +1,10 @@
 import { create } from "zustand";
 
 import { getBackend, Session, type OpenSource, type RecentFile } from "./engine/client";
-import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, SearchKind } from "./engine/types";
+import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, InsnPatch, Instruction, SearchKind } from "./engine/types";
 
-export type SidebarTab = "functions" | "imports" | "exports" | "strings" | "sections" | "symbols" | "bookmarks";
-export type CenterTab = "overview" | "disasm" | "graph" | "pseudo" | "hex";
+export type SidebarTab = "functions" | "names" | "imports" | "exports" | "strings" | "sections" | "symbols" | "bookmarks";
+export type CenterTab = "overview" | "disasm" | "graph" | "pseudo" | "calls" | "hex";
 
 export interface Toast {
   id: number;
@@ -40,6 +40,14 @@ interface State {
   annotations: Annotations;
   search: SearchKind | null;
   menuOpen: boolean;
+  /** Token text highlighted across views (IDA's yellow highlight). */
+  highlight: string | null;
+  /** Address whose cross references are shown in the X dialog. */
+  xrefsFor: number | null;
+  contextMenu: null | { x: number; y: number; va: number; ins: Instruction | null };
+  consoleOpen: boolean;
+  log: { t: number; kind: "info" | "error" | "out"; text: string }[];
+  undoDepth: [number, number];
 
   open(src: OpenSource): Promise<void>;
   close(): Promise<void>;
@@ -57,6 +65,13 @@ interface State {
   revertPatches(): Promise<void>;
   exportIdc(): Promise<void>;
   savePatched(): Promise<void>;
+  item(op: "undefine" | "code" | "data" | "string", va: number): Promise<void>;
+  patchInsn(va: number, op: InsnPatch): Promise<void>;
+  undo(): Promise<void>;
+  redo(): Promise<void>;
+  /** Refreshes derived state after an engine-side edit. */
+  afterEdit(reanalyzed: boolean): Promise<void>;
+  print(text: string, kind?: "info" | "error" | "out"): void;
   set<K extends keyof State>(key: K, value: State[K]): void;
   toast(text: string, kind?: Toast["kind"]): void;
 }
@@ -86,6 +101,12 @@ export const useStore = create<State>((set, get) => ({
   annotations: { names: {}, comments: {} },
   search: null,
   menuOpen: false,
+  highlight: null,
+  xrefsFor: null,
+  contextMenu: null,
+  consoleOpen: false,
+  log: [],
+  undoDepth: [0, 0],
 
   async open(src) {
     const name = src.kind === "bytes" ? src.name : (src.path.split(/[\\/]/).pop() ?? src.path);
@@ -116,6 +137,12 @@ export const useStore = create<State>((set, get) => ({
         centerTab: "overview",
         revision: get().revision + 1,
       });
+      get().print(
+        `${info.file_name}: ${info.format.toUpperCase()} ${info.arch} — ${stats.functions} functions, ${stats.instructions} instructions, ${stats.strings} strings` +
+          (stats.millis ? ` in ${stats.millis} ms` : ""),
+        "info",
+      );
+      set({ undoDepth: await session.history() });
       await backend.addRecent({
         name: info.file_name,
         path,
@@ -149,7 +176,7 @@ export const useStore = create<State>((set, get) => ({
     let tab = opts?.tab ?? centerTab;
     if (tab === "overview") tab = "disasm";
     // Data (import slots, strings, globals) is shown as bytes rather than bogus instructions.
-    if (!opts?.tab && (tab === "disasm" || tab === "graph" || tab === "pseudo") && !isCode(get().info, va)) tab = "hex";
+    if (!opts?.tab && (tab === "graph" || tab === "pseudo" || tab === "calls") && !isCode(get().info, va)) tab = "disasm";
     if (record && history[historyIndex] !== va) {
       const h = history.slice(0, historyIndex + 1);
       h.push(va);
@@ -184,14 +211,73 @@ export const useStore = create<State>((set, get) => ({
     const { session, info } = get();
     if (!session || !info) return;
     await session.rename(va, name);
-    set({ annotations: await persist(session, info), functions: await session.functions(), revision: get().revision + 1 });
+    await get().afterEdit(false);
+    set({ functions: await session.functions() });
   },
 
   async comment(va, text) {
     const { session, info } = get();
     if (!session || !info) return;
     await session.setComment(va, text);
-    set({ annotations: await persist(session, info), revision: get().revision + 1 });
+    await get().afterEdit(false);
+  },
+
+  async item(op, va) {
+    const { session, info } = get();
+    if (!session || !info) return;
+    try {
+      let reanalyzed = false;
+      if (op === "undefine") reanalyzed = await session.undefine(va);
+      else if (op === "code") await session.makeCode(va);
+      else if (op === "string") await session.makeString(va);
+      else get().toast(`Defined ${await session.cycleData(va)}`, "info");
+      await get().afterEdit(reanalyzed);
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async patchInsn(va, op) {
+    const { session } = get();
+    if (!session) return;
+    try {
+      await session.patchInstruction(va, op);
+      await get().afterEdit(false);
+      get().toast(op === "nop" ? "Instruction replaced with NOPs" : op === "invert" ? "Condition inverted" : "Jump made unconditional", "success");
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async undo() {
+    const { session } = get();
+    if (!session) return;
+    const r = await session.undo();
+    if (r == null) return get().toast("Nothing to undo");
+    await get().afterEdit(r);
+    get().toast("Undone", "info");
+  },
+
+  async redo() {
+    const { session } = get();
+    if (!session) return;
+    const r = await session.redo();
+    if (r == null) return get().toast("Nothing to redo");
+    await get().afterEdit(r);
+    get().toast("Redone", "info");
+  },
+
+  async afterEdit(reanalyzed) {
+    const { session, info } = get();
+    if (!session || !info) return;
+    const [annotations, undoDepth] = await Promise.all([persist(session, info), session.history()]);
+    const extra = reanalyzed ? { functions: await session.functions(), stats: await session.stats() } : {};
+    set({ annotations, undoDepth, revision: get().revision + 1, ...extra });
+  },
+
+  print(text, kind = "out") {
+    const log = get().log.concat({ t: Date.now(), kind, text });
+    set({ log: log.length > 2000 ? log.slice(-2000) : log });
   },
 
   async makeFunction(va) {

@@ -34,14 +34,16 @@ Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF an
 | --- | --- |
 | **Formats** | PE / PE32+ (incl. .NET detection, forwarders, TLS callbacks, `.pdata`), ELF (PIE, PLT/GOT imports, symbol versions), Mach-O (universal binaries, dyld bind opcodes, **chained fixups**, export trie) |
 | **Architectures** | x86, x86-64 (iced-x86), AArch64 (yaxpeax-arm, with `adrp`+`add` data references) |
-| **Auto-analysis** | Recursive-descent function discovery seeded by entry points, exports, symbols and exception tables; basic blocks; no-return awareness; import thunks (`j_CreateFileW`) |
-| **Listing** | IDA-style `sub_`/`loc_` labels, function headers, **jump arrows**, clickable operands, string and import annotations, `align` folding, opcode bytes toggle |
+| **Auto-analysis** | Recursive-descent function discovery seeded by entry points, exports, symbols and exception tables; basic blocks; **switch-table recovery**; no-return awareness; import thunks (`j_CreateFileW`) |
+| **Listing** | One view over code **and data** like IDA: `sub_`/`loc_` labels, `db/dw/dd/dq`, strings, `offset`, `extrn`, auto names (`aHelloWorld`, `qword_…`), `XREF` comments, **jump arrows**, argument labels from API prototypes (`; lpFileName`), token highlight, right-click menu |
+| **Items** | Code / data / string / undefine (`C`, `D`, `A`, `U`), create function (`P`), undo / redo |
 | **Graph** | Control-flow graph with true/false/unconditional edges, GPU-composited pan & zoom, minimap |
 | **Pseudocode** | x86 / x64 lifter (F5/Tab): calling-convention arguments, folded conditions, `if { }` and `do { } while` structuring, inline strings, stack variables, intrinsics (`__readgsqword`, `_InterlockedCompareExchange`, …) |
-| **Cross references** | Calls, jumps and data references to any address; callees of every function |
+| **Cross references** | IDA-style xrefs dialog (`X`), callers, callees, **call graph** to any depth, stack frame view |
 | **Names** | MSVC, Itanium C++ and Rust demangling; rename (`N`), comments (`;`), bookmarks (`Alt+M`) — saved per file hash |
 | **Search** | Go to anything (`Ctrl+K`), byte patterns with `??` wildcards (`Alt+B`), text in ASCII and UTF-16 (`Alt+T`), immediate values (`Alt+I`) |
-| **Hex** | Virtualized hex view with VA/offset mapping, data inspector and **in-place patching**; save the patched file |
+| **Hex & patching** | Virtualized hex view with data inspector and in-place byte patching; NOP / invert / force-jump instruction patches; save the patched file |
+| **Scripting** | JavaScript console with the `pn` API — functions, names, xrefs, bytes, rename, comment, patch, goto (`Ctrl+\``) |
 | **Triage** | Hashes (MD5, SHA-1, SHA-256, imphash), entropy map, section map, `checksec`-style mitigations (ASLR, DEP, CFG, RELRO, PIE, canaries, FORTIFY, code signing) |
 | **Interop** | Create functions (`P`), re-run analysis, export names & comments as an **IDA IDC script** |
 | **UI** | Light “ivory” and dark “warm graphite” themes, resizable panels, command palette, drag & drop |
@@ -67,7 +69,9 @@ Builds are not code-signed yet, so Windows SmartScreen may ask for confirmation 
 | `Enter` / double-click | Follow operand | `X` | Cross references |
 | `N` | Rename | `;` | Comment |
 | `P` | Create function | `Alt M` / `Ctrl M` | Bookmark / list bookmarks |
-| `Alt B` / `Alt T` / `Alt I` | Search bytes / text / immediate | `1`–`5` | Overview, listing, graph, pseudocode, hex |
+| `C` / `D` / `A` / `U` | Code / data / string / undefine | `Ctrl Z` / `Ctrl Y` | Undo / redo |
+| Right-click | Context menu (patches, items, views) | ``Ctrl ` `` | Script console |
+| `Alt B` / `Alt T` / `Alt I` | Search bytes / text / immediate | `1`–`6` | Overview, listing, graph, pseudocode, calls, hex |
 | `Ctrl B` / `Ctrl J` | Toggle sidebar / inspector | `B` | Toggle opcode bytes |
 
 ## Command line

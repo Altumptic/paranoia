@@ -20,6 +20,7 @@ const KIND_ICON: Record<SearchHit["kind"], LucideIcon> = {
   import: Import,
   export: FileOutput,
   string: Quote,
+  name: Hash,
 };
 
 export function CommandPalette() {

@@ -539,6 +539,14 @@ impl Binary {
             .unwrap_or_default();
         v.sort_by_key(|x| x.from);
         v.dedup_by_key(|x| x.from);
+        // The referencing instruction, like IDA's xrefs dialog shows.
+        for x in v.iter_mut().take(400) {
+            if let Some(i) =
+                self.bytes_at(x.from).and_then(|b| disasm::render(self.info.arch, b, x.from, 1, &Names(self)).into_iter().next())
+            {
+                x.text = Some(format!("{} {}", i.mnemonic, i.operands.iter().map(|t| t.t.as_str()).collect::<String>()).trim().to_string());
+            }
+        }
         v
     }
 
@@ -616,6 +624,16 @@ impl Binary {
                     rank(&e.name),
                     2,
                     SearchHit { kind: "export".into(), label: e.name.clone(), detail: "export".into(), address: e.address },
+                ));
+            }
+        }
+        // Auto-named data and labels (aString, qword_…, user names on data).
+        for n in self.names() {
+            if matches!(n.kind.as_str(), "data" | "string" | "label" | "user") && m(&n.name) {
+                found.push((
+                    rank(&n.name),
+                    2,
+                    SearchHit { kind: "name".into(), detail: n.kind.clone(), label: n.name, address: n.address },
                 ));
             }
         }
