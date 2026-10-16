@@ -19,11 +19,16 @@ mod analysis;
 pub mod api;
 mod demangle;
 pub mod disasm;
+mod frame;
+mod items;
 mod loader;
 mod metrics;
 pub mod model;
+mod nav;
+mod protos;
 mod pseudo;
 mod strings;
+mod switch;
 mod tools;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -31,8 +36,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::{Deserialize, Serialize};
 
 pub use demangle::demangle;
+pub use frame::{Frame, FrameVar};
+pub use items::{DataItem, ItemKind};
 pub use loader::detect;
 pub use model::*;
+pub use nav::{CallGraph, CallNode, InsnPatch, NameEntry};
 pub use pseudo::{PseudoLine, Pseudocode};
 pub use tools::{parse_pattern, Callee, Hit, SearchKind};
 
@@ -65,6 +73,12 @@ pub struct Annotations {
     /// Patched bytes by file offset.
     #[serde(default)]
     pub patches: BTreeMap<u64, u8>,
+    /// Data definitions (IDA's D / A / C).
+    #[serde(default)]
+    pub items: BTreeMap<u64, DataItem>,
+    /// Automatically found functions the user undefined (IDA's U).
+    #[serde(default)]
+    pub undefined: BTreeSet<u64>,
 }
 
 /// A loaded binary plus everything we learned about it.
@@ -85,6 +99,11 @@ pub struct Binary {
     annotations: Annotations,
     /// Original values of patched bytes, by file offset.
     original_bytes: BTreeMap<u64, u8>,
+    /// Addresses that start their own listing line in data (referenced, named, strings).
+    marks: BTreeSet<u64>,
+    /// Annotation snapshots for undo / redo.
+    undo_stack: Vec<Annotations>,
+    redo_stack: Vec<Annotations>,
 }
 
 impl Binary {
@@ -164,6 +183,9 @@ impl Binary {
             string_by_va: HashMap::new(),
             annotations: Annotations::default(),
             original_bytes: BTreeMap::new(),
+            marks: BTreeSet::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         })
     }
 
@@ -245,7 +267,8 @@ impl Binary {
         let t0 = std::time::Instant::now();
 
         if self.analysis.is_none() {
-            let mut seeds = self.seeds.clone();
+            let skip = self.annotations.undefined.clone();
+            let mut seeds: Vec<Seed> = self.seeds.iter().filter(|s| !skip.contains(&s.address)).copied().collect();
             seeds.extend(self.annotations.functions.iter().filter(|a| self.is_executable(**a)).map(|&address| Seed {
                 address,
                 source: FunctionSource::User,
@@ -253,12 +276,18 @@ impl Binary {
             }));
             let a = if self.info.disassembly_supported {
                 let mut dis = Disassembler::new(self.info.arch);
-                analysis::run(&Source(self), &mut dis, &seeds, self.info.arch == Arch::Arm64)
+                let bits = match self.info.arch {
+                    Arch::X86 => 32,
+                    Arch::X86_64 => 64,
+                    _ => 0,
+                };
+                analysis::run(&Source(self), &mut dis, &seeds, &skip, self.info.arch == Arch::Arm64, bits)
             } else {
                 Analysis::default()
             };
             self.analysis = Some(a);
             self.build_strings(4);
+            self.build_marks();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 self.analysis_millis = t0.elapsed().as_millis() as u64;
@@ -293,6 +322,17 @@ impl Binary {
         }
         self.string_by_va = out.iter().enumerate().filter_map(|(i, s)| Some((s.address?, i))).collect();
         self.strings = out;
+    }
+
+    fn build_marks(&mut self) {
+        let mut m: BTreeSet<u64> = BTreeSet::new();
+        if let Some(a) = &self.analysis {
+            m.extend(a.xrefs.keys().copied());
+        }
+        m.extend(self.static_names.keys().copied());
+        m.extend(self.import_slots.keys().copied());
+        m.extend(self.string_by_va.keys().copied());
+        self.marks = m;
     }
 
     pub fn strings(&self) -> &[StringEntry] {
@@ -352,8 +392,10 @@ impl Binary {
             return Some(demangle::demangle(n).unwrap_or_else(|| n.clone()));
         }
         let a = self.analysis.as_ref()?;
-        let (start, _) = a.block_index.get_key_value(&va)?;
-        Some(format!("loc_{start:X}"))
+        if let Some((start, _)) = a.block_index.get_key_value(&va) {
+            return Some(format!("loc_{start:X}"));
+        }
+        self.auto_data_name(va)
     }
 
     fn function_index_containing(&self, va: u64) -> Option<usize> {
@@ -375,8 +417,36 @@ impl Binary {
         let a = self.analysis.as_ref();
         for ins in insns {
             let va = ins.address;
-            if a.is_some_and(|a| a.by_start.contains_key(&va) || a.block_index.contains_key(&va)) || self.static_names.contains_key(&va) {
+            let is_data = matches!(ins.mnemonic.as_str(), "db" | "dw" | "dd" | "dq" | "text" | "extrn");
+            if is_data
+                || a.is_some_and(|a| a.by_start.contains_key(&va) || a.block_index.contains_key(&va))
+                || self.static_names.contains_key(&va)
+                || self.annotations.names.contains_key(&va)
+            {
                 ins.label = self.name_at(va);
+            }
+            if is_data && ins.mnemonic != "extrn" {
+                if let Some(refs) = a.and_then(|a| a.xrefs.get(&va)) {
+                    let mut parts: Vec<String> = Vec::new();
+                    for r in refs.iter().take(2) {
+                        let f = a.and_then(|a| a.function_containing(r.from));
+                        let k = match r.kind {
+                            XrefKind::Data => "o",
+                            XrefKind::Call => "p",
+                            XrefKind::Jump => "j",
+                        };
+                        parts.push(match f {
+                            Some(f) => format!("{}+{:X}↑{k}", self.function_name(f), r.from - f.address),
+                            None => format!("{:X}↑{k}", r.from),
+                        });
+                    }
+                    if refs.len() > 2 {
+                        parts.push(format!("+{} more", refs.len() - 2));
+                    }
+                    if !parts.is_empty() {
+                        ins.comment = Some(format!("XREF: {}", parts.join(", ")));
+                    }
+                }
             }
             ins.user_comment = self.annotations.comments.get(&va).cloned();
             if let Some(t) = ins.target {
@@ -406,18 +476,28 @@ impl Binary {
     }
 
     /// Linear disassembly of up to `count` instructions starting at `va`.
+    /// Code-and-data listing from `va` (see [`Binary::listing`]).
     pub fn disassemble(&self, va: u64, count: usize) -> Result<Vec<Instruction>, Error> {
-        let bytes = self.bytes_at(va).ok_or(Error::Unmapped(va))?;
-        let mut out = disasm::render(self.info.arch, bytes, va, count, &Names(self));
-        self.annotate(&mut out);
-        Ok(collapse_padding(out))
+        let mut v = self.listing(va, count)?;
+        self.annotate_calls(&mut v);
+        Ok(v)
     }
 
     /// The start of the function (or block) that precedes `va`, for scrolling a listing backwards.
     pub fn previous_anchor(&self, va: u64) -> Option<u64> {
         let a = self.analysis.as_ref()?;
         let r = self.range_of(va)?;
-        a.block_index.range(r.vaddr..va).next_back().map(|(s, _)| *s).or_else(|| (va > r.vaddr).then_some(r.vaddr))
+        let lo = r.vaddr.max(va.saturating_sub(0x400));
+        let block = a.block_index.range(r.vaddr..va).next_back().map(|(s, _)| *s);
+        let mark = self.marks.range(lo..va).next().copied();
+        let item = self.annotations.items.range(lo..va).next().map(|(k, _)| *k);
+        // Prefer the closest structural boundary; in big unstructured data step back ~1 KiB.
+        match (block, mark.into_iter().chain(item).min()) {
+            (Some(b), Some(m)) => Some(b.max(m.min(b.max(lo)))),
+            (Some(b), None) if va - b <= 0x4000 => Some(b),
+            (_, Some(m)) => Some(m),
+            _ => (va > r.vaddr).then_some(lo),
+        }
     }
 
     pub fn function_graph(&self, va: u64) -> Option<FunctionGraph> {
@@ -430,6 +510,7 @@ impl Binary {
             let len = ((b.end - b.start) as usize).min(bytes.len());
             let mut insns = disasm::render(self.info.arch, &bytes[..len], b.start, usize::MAX, &names);
             self.annotate(&mut insns);
+            self.annotate_calls(&mut insns);
             blocks.push(GraphBlock { start: b.start, end: b.end, instructions: insns, succs: b.succs.clone() });
         }
         Some(FunctionGraph { address: f.address, name: self.function_name(f), blocks })
@@ -450,6 +531,7 @@ impl Binary {
                             kind: r.kind,
                             function: f.map(|f| f.address),
                             function_name: f.map(|f| self.function_name(f)),
+                            text: None,
                         }
                     })
                     .collect()
@@ -609,9 +691,13 @@ impl CodeSource for Source<'_> {
     fn import_at(&self, va: u64) -> Option<&str> {
         self.0.import_slots.get(&va).map(|&i| self.0.info.imports[i].name.as_str())
     }
+
+    fn read_at(&self, va: u64) -> Option<&[u8]> {
+        self.0.bytes_at(va)
+    }
 }
 
-struct Names<'a>(&'a Binary);
+pub(crate) struct Names<'a>(pub(crate) &'a Binary);
 
 impl NameLookup for Names<'_> {
     fn name_at(&self, va: u64) -> Option<String> {
@@ -633,7 +719,7 @@ fn looks_like_text(s: &str) -> bool {
 }
 
 /// Folds runs of `int3` / single-byte padding between functions into one `align` line.
-fn collapse_padding(insns: Vec<Instruction>) -> Vec<Instruction> {
+pub(crate) fn collapse_padding(insns: Vec<Instruction>) -> Vec<Instruction> {
     let is_pad = |i: &Instruction| i.label.is_none() && i.user_comment.is_none() && i.mnemonic == "int3";
     let mut out: Vec<Instruction> = Vec::with_capacity(insns.len());
     for ins in insns {
@@ -643,7 +729,7 @@ fn collapse_padding(insns: Vec<Instruction>) -> Vec<Instruction> {
                     if last.mnemonic != "align" {
                         last.mnemonic = "align".into();
                     }
-                    last.size = last.size.saturating_add(ins.size);
+                    last.size += ins.size;
                     last.operands = vec![Token { t: format!("{} bytes", last.size), k: TokenKind::Number }];
                     last.bytes = "cc…".into();
                     continue;

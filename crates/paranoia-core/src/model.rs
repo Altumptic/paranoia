@@ -210,7 +210,7 @@ pub struct Token {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instruction {
     pub address: u64,
-    pub size: u8,
+    pub size: u32,
     pub bytes: String,
     pub mnemonic: String,
     pub operands: Vec<Token>,
@@ -231,6 +231,8 @@ pub enum EdgeKind {
     True,
     False,
     Fall,
+    /// One target of a recovered jump table.
+    Case,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -318,6 +320,9 @@ pub struct Xref {
     /// Function containing `from`, if known.
     pub function: Option<u64>,
     pub function_name: Option<String>,
+    /// The referencing instruction, rendered (for the xrefs dialog).
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -25,6 +25,8 @@ pub struct Decoded {
     pub target: Option<u64>,
     /// Address of a memory operand or address-like immediate (data reference).
     pub data_ref: Option<u64>,
+    /// Access size in bytes of the memory operand behind `data_ref` (0 = unknown).
+    pub mem_size: u8,
     /// Indirect jump/call through a fixed memory slot (`jmp [rip+X]`, `call [X]`).
     pub indirect_slot: Option<u64>,
     pub valid: bool,
@@ -32,7 +34,7 @@ pub struct Decoded {
 
 impl Decoded {
     fn invalid() -> Self {
-        Decoded { len: 1, flow: Flow::None, target: None, data_ref: None, indirect_slot: None, valid: false }
+        Decoded { len: 1, flow: Flow::None, target: None, data_ref: None, mem_size: 0, indirect_slot: None, valid: false }
     }
 
     /// Execution cannot continue to the next instruction.
@@ -92,7 +94,7 @@ impl Disassembler {
             Operand::PCOffset(o) => Some(va.wrapping_add(*o as u64)),
             _ => None,
         });
-        let mut d = Decoded { len: 4, flow: Flow::None, target: None, data_ref: None, indirect_slot: None, valid: true };
+        let mut d = Decoded { len: 4, flow: Flow::None, target: None, data_ref: None, mem_size: 0, indirect_slot: None, valid: true };
         match inst.opcode {
             Opcode::B => {
                 d.flow = Flow::Jump;
@@ -203,7 +205,8 @@ fn x86_summary(ins: &iced_x86::Instruction) -> Decoded {
     }
     // `int3` padding and `ud2` end a block like an interrupt.
     let flow = if ins.mnemonic() == iced_x86::Mnemonic::Ud2 || ins.mnemonic() == iced_x86::Mnemonic::Hlt { Flow::Interrupt } else { flow };
-    Decoded { len: ins.len() as u8, flow, target, data_ref, indirect_slot, valid: true }
+    let mem_size = if data_ref.is_some() && mem.is_some() { ins.memory_size().size().min(255) as u8 } else { 0 };
+    Decoded { len: ins.len() as u8, flow, target, data_ref, mem_size, indirect_slot, valid: true }
 }
 
 fn x86_mem_address(ins: &iced_x86::Instruction) -> Option<u64> {
@@ -342,7 +345,7 @@ fn render_x86(bits: u32, bytes: &[u8], va: u64, max: usize, names: &dyn NameLook
                 let s = x86_summary(&ins);
                 out.push(Instruction {
                     address: ins.ip(),
-                    size: len as u8,
+                    size: len as u32,
                     bytes: hex::encode(&bytes[offset..offset + len]),
                     mnemonic,
                     operands: ops.0,

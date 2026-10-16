@@ -754,6 +754,32 @@ fn args_expr(ctx: &Ctx) -> Expr {
     e
 }
 
+/// Arguments for a call with a known prototype: one per parameter, from the convention.
+fn proto_args(ctx: &Ctx, p: &crate::protos::Proto) -> Expr {
+    let n = p.params.iter().filter(|x| **x != "...").count();
+    if ctx.bits == 32 {
+        return args_expr(ctx);
+    }
+    let conv: &[Register] = if ctx.bin.info.format == Format::Pe {
+        &[Register::RCX, Register::RDX, Register::R8, Register::R9]
+    } else {
+        &[Register::RDI, Register::RSI, Register::RDX, Register::RCX, Register::R8, Register::R9]
+    };
+    let mut e = Expr::default();
+    for k in 0..n {
+        if k > 0 {
+            e = e.cat(Expr::tok(", ", TokenKind::Punct));
+        }
+        match conv.get(k) {
+            Some(r) => e = e.cat(Expr::reg(&reg_name(*r))),
+            // Win64 passes arguments 5+ at [rsp+0x20], [rsp+0x28], … — the same slots as `var_20`, `var_28`.
+            None if ctx.bin.info.format == Format::Pe => e = e.cat(Expr::tok(format!("var_{:X}", 0x20 + 8 * (k - 4)), TokenKind::Register)),
+            None => e = e.cat(Expr::tok(format!("stack_arg{}", k + 1), TokenKind::Register)),
+        }
+    }
+    e
+}
+
 fn condition(ctx: &Ctx, insns: &[Ins], cc: ConditionCode) -> Expr {
     // Find the flag producer: the last flag-writing instruction before the jcc.
     let producer = insns.iter().rev().skip(1).find(|i| writes_flags(i));
@@ -942,7 +968,12 @@ fn emit_insns(
                     }
                 };
                 let reg = if ctx.bits == 64 { "rax" } else { "eax" };
-                l.push(reg, TokenKind::Register).p(" = ").extend(callee).p("(").extend(args_expr(ctx)).p(");");
+                let proto = callee.0.first().and_then(|t| crate::protos::lookup(&t.t));
+                let args = match proto {
+                    Some(p) => proto_args(ctx, p),
+                    None => args_expr(ctx),
+                };
+                l.push(reg, TokenKind::Register).p(" = ").extend(callee).p("(").extend(args).p(");");
                 ctx.written.clear();
                 ctx.pushes.clear();
                 out.push(PseudoLine { address: Some(ins.ip()), indent, tokens: l.toks });
