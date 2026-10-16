@@ -88,6 +88,8 @@ export function GraphView() {
   const info = useStore((s) => s.info)!;
   const cursor = useStore((s) => s.cursor);
   const revision = useStore((s) => s.revision);
+  const breakpoints = useStore((s) => s.breakpoints);
+  const debugPc = useStore((s) => (s.debug?.state === "paused" ? s.debug.pc : null));
   const st = useStore.getState;
 
   const [graph, setGraph] = useState<FunctionGraph | null>(null);
@@ -254,7 +256,7 @@ export function GraphView() {
                 {n.b.instructions.map((ins) => (
                   <div
                     key={ins.address}
-                    className={`gb-line ${cursor === ins.address ? "sel" : ""}`}
+                    className={`gb-line ${cursor === ins.address ? "sel" : ""} ${debugPc === ins.address ? "pc" : ""} ${breakpoints.has(ins.address) ? "bp" : ""}`}
                     onMouseDown={() => st().setCursor(ins.address)}
                     onDoubleClick={() => ins.target != null && st().goto(ins.target)}
                     onContextMenu={(e) => {

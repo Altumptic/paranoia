@@ -93,7 +93,7 @@ function createWindow() {
 
 ipcMain.handle("engine:request", (_e, req) => {
   // Only forward the protocol's known operations.
-  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb"].includes(req.op)) throw new Error("invalid engine request");
+  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug"].includes(req.op)) throw new Error("invalid engine request");
   // Exports may only go to a path the user just picked in a save dialog.
   if (req.op === "export_patched" && req.path !== lastSavePath) throw new Error("export path was not chosen by the user");
   return engine.request(req);

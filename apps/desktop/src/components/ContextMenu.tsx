@@ -11,6 +11,8 @@ import {
   Hash,
   MessageSquare,
   PenLine,
+  CircleDot,
+  CornerDownRight,
   Shapes,
   Share2,
   SkipForward,
@@ -19,6 +21,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { debug } from "../debug";
 import { fmtAddr, useStore } from "../store";
 
 interface Entry {
@@ -84,6 +87,10 @@ export function ContextMenu() {
       { icon: Eraser, label: "Patch: replace with NOPs", run: () => st().patchInsn(va, "nop"), disabled: !isCode },
       { icon: ArrowRightLeft, label: "Patch: invert condition", run: () => st().patchInsn(va, "invert"), disabled: !isCond },
       { icon: SkipForward, label: "Patch: make jump unconditional", run: () => st().patchInsn(va, "jmp"), disabled: !isCond },
+    ],
+    [
+      { icon: CircleDot, label: st().breakpoints.has(va) ? "Remove breakpoint" : "Add breakpoint", keys: "F2", run: () => debug.toggleBreakpoint(va), disabled: !isCode },
+      { icon: CornerDownRight, label: "Run to cursor", keys: "F4", run: () => debug.runTo(va), disabled: st().debug?.state !== "paused" },
     ],
     [
       { icon: GitBranch, label: "Open in graph", keys: "Space", run: () => st().goto(va, { tab: "graph" }), disabled: !isCode },

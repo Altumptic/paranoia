@@ -9,6 +9,7 @@ import { Toasts } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { Workspace } from "./components/Workspace";
 import { desktop } from "./engine/client";
+import { debug } from "./debug";
 import { fromFile, pickFile } from "./files";
 import { useStore } from "./store";
 
@@ -100,6 +101,25 @@ export function App() {
         e.preventDefault();
         st.set("sidebarOpen", true);
         st.set("sidebarTab", "bookmarks");
+      } else if (e.key === "F9" && desktop) {
+        e.preventDefault();
+        st.set("debugOpen", true);
+        debug.cmd("continue");
+      } else if (e.key === "F7" && st.debug) {
+        e.preventDefault();
+        debug.cmd("step_into");
+      } else if (e.key === "F8" && st.debug) {
+        e.preventDefault();
+        debug.cmd("step_over");
+      } else if (e.key === "F4" && st.debug && st.cursor != null) {
+        e.preventDefault();
+        debug.runTo(st.cursor);
+      } else if (e.key === "F2" && st.cursor != null) {
+        e.preventDefault();
+        debug.toggleBreakpoint(st.cursor);
+      } else if (e.key === "F5" && e.shiftKey && st.debug) {
+        e.preventDefault();
+        debug.cmd("stop");
       } else if (e.key === "F5") {
         e.preventDefault();
         st.set("centerTab", st.centerTab === "pseudo" ? "disasm" : "pseudo");

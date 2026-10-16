@@ -17,6 +17,9 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+#[cfg(windows)]
+mod debugger;
+
 use paranoia_core::api::Session;
 use paranoia_db::Store;
 use serde::Deserialize;
@@ -38,6 +41,9 @@ struct Request {
 
 struct Engine {
     sessions: HashMap<u32, Session>,
+    paths: HashMap<u32, String>,
+    #[cfg(windows)]
+    debugger: Option<debugger::Debugger>,
     next: u32,
     store: Option<Store>,
 }
@@ -48,10 +54,11 @@ impl Engine {
             "open" => {
                 let path = r.path.ok_or("missing path")?;
                 let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
-                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(path);
+                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(path.clone());
                 let s = Session::open(&name, bytes)?;
                 self.next += 1;
                 self.sessions.insert(self.next, s);
+                self.paths.insert(self.next, path);
                 Ok(json!(self.next))
             }
             "call" => {
@@ -91,9 +98,70 @@ impl Engine {
                 std::fs::write(&path, s.binary().file_bytes()).map_err(|e| format!("cannot write {path}: {e}"))?;
                 Ok(Value::Null)
             }
+            "debug" => self.debug_op(r.handle, r.method.as_deref().unwrap_or(""), r.args),
             "store" => self.store_op(r.method.as_deref().unwrap_or(""), r.args),
             "ping" => Ok(json!({ "version": env!("CARGO_PKG_VERSION") })),
             other => Err(format!("unknown op `{other}`")),
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn debug_op(&mut self, _h: Option<u32>, _m: &str, _a: Value) -> Result<Value, String> {
+        Err("the debugger is available on Windows only".into())
+    }
+
+    #[cfg(windows)]
+    fn debug_op(&mut self, handle: Option<u32>, method: &str, args: Value) -> Result<Value, String> {
+        let va = args.get("va").and_then(Value::as_u64);
+        match method {
+            "start" => {
+                let h = handle.ok_or("missing handle")?;
+                let s = self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))?;
+                let info = s.binary().info();
+                if info.format != paranoia_core::Format::Pe || info.arch != paranoia_core::Arch::X86_64 {
+                    return Err("the debugger currently supports 64-bit Windows executables".into());
+                }
+                if info.kind != "Executable" {
+                    return Err("only executables can be started (DLLs need a host process)".into());
+                }
+                let path = self.paths.get(&h).cloned().filter(|p| !p.is_empty()).ok_or("the file has no path on disk")?;
+                let size = info.sections.iter().map(|x| x.vaddr + x.vsize).max().unwrap_or(0).saturating_sub(info.image_base);
+                self.debugger = None;
+                let bps = args
+                    .get("breakpoints")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                    .unwrap_or_default();
+                let d = debugger::Debugger::start(debugger::StartArgs {
+                    path,
+                    cmdline: args.get("cmdline").and_then(Value::as_str).unwrap_or("").to_string(),
+                    image_base: info.image_base,
+                    entry: info.entry,
+                    breakpoints: bps,
+                    break_on_entry: args.get("break_on_entry").and_then(Value::as_bool).unwrap_or(true),
+                    image_size: size,
+                })?;
+                self.debugger = Some(d);
+                Ok(json!(true))
+            }
+            "poll" => match &self.debugger {
+                Some(d) => serde_json::to_value(d.snapshot()).map_err(|e| e.to_string()),
+                None => Ok(json!({ "state": "idle" })),
+            },
+            "read" => {
+                let d = self.debugger.as_ref().ok_or("no debug session")?;
+                let len = args.get("len").and_then(Value::as_u64).unwrap_or(256) as usize;
+                Ok(json!(hex_encode(&d.read(va.ok_or("missing va")?, len)?)))
+            }
+            "end" => {
+                self.debugger = None;
+                Ok(Value::Null)
+            }
+            cmd => {
+                let d = self.debugger.as_ref().ok_or("no debug session")?;
+                d.command(cmd, va)?;
+                Ok(Value::Null)
+            }
         }
     }
 
@@ -126,6 +194,11 @@ impl Engine {
     }
 }
 
+#[cfg(windows)]
+fn hex_encode(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
 fn panic_message(p: Box<dyn std::any::Any + Send>) -> String {
     p.downcast_ref::<&str>()
         .map(|s| s.to_string())
@@ -148,7 +221,14 @@ fn main() {
         }
     }
     let store = store_path.and_then(|p| Store::open(&p).map_err(|e| eprintln!("workspace store disabled: {e}")).ok());
-    let mut engine = Engine { sessions: HashMap::new(), next: 0, store };
+    let mut engine = Engine {
+        sessions: HashMap::new(),
+        paths: HashMap::new(),
+        #[cfg(windows)]
+        debugger: None,
+        next: 0,
+        store,
+    };
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();

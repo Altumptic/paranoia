@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { DebugSnapshot } from "./debug";
 import { getBackend, Session, type OpenSource, type RecentFile } from "./engine/client";
 import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, InsnPatch, Instruction, SearchKind } from "./engine/types";
 
@@ -46,6 +47,10 @@ interface State {
   xrefsFor: number | null;
   contextMenu: null | { x: number; y: number; va: number; ins: Instruction | null };
   consoleOpen: boolean;
+  debugOpen: boolean;
+  debug: DebugSnapshot | null;
+  /** Breakpoints as static VAs (kept across debug sessions). */
+  breakpoints: Set<number>;
   log: { t: number; kind: "info" | "error" | "out"; text: string }[];
   undoDepth: [number, number];
 
@@ -106,6 +111,9 @@ export const useStore = create<State>((set, get) => ({
   xrefsFor: null,
   contextMenu: null,
   consoleOpen: false,
+  debugOpen: false,
+  debug: null,
+  breakpoints: new Set<number>(),
   log: [],
   undoDepth: [0, 0],
 
@@ -166,7 +174,7 @@ export const useStore = create<State>((set, get) => ({
 
   async close() {
     const s = get().session;
-    set({ session: null, info: null, stats: null, functions: [], cursor: null, history: [], historyIndex: -1, path: null });
+    set({ session: null, info: null, stats: null, functions: [], cursor: null, history: [], historyIndex: -1, path: null, debug: null, debugOpen: false, breakpoints: new Set() });
     await s?.close().catch(() => {});
     get().loadRecent();
   },
