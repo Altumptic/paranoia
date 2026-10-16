@@ -25,6 +25,7 @@ mod loader;
 mod metrics;
 pub mod model;
 mod nav;
+mod pdbsym;
 mod protos;
 mod pseudo;
 mod strings;
@@ -41,6 +42,7 @@ pub use items::{DataItem, ItemKind};
 pub use loader::detect;
 pub use model::*;
 pub use nav::{CallGraph, CallNode, InsnPatch, NameEntry};
+pub use pdbsym::PdbReport;
 pub use pseudo::{PseudoLine, Pseudocode};
 pub use tools::{parse_pattern, Callee, Hit, SearchKind};
 
@@ -101,6 +103,8 @@ pub struct Binary {
     original_bytes: BTreeMap<u64, u8>,
     /// Addresses that start their own listing line in data (referenced, named, strings).
     marks: BTreeSet<u64>,
+    /// Addresses named from a loaded PDB.
+    pdb_names: BTreeSet<u64>,
     /// Annotation snapshots for undo / redo.
     undo_stack: Vec<Annotations>,
     redo_stack: Vec<Annotations>,
@@ -184,6 +188,7 @@ impl Binary {
             annotations: Annotations::default(),
             original_bytes: BTreeMap::new(),
             marks: BTreeSet::new(),
+            pdb_names: BTreeSet::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
         })

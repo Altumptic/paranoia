@@ -93,7 +93,7 @@ function createWindow() {
 
 ipcMain.handle("engine:request", (_e, req) => {
   // Only forward the protocol's known operations.
-  if (!req || !["open", "call", "close", "store", "ping", "export_patched"].includes(req.op)) throw new Error("invalid engine request");
+  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb"].includes(req.op)) throw new Error("invalid engine request");
   // Exports may only go to a path the user just picked in a save dialog.
   if (req.op === "export_patched" && req.path !== lastSavePath) throw new Error("export path was not chosen by the user");
   return engine.request(req);
@@ -123,6 +123,11 @@ ipcMain.handle("dialog:save", async (_e, defaultName, filters) => {
 ipcMain.handle("file:write-text", async (_e, p, text) => {
   if (!p || p !== lastSavePath || typeof text !== "string") throw new Error("write path was not chosen by the user");
   await fs.promises.writeFile(p, text, "utf8");
+});
+
+ipcMain.handle("dialog:pdb", async () => {
+  const r = await dialog.showOpenDialog(win, { title: "Load PDB symbols", properties: ["openFile"], filters: [{ name: "Program database", extensions: ["pdb"] }] });
+  return r.canceled ? null : r.filePaths[0];
 });
 
 ipcMain.handle("app:info", () => ({ version: app.getVersion(), engine: engineExe(), electron: process.versions.electron, platform: process.platform }));

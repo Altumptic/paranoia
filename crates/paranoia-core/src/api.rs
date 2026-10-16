@@ -50,6 +50,12 @@ struct Offset {
 }
 
 #[derive(Deserialize)]
+struct PdbArgs {
+    hex: String,
+    force: Option<bool>,
+}
+
+#[derive(Deserialize)]
 struct GraphArgs {
     va: u64,
     up: Option<u32>,
@@ -238,6 +244,12 @@ impl Session {
             "undo" => to(b.undo()),
             "redo" => to(b.redo()),
             "history" => to(b.history()),
+            "pdbPath" => to(b.pdb_path()),
+            "loadPdb" => {
+                let a: PdbArgs = args(args_v)?;
+                let bytes = hex::decode(&a.hex).map_err(|e| format!("invalid hex: {e}"))?;
+                to(b.load_pdb(bytes, a.force.unwrap_or(false))?)
+            }
             "version" => Ok(json!(env!("CARGO_PKG_VERSION"))),
             _ => Err(format!("unknown method `{method}`")),
         }

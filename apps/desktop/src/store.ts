@@ -64,6 +64,7 @@ interface State {
   patch(offset: number, hex: string): Promise<void>;
   revertPatches(): Promise<void>;
   exportIdc(): Promise<void>;
+  loadPdb(src?: { path: string } | { bytes: ArrayBuffer }): Promise<void>;
   savePatched(): Promise<void>;
   item(op: "undefine" | "code" | "data" | "string", va: number): Promise<void>;
   patchInsn(va: number, op: InsnPatch): Promise<void>;
@@ -143,6 +144,10 @@ export const useStore = create<State>((set, get) => ({
         "info",
       );
       set({ undoDepth: await session.history() });
+      if (path && info.format === "pe") {
+        const pdb = await session.findPdb(path).catch(() => null);
+        if (pdb) await get().loadPdb({ path: pdb });
+      }
       await backend.addRecent({
         name: info.file_name,
         path,
@@ -325,6 +330,51 @@ export const useStore = create<State>((set, get) => ({
     await session.revertPatches();
     set({ annotations: await persist(session, info), revision: get().revision + 1 });
     get().toast("All patches reverted", "success");
+  },
+
+  async loadPdb(src) {
+    const { session } = get();
+    if (!session) return;
+    const { desktop } = await import("./engine/client");
+    let source = src;
+    if (!source) {
+      if (desktop) {
+        const p = await desktop.pdbDialog();
+        if (!p) return;
+        source = { path: p };
+      } else {
+        source = await new Promise<{ bytes: ArrayBuffer } | undefined>((resolve) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".pdb";
+          input.onchange = async () => resolve(input.files?.[0] ? { bytes: await input.files[0].arrayBuffer() } : undefined);
+          input.click();
+        });
+        if (!source) return;
+      }
+    }
+    const run = (force: boolean) => ("path" in source! ? session.loadPdbPath(source.path, force) : session.loadPdbBytes(source!.bytes, force));
+    set({ loading: { name: get().info?.file_name ?? "", phase: "Loading PDB symbols…" } });
+    try {
+      let r;
+      try {
+        r = await run(false);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        set({ loading: null });
+        if (!/does not match/.test(msg) || !window.confirm(`${msg}\n\nLoad it anyway?`)) throw e;
+        set({ loading: { name: get().info?.file_name ?? "", phase: "Loading PDB symbols…" } });
+        r = await run(true);
+      }
+      const [functions, stats] = await Promise.all([session.functions(), session.stats()]);
+      set({ functions, stats, loading: null, revision: get().revision + 1 });
+      const text = `PDB ${r.guid}: ${r.names} names, ${r.functions} functions${r.matched ? "" : " (GUID mismatch)"}`;
+      get().print(text, "info");
+      get().toast(`Loaded symbols: ${r.names} names`, "success");
+    } catch (e) {
+      set({ loading: null });
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
   },
 
   async exportIdc() {

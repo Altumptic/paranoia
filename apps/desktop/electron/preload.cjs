@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("paranoia", {
   engine: (req) => ipcRenderer.invoke("engine:request", req),
   openDialog: () => ipcRenderer.invoke("dialog:open"),
+  pdbDialog: () => ipcRenderer.invoke("dialog:pdb"),
   info: () => ipcRenderer.invoke("app:info"),
   reveal: (p) => ipcRenderer.invoke("app:reveal", p),
   saveDialog: (name, filters) => ipcRenderer.invoke("dialog:save", name, filters),
