@@ -69,6 +69,22 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
+      # Code signing: add WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD
+      # as repository secrets and every release is signed. Without them builds stay unsigned.
+      - name: Configure code signing
+        shell: bash
+        env:
+          CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "CSC_LINK=$CERT" >> "$GITHUB_ENV"
+            echo "CSC_KEY_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
+            echo "Signing enabled"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "::warning::No signing certificate configured; the release will be unsigned"
+          fi
       - working-directory: apps/desktop
         run: |
           npm ci

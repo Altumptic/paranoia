@@ -15,6 +15,7 @@ import type {
   InsnPatch,
   ItemKind,
   NameEntry,
+  PdbReport,
   Pseudocode,
   SearchKind,
   FunctionGraph,
@@ -150,6 +151,7 @@ class WasmBackend implements Backend {
 export interface DesktopBridge {
   engine(req: Record<string, unknown>): Promise<unknown>;
   openDialog(): Promise<string | null>;
+  pdbDialog(): Promise<string | null>;
   info(): Promise<{ version: string; engine: string; electron: string; platform: string }>;
   reveal(path: string): Promise<void>;
   saveDialog(defaultName: string, filters: { name: string; extensions: string[] }[]): Promise<string | null>;
@@ -286,6 +288,23 @@ export class Session {
   undo = () => this.c<boolean | null>("undo");
   redo = () => this.c<boolean | null>("redo");
   history = () => this.c<[number, number]>("history");
+
+  /** Desktop: a PDB next to the binary (or at its recorded path), if one exists. */
+  async findPdb(binaryPath: string): Promise<string | null> {
+    if (this.backend.kind !== "native") return null;
+    return (await this.backend.raw({ op: "find_pdb", handle: this.handle, path: binaryPath })) as string | null;
+  }
+
+  async loadPdbPath(path: string, force = false): Promise<PdbReport> {
+    return (await this.backend.raw({ op: "load_pdb", handle: this.handle, path, args: { force } })) as PdbReport;
+  }
+
+  async loadPdbBytes(bytes: ArrayBuffer, force = false): Promise<PdbReport> {
+    const u8 = new Uint8Array(bytes);
+    let hex = "";
+    for (let i = 0; i < u8.length; i++) hex += u8[i].toString(16).padStart(2, "0");
+    return this.c<PdbReport>("loadPdb", { hex, force });
+  }
 
   /** Writes the (patched) file. Desktop: straight to disk; browser: returns the bytes. */
   async exportPatched(path: string | null): Promise<Uint8Array | null> {

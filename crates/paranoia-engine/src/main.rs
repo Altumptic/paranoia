@@ -65,6 +65,25 @@ impl Engine {
                 }
                 Ok(Value::Null)
             }
+            "load_pdb" => {
+                let h = r.handle.ok_or("missing handle")?;
+                let path = r.path.ok_or("missing path")?;
+                let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+                let force = r.args.get("force").and_then(Value::as_bool).unwrap_or(false);
+                let s = self.sessions.get_mut(&h).ok_or_else(|| format!("no session {h}"))?;
+                serde_json::to_value(s.binary_mut().load_pdb(bytes, force)?).map_err(|e| e.to_string())
+            }
+            "find_pdb" => {
+                // Look next to the binary for the PDB named in its CodeView record.
+                let h = r.handle.ok_or("missing handle")?;
+                let path = r.path.ok_or("missing path")?;
+                let s = self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))?;
+                let Some(recorded) = s.binary().pdb_path() else { return Ok(Value::Null) };
+                let file = recorded.rsplit(['\\', '/']).next().unwrap_or(&recorded).to_string();
+                let dir = std::path::Path::new(&path).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+                let candidates = [std::path::PathBuf::from(&recorded), dir.join(&file)];
+                Ok(candidates.iter().find(|c| c.is_file()).map(|c| json!(c.to_string_lossy())).unwrap_or(Value::Null))
+            }
             "export_patched" => {
                 let h = r.handle.ok_or("missing handle")?;
                 let path = r.path.ok_or("missing path")?;

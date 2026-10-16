@@ -255,6 +255,13 @@ export interface Callee {
   is_import: boolean;
 }
 
+export interface PdbReport {
+  functions: number;
+  names: number;
+  guid: string;
+  matched: boolean;
+}
+
 export type SearchKind = "bytes" | "text" | "immediate";
 
 export interface Hit {

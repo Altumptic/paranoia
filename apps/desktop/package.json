@@ -74,7 +74,17 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "Paranoia-${version}-${arch}-${target}.${ext}"
+      "artifactName": "Paranoia-${version}-${arch}-${target}.${ext}",
+      "signExts": [
+        ".exe"
+      ],
+      "signtoolOptions": {
+        "publisherName": "Paranoia contributors",
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      }
     },
     "nsis": {
       "oneClick": false,

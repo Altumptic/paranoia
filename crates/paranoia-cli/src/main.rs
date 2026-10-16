@@ -34,7 +34,12 @@ enum Cmd {
         referenced: bool,
     },
     /// Run auto-analysis and list discovered functions.
-    Functions { file: PathBuf },
+    Functions {
+        file: PathBuf,
+        /// Load symbols from this PDB first.
+        #[arg(long)]
+        pdb: Option<PathBuf>,
+    },
     /// Disassemble from an address (defaults to the entry point).
     Disasm {
         file: PathBuf,
@@ -163,9 +168,14 @@ fn main() -> Result<()> {
                 println!("{addr}  {:>3}  {}", s.xrefs, s.value.escape_debug());
             }
         }
-        Cmd::Functions { file } => {
+        Cmd::Functions { file, pdb } => {
             let mut bin = open(&file)?;
-            let stats = bin.analyze();
+            let mut stats = bin.analyze();
+            if let Some(p) = pdb {
+                let r = bin.load_pdb(std::fs::read(&p)?, false).map_err(anyhow::Error::msg)?;
+                eprintln!("PDB {}: {} functions, {} names", r.guid, r.functions, r.names);
+                stats = bin.analyze();
+            }
             let f = bin.functions();
             if cli.json {
                 return print_json(&f);
