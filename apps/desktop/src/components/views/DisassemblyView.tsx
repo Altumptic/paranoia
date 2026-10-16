@@ -245,6 +245,12 @@ export function DisassemblyView() {
         e.preventDefault();
         if (cursor != null) s.set("xrefsFor", cur?.address ?? cursor);
         break;
+      case "q":
+      case "Q":
+        if (!e.altKey) break;
+        e.preventDefault();
+        if (cur) s.set("dialog", { kind: "struct", va: cur.address, initial: "" });
+        break;
       case "u":
       case "U":
         e.preventDefault();

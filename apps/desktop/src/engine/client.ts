@@ -16,6 +16,7 @@ import type {
   ItemKind,
   NameEntry,
   PdbReport,
+  TypeLibrary,
   Pseudocode,
   SearchKind,
   FunctionGraph,
@@ -288,6 +289,9 @@ export class Session {
   undo = () => this.c<boolean | null>("undo");
   redo = () => this.c<boolean | null>("redo");
   history = () => this.c<[number, number]>("history");
+  types = () => this.c<TypeLibrary>("types");
+  setTypes = (text: string) => this.c<number>("setTypes", { text });
+  applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
 
   /** Desktop: a PDB next to the binary (or at its recorded path), if one exists. */
   async findPdb(binaryPath: string): Promise<string | null> {

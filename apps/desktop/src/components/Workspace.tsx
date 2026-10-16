@@ -6,6 +6,7 @@ import {
   Box,
   FileText,
   Network,
+  Shapes,
   Tags,
   Terminal,
   Braces,
@@ -50,6 +51,7 @@ const SIDEBAR: { id: SidebarTab; icon: typeof Box; label: string }[] = [
   { id: "strings", icon: Quote, label: "Strings" },
   { id: "sections", icon: Box, label: "Sections" },
   { id: "symbols", icon: Code2, label: "Symbols" },
+  { id: "types", icon: Shapes, label: "Local types" },
   { id: "bookmarks", icon: Bookmark, label: "Bookmarks" },
 ];
 

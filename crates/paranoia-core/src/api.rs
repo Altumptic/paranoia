@@ -50,6 +50,18 @@ struct Offset {
 }
 
 #[derive(Deserialize)]
+struct TextArg {
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct StructArgs {
+    va: u64,
+    name: String,
+    count: Option<u32>,
+}
+
+#[derive(Deserialize)]
 struct PdbArgs {
     hex: String,
     force: Option<bool>,
@@ -249,6 +261,18 @@ impl Session {
                 let a: PdbArgs = args(args_v)?;
                 let bytes = hex::decode(&a.hex).map_err(|e| format!("invalid hex: {e}"))?;
                 to(b.load_pdb(bytes, a.force.unwrap_or(false))?)
+            }
+            "types" => to(&b.annotations().types),
+            "setTypes" => {
+                let a: TextArg = args(args_v)?;
+                b.checkpoint();
+                to(b.set_types(&a.text)?)
+            }
+            "applyStruct" => {
+                let a: StructArgs = args(args_v)?;
+                b.checkpoint();
+                b.apply_struct(a.va, &a.name, a.count.unwrap_or(1))?;
+                Ok(Value::Null)
             }
             "version" => Ok(json!(env!("CARGO_PKG_VERSION"))),
             _ => Err(format!("unknown method `{method}`")),

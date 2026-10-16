@@ -43,6 +43,7 @@ export function Sidebar() {
       {tab === "sections" && <SectionsPanel />}
       {tab === "symbols" && <SymbolsPanel />}
       {tab === "bookmarks" && <BookmarksPanel />}
+      {tab === "types" && <TypesPanel />}
     </div>
   );
 }
@@ -431,6 +432,93 @@ ${n.kind}`}>
           )}
         />
       )}
+    </>
+  );
+}
+
+const TYPE_EXAMPLE = `// Local types: C declarations, like IDA's Local Types window.
+typedef struct _POINT {
+  LONG x;
+  LONG y;
+} POINT;
+
+struct Header {
+  DWORD magic;
+  WORD  version;
+  WORD  flags;
+  char *name;
+  POINT origin;
+};
+
+enum Mode { MODE_READ = 1, MODE_WRITE = 2 };
+`;
+
+function TypesPanel() {
+  const session = useStore((s) => s.session)!;
+  const lib = useStore((s) => s.annotations.types);
+  const cursor = useStore((s) => s.cursor);
+  const [text, setText] = useState(lib?.source || TYPE_EXAMPLE);
+  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const st = useStore.getState;
+  const structs = Object.values(lib?.structs ?? {});
+  const save = async () => {
+    try {
+      const n = await session.setTypes(text);
+      setErr(null);
+      await st().afterEdit(false);
+      st().toast(`${n} type${n === 1 ? "" : "s"} defined`, "success");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      <Header title="Local types" count={structs.length} />
+      <div className="types-editor">
+        <textarea className="mono" value={text} spellCheck={false} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => (e.ctrlKey || e.metaKey) && e.key === "Enter" && save()} />
+        {err && <div className="search-error">{err}</div>}
+        <button className="btn sm primary" onClick={save}>
+          Save types <span className="kbd on-accent">Ctrl Enter</span>
+        </button>
+      </div>
+      <div className="types-list">
+        {structs.map((sd) => (
+          <div key={sd.name} className="type-card">
+            <button className="type-head" onClick={() => setOpen(open === sd.name ? null : sd.name)}>
+              {open === sd.name ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span className="mono type-name">{sd.name}</span>
+              <span className="muted small">{sd.size.toString(16).toUpperCase()}h bytes</span>
+              <span className="side-head-spacer" />
+              <span
+                className="link small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (cursor != null) st().set("dialog", { kind: "struct", va: cursor, initial: sd.name });
+                }}
+              >
+                apply
+              </span>
+            </button>
+            {open === sd.name && (
+              <table className="frame-table mono">
+                <tbody>
+                  {sd.fields.map((f) => (
+                    <tr key={f.name}>
+                      <td className="fr-off">{f.offset.toString(16).toUpperCase()}</td>
+                      <td className="fr-name">{f.name}</td>
+                      <td className="fr-size">
+                        {f.ty}
+                        {f.count > 1 ? `[${f.count}]` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+      </div>
     </>
   );
 }
