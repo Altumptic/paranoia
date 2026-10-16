@@ -21,12 +21,14 @@ pub enum ItemKind {
     Utf16,
     /// Force instructions here (e.g. shellcode in a data section).
     Code,
+    /// An instance (or array) of a local struct type named in `DataItem::ty`.
+    Struct,
 }
 
 impl ItemKind {
     fn unit(self) -> u64 {
         match self {
-            ItemKind::Byte | ItemKind::Ascii | ItemKind::Code => 1,
+            ItemKind::Byte | ItemKind::Ascii | ItemKind::Code | ItemKind::Struct => 1,
             ItemKind::Word | ItemKind::Utf16 => 2,
             ItemKind::Dword => 4,
             ItemKind::Qword => 8,
@@ -34,11 +36,14 @@ impl ItemKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DataItem {
     pub kind: ItemKind,
     #[serde(default = "one")]
     pub count: u32,
+    /// Struct type name for `ItemKind::Struct`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ty: Option<String>,
 }
 
 fn one() -> u32 {
@@ -158,6 +163,7 @@ impl Binary {
                     return Some(self.string_value(va).map(|s| string_name(&s)).unwrap_or_else(|| format!("aStr_{va:X}")))
                 }
                 ItemKind::Code => return None,
+                ItemKind::Struct => "stru_",
                 ItemKind::Byte => "byte_",
                 ItemKind::Word => "word_",
                 ItemKind::Dword => "dword_",
@@ -258,7 +264,7 @@ impl Binary {
         }
 
         // User-defined items.
-        if let Some(it) = self.annotations.items.get(&va).copied() {
+        if let Some(it) = self.annotations.items.get(&va).cloned() {
             return self.item_line(va, it, bytes);
         }
 
@@ -439,6 +445,21 @@ impl Binary {
                     }
                     continue;
                 }
+            } else if let Some(DataItem { kind: ItemKind::Struct, ty: Some(ty), count }) = self.annotations.items.get(&cur).cloned() {
+                let size = self.annotations.types.structs.get(&ty).map(|s| s.size.max(1)).unwrap_or(1);
+                let base = self.auto_data_name(cur).unwrap_or_default();
+                for i in 0..count.max(1) as u64 {
+                    let start = out.len();
+                    let path = if count > 1 { format!("{ty}[{i}]") } else { ty.clone() };
+                    self.struct_lines(cur + i * size, &ty, &path, 0, &mut out);
+                    if i == 0 {
+                        if let Some(first) = out.get_mut(start) {
+                            first.label = Some(base.clone());
+                        }
+                    }
+                }
+                cur += size * count.max(1) as u64;
+                continue;
             } else {
                 out.push(self.data_line_at(cur, range_end));
             }
@@ -464,16 +485,98 @@ impl Binary {
         if self.range_of(va).is_none() {
             return Err(format!("{va:#x} is not mapped"));
         }
-        let it = DataItem { kind, count: count.max(1) };
+        let it = DataItem { kind, count: count.max(1), ty: None };
         self.clear_items(va, va + it.size());
         self.annotations.items.insert(va, it);
         Ok(())
     }
 
+    /// Replaces the local type library with `source` (C declarations).
+    pub fn set_types(&mut self, source: &str) -> Result<usize, String> {
+        let lib = crate::types::parse(source, self.ptr_size())?;
+        let n = lib.structs.len() + lib.enums.len();
+        self.annotations.types = lib;
+        Ok(n)
+    }
+
+    /// Applies a struct type to `va` (IDA's Alt+Q), optionally as an array.
+    pub fn apply_struct(&mut self, va: u64, name: &str, count: u32) -> Result<(), String> {
+        let sd = self.annotations.types.structs.get(name).ok_or_else(|| format!("no struct named `{name}` — declare it in Local Types"))?;
+        let size = sd.size.max(1) * count.max(1) as u64;
+        if self.range_of(va).is_none() {
+            return Err(format!("{va:#x} is not mapped"));
+        }
+        self.clear_items(va, va + size);
+        self.annotations.items.insert(va, DataItem { kind: ItemKind::Struct, count: count.max(1), ty: Some(name.to_string()) });
+        Ok(())
+    }
+
+    /// One listing line per field (arrays of scalars on one line), nested structs flattened.
+    fn struct_lines(&self, va: u64, ty: &str, path: &str, depth: u32, out: &mut Vec<Instruction>) {
+        let Some(sd) = self.annotations.types.structs.get(ty).cloned() else { return };
+        for f in &sd.fields {
+            let at = va + f.offset;
+            let fpath = format!("{path}.{}", f.name);
+            if let (Some(n), false) = (&f.nested, depth > 4) {
+                for i in 0..f.count.min(64) {
+                    let p = if f.count > 1 { format!("{fpath}[{i}]") } else { fpath.clone() };
+                    self.struct_lines(at + i * f.elem_size, n, &p, depth + 1, out);
+                }
+                continue;
+            }
+            let size = f.elem_size * f.count;
+            let bytes = self.bytes_at(at).map(|b| &b[..(size as usize).min(b.len())]).unwrap_or(&[]);
+            let (mnem, unit) = match f.elem_size {
+                1 => ("db", 1),
+                2 => ("dw", 2),
+                4 => ("dd", 4),
+                8 => ("dq", 8),
+                _ => ("db", 1),
+            };
+            let mut ops = Vec::new();
+            let mut target = None;
+            let n = (size / unit).max(1);
+            for i in 0..n.min(16) {
+                if i > 0 {
+                    ops.push(tok(", ", TokenKind::Punct));
+                }
+                match self.read_uint(at + i * unit, unit) {
+                    Some(v) if f.pointer && v > 0x10000 && self.range_of(v).is_some() => {
+                        let name = self.name_at(v).or_else(|| self.auto_data_name(v)).unwrap_or_else(|| format!("unk_{v:X}"));
+                        ops.push(tok("offset ", TokenKind::Keyword));
+                        ops.push(tok(name, TokenKind::Symbol));
+                        target.get_or_insert(v);
+                    }
+                    Some(v) => ops.push(tok(format!("{v:#x}"), TokenKind::Number)),
+                    None => ops.push(tok("?", TokenKind::Number)),
+                }
+            }
+            if n > 16 {
+                ops.push(tok(format!(", … ({n} items)"), TokenKind::Punct));
+            }
+            let mut l = data_line(at, size.max(1), bytes, mnem, ops);
+            l.target = target;
+            l.comment = Some(format!("{fpath} : {}{}", f.ty, if f.count > 1 { format!("[{}]", f.count) } else { String::new() }));
+            out.push(l);
+        }
+        // Tail padding so the next item starts where it should.
+        let used = sd.fields.iter().map(|f| f.offset + f.elem_size * f.count).max().unwrap_or(0);
+        if used < sd.size {
+            let pad = sd.size - used;
+            out.push(data_line(
+                va + used,
+                pad,
+                &[],
+                "db",
+                vec![tok(format!("{pad}"), TokenKind::Number), tok(" dup(?)", TokenKind::Punct)],
+            ));
+        }
+    }
+
     /// Cycles byte → word → dword → qword → byte, like pressing `D` repeatedly.
     pub fn cycle_data(&mut self, va: u64) -> Result<ItemKind, String> {
         let next = match self.annotations.items.get(&va).map(|i| i.kind) {
-            None | Some(ItemKind::Code) | Some(ItemKind::Ascii) | Some(ItemKind::Utf16) => ItemKind::Byte,
+            None | Some(ItemKind::Code) | Some(ItemKind::Ascii) | Some(ItemKind::Utf16) | Some(ItemKind::Struct) => ItemKind::Byte,
             Some(ItemKind::Byte) => ItemKind::Word,
             Some(ItemKind::Word) => ItemKind::Dword,
             Some(ItemKind::Dword) => ItemKind::Qword,
@@ -499,7 +602,7 @@ impl Binary {
     pub fn make_code(&mut self, va: u64) -> Result<(), String> {
         self.clear_items(va, va + 16);
         if !self.is_executable(va) {
-            self.annotations.items.insert(va, DataItem { kind: ItemKind::Code, count: 1 });
+            self.annotations.items.insert(va, DataItem { kind: ItemKind::Code, count: 1, ty: None });
         }
         Ok(())
     }
@@ -530,7 +633,7 @@ mod tests {
         assert_eq!(string_name("Hello, world!\n"), "aHelloWorld");
         assert_eq!(string_name("%s"), "aS");
         assert_eq!(string_name("!!!"), "aStr");
-        assert_eq!(DataItem { kind: ItemKind::Dword, count: 3 }.size(), 12);
-        assert_eq!(DataItem { kind: ItemKind::Utf16, count: 3 }.size(), 8);
+        assert_eq!(DataItem { kind: ItemKind::Dword, count: 3, ty: None }.size(), 12);
+        assert_eq!(DataItem { kind: ItemKind::Utf16, count: 3, ty: None }.size(), 8);
     }
 }

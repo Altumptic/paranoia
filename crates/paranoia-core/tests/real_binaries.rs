@@ -124,3 +124,20 @@ fn switch_tables_and_data_listing() {
         }
     }
 }
+
+/// Local types applied to data render one line per field.
+#[test]
+fn structs_in_listing() {
+    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    bin.set_types("typedef struct { DWORD a; WORD b; BYTE c[2]; char *p; } T;").unwrap();
+    let va = bin.info().sections.iter().find(|s| s.name == ".rdata").unwrap().vaddr + 0x800;
+    bin.apply_struct(va, "T", 2).unwrap();
+    let l = bin.disassemble(va, 10).unwrap();
+    let fields: Vec<_> = l.iter().take(4).map(|i| i.comment.clone().unwrap_or_default()).collect();
+    assert!(fields[0].starts_with("T[0].a"), "{fields:?}");
+    assert!(fields[3].starts_with("T[0].p"), "{fields:?}");
+    assert_eq!(l[4].address, va + 16);
+    assert!(l[0].label.as_deref().unwrap_or("").starts_with("stru_"));
+}

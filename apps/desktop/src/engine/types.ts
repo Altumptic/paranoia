@@ -194,9 +194,10 @@ export interface Annotations {
   patches?: Record<string, number>;
   items?: Record<string, { kind: ItemKind; count: number }>;
   undefined?: number[];
+  types?: TypeLibrary;
 }
 
-export type ItemKind = "byte" | "word" | "dword" | "qword" | "ascii" | "utf16" | "code";
+export type ItemKind = "byte" | "word" | "dword" | "qword" | "ascii" | "utf16" | "code" | "struct";
 export type InsnPatch = "nop" | "invert" | "jmp";
 
 export interface FrameVar {
@@ -260,6 +261,29 @@ export interface PdbReport {
   names: number;
   guid: string;
   matched: boolean;
+}
+
+export interface StructField {
+  name: string;
+  ty: string;
+  offset: number;
+  elem_size: number;
+  count: number;
+  nested: string | null;
+  pointer: boolean;
+}
+
+export interface StructDef {
+  name: string;
+  size: number;
+  align: number;
+  fields: StructField[];
+}
+
+export interface TypeLibrary {
+  source: string;
+  structs: Record<string, StructDef>;
+  enums: Record<string, { name: string; members: [string, number][] }>;
 }
 
 export type SearchKind = "bytes" | "text" | "immediate";

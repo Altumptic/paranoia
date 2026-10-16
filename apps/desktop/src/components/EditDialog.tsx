@@ -29,6 +29,19 @@ export function EditDialog() {
       }
       await st.rename(dialog.va, v);
       st.toast(v ? `Renamed to ${v}` : "Name reset", "success");
+    } else if (dialog.kind === "struct") {
+      const m = /^\s*([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?\s*$/.exec(value);
+      if (!m) {
+        st.toast("Enter a struct name, optionally with a count: POINT or POINT[4]", "error");
+        return;
+      }
+      try {
+        await st.session!.applyStruct(dialog.va, m[1], m[2] ? Number(m[2]) : 1);
+        await st.afterEdit(false);
+        st.toast(`Applied ${m[1]}${m[2] ? `[${m[2]}]` : ""}`, "success");
+      } catch (e) {
+        st.toast(e instanceof Error ? e.message : String(e), "error");
+      }
     } else if (dialog.kind === "bookmark") {
       await st.bookmark(dialog.va, value.trim() ? value.trim() : null);
       st.toast(value.trim() ? "Bookmark saved" : "Bookmark removed", "success");
@@ -37,12 +50,13 @@ export function EditDialog() {
     }
   };
 
-  const isRename = dialog.kind === "rename" || dialog.kind === "bookmark";
+  const isRename = dialog.kind !== "comment";
+  const structNames = Object.keys(useStore.getState().annotations.types?.structs ?? {});
   return (
     <div className="modal-veil" onMouseDown={close}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">
-          {dialog.kind === "rename" ? "Rename" : dialog.kind === "bookmark" ? "Bookmark" : "Comment"} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
+          {{ rename: "Rename", bookmark: "Bookmark", comment: "Comment", struct: "Apply struct" }[dialog.kind]} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
         </div>
         {isRename ? (
           <input
@@ -50,13 +64,30 @@ export function EditDialog() {
             className="input mono"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder={dialog.kind === "bookmark" ? "Describe this location — leave empty to remove" : "Leave empty to restore the automatic name"}
+            list={dialog.kind === "struct" ? "struct-names" : undefined}
+            placeholder={
+              dialog.kind === "struct"
+                ? structNames.length
+                  ? `Struct name, e.g. ${structNames[0]} or ${structNames[0]}[4]`
+                  : "Declare structs in Local Types first"
+                : dialog.kind === "bookmark"
+                  ? "Describe this location — leave empty to remove"
+                  : "Leave empty to restore the automatic name"
+            }
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
               if (e.key === "Escape") close();
             }}
           />
-        ) : (
+        ) : null}
+        {dialog.kind === "struct" && (
+          <datalist id="struct-names">
+            {structNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        )}
+        {dialog.kind === "comment" && (
           <textarea
             ref={ref}
             className="input mono textarea"

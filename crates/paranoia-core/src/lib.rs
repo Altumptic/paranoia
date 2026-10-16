@@ -31,6 +31,7 @@ mod pseudo;
 mod strings;
 mod switch;
 mod tools;
+mod types;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -45,6 +46,7 @@ pub use nav::{CallGraph, CallNode, InsnPatch, NameEntry};
 pub use pdbsym::PdbReport;
 pub use pseudo::{PseudoLine, Pseudocode};
 pub use tools::{parse_pattern, Callee, Hit, SearchKind};
+pub use types::{EnumDef, Field, StructDef, TypeLibrary};
 
 use analysis::{Analysis, CodeSource};
 use disasm::{Disassembler, NameLookup};
@@ -81,6 +83,9 @@ pub struct Annotations {
     /// Automatically found functions the user undefined (IDA's U).
     #[serde(default)]
     pub undefined: BTreeSet<u64>,
+    /// Local types (structs / enums) declared by the user.
+    #[serde(default)]
+    pub types: TypeLibrary,
 }
 
 /// A loaded binary plus everything we learned about it.

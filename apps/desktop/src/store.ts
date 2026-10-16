@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { getBackend, Session, type OpenSource, type RecentFile } from "./engine/client";
 import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, InsnPatch, Instruction, SearchKind } from "./engine/types";
 
-export type SidebarTab = "functions" | "names" | "imports" | "exports" | "strings" | "sections" | "symbols" | "bookmarks";
+export type SidebarTab = "functions" | "names" | "imports" | "exports" | "strings" | "sections" | "symbols" | "types" | "bookmarks";
 export type CenterTab = "overview" | "disasm" | "graph" | "pseudo" | "calls" | "hex";
 
 export interface Toast {
@@ -36,7 +36,7 @@ interface State {
   /** Bumped after edits so views refetch. */
   revision: number;
   toasts: Toast[];
-  dialog: null | { kind: "rename" | "comment" | "bookmark"; va: number; initial: string };
+  dialog: null | { kind: "rename" | "comment" | "bookmark" | "struct"; va: number; initial: string };
   annotations: Annotations;
   search: SearchKind | null;
   menuOpen: boolean;
