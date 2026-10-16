@@ -171,6 +171,8 @@ impl Binary {
             };
             return Some(format!("{p}{va:X}"));
         }
+        // Constants that merely look like addresses (GENERIC_READ = 0x80000000) stay numbers.
+        self.range_of(va)?;
         let a = self.analysis.as_ref()?;
         let refs = a.xrefs.get(&va)?;
         let data: Vec<_> = refs.iter().filter(|r| r.kind == XrefKind::Data).collect();

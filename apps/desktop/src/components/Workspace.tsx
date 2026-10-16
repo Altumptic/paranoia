@@ -5,6 +5,9 @@ import {
   Bookmark,
   Box,
   FileText,
+  Network,
+  Tags,
+  Terminal,
   Braces,
   Code2,
   FileOutput,
@@ -33,11 +36,15 @@ import { DisassemblyView } from "./views/DisassemblyView";
 import { GraphView } from "./views/GraphView";
 import { HexView } from "./views/HexView";
 import { PseudocodeView } from "./views/PseudocodeView";
+import { CallsView } from "./views/CallsView";
+import { NavBand } from "./NavBand";
+import { Console } from "./Console";
 import { AppMenu } from "./AppMenu";
 import { OverviewView } from "./views/OverviewView";
 
 const SIDEBAR: { id: SidebarTab; icon: typeof Box; label: string }[] = [
   { id: "functions", icon: Braces, label: "Functions" },
+  { id: "names", icon: Tags, label: "Names" },
   { id: "imports", icon: Import, label: "Imports" },
   { id: "exports", icon: FileOutput, label: "Exports" },
   { id: "strings", icon: Quote, label: "Strings" },
@@ -51,7 +58,8 @@ const TABS: { id: CenterTab; icon: typeof Box; label: string; key: string }[] = 
   { id: "disasm", icon: Code2, label: "Disassembly", key: "2" },
   { id: "graph", icon: GitBranch, label: "Graph", key: "3" },
   { id: "pseudo", icon: FileText, label: "Pseudocode", key: "4" },
-  { id: "hex", icon: Binary, label: "Hex", key: "5" },
+  { id: "calls", icon: Network, label: "Calls", key: "5" },
+  { id: "hex", icon: Binary, label: "Hex", key: "6" },
 ];
 
 export function Workspace() {
@@ -97,6 +105,9 @@ export function Workspace() {
         </button>
 
         <div className="topbar-right">
+          <button className={`icon-btn ${st.consoleOpen ? "active" : ""}`} onClick={() => st.set("consoleOpen", !st.consoleOpen)} title="Console (Ctrl+`)">
+            <Terminal size={16} />
+          </button>
           <ThemeToggle />
           <span className="badge accent" title="All analysis happens locally">
             <ShieldCheck size={12} /> Local
@@ -167,11 +178,13 @@ export function Workspace() {
                 </span>
               )}
             </div>
+            <NavBand />
             <div className="view">
               {st.centerTab === "overview" && <OverviewView />}
               {st.centerTab === "disasm" && <DisassemblyView />}
               {st.centerTab === "graph" && <GraphView />}
               {st.centerTab === "pseudo" && <PseudocodeView />}
+              {st.centerTab === "calls" && <CallsView />}
               {st.centerTab === "hex" && <HexView />}
             </div>
           </Panel>
@@ -185,6 +198,7 @@ export function Workspace() {
           )}
         </PanelGroup>
       </div>
+      <Console />
       <StatusBar native={isDesktop} />
     </div>
   );

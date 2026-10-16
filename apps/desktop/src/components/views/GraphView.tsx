@@ -191,6 +191,11 @@ export function GraphView() {
     else if (e.key === "n" || e.key === "N") {
       if (graph) st().set("dialog", { kind: "rename", va: graph.address, initial: graph.name });
     } else if (e.key === ";" && cursor != null) st().set("dialog", { kind: "comment", va: cursor, initial: "" });
+    else if ((e.key === "x" || e.key === "X") && cursor != null) st().set("xrefsFor", cursor);
+    else if (e.key === "Tab") {
+      e.preventDefault();
+      st().set("centerTab", "pseudo");
+    }
   };
 
   if (!info.disassembly_supported) return <div className="empty">Graphs need disassembly, which isn't available for this architecture yet.</div>;
@@ -230,7 +235,7 @@ export function GraphView() {
         <div className="graph-layer" style={{ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.k})`, width: layout.width, height: layout.height }}>
           <svg className="graph-edges" width={layout.width} height={layout.height}>
             <defs>
-              {["true", "false", "uncond", "fall"].map((k) => (
+              {["true", "false", "uncond", "fall", "case"].map((k) => (
                 <marker key={k} id={`arr-${k}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,0 L10,5 L0,10 z" className={`arrow-${k}`} />
                 </marker>
@@ -252,6 +257,11 @@ export function GraphView() {
                     className={`gb-line ${cursor === ins.address ? "sel" : ""}`}
                     onMouseDown={() => st().setCursor(ins.address)}
                     onDoubleClick={() => ins.target != null && st().goto(ins.target)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      st().setCursor(ins.address);
+                      st().set("contextMenu", { x: e.clientX, y: e.clientY, va: ins.address, ins });
+                    }}
                   >
                     <span className="gb-addr">{hex(ins.address, aw)}</span>
                     <InstructionText ins={ins} onFollow={(va) => st().goto(va)} />

@@ -184,7 +184,7 @@ export function Welcome() {
         </section>
 
         <footer className="welcome-foot">
-          <span>Paranoia v0.1.1</span>
+          <span>Paranoia v0.2.0</span>
           <span className="dot" />
           <span>Open source · Apache-2.0</span>
           <span className="dot" />

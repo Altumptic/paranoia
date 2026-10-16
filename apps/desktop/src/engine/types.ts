@@ -108,7 +108,7 @@ export interface Instruction {
   user_comment: string | null;
 }
 
-export type EdgeKind = "uncond" | "true" | "false" | "fall";
+export type EdgeKind = "uncond" | "true" | "false" | "fall" | "case";
 
 export interface Edge {
   to: number;
@@ -157,6 +157,7 @@ export interface Xref {
   kind: "call" | "jump" | "data";
   function: number | null;
   function_name: string | null;
+  text?: string | null;
 }
 
 export interface AnalysisStats {
@@ -179,7 +180,7 @@ export interface AddressInfo {
 }
 
 export interface SearchHit {
-  kind: "address" | "function" | "import" | "export" | "string";
+  kind: "address" | "function" | "import" | "export" | "string" | "name";
   label: string;
   detail: string;
   address: number;
@@ -191,6 +192,47 @@ export interface Annotations {
   functions?: number[];
   bookmarks?: Record<string, string>;
   patches?: Record<string, number>;
+  items?: Record<string, { kind: ItemKind; count: number }>;
+  undefined?: number[];
+}
+
+export type ItemKind = "byte" | "word" | "dword" | "qword" | "ascii" | "utf16" | "code";
+export type InsnPatch = "nop" | "invert" | "jmp";
+
+export interface FrameVar {
+  offset: number;
+  name: string;
+  size: number;
+  reads: number;
+  writes: number;
+  first_use: number;
+}
+
+export interface Frame {
+  address: number;
+  base: string;
+  local_size: number;
+  saved: string[];
+  vars: FrameVar[];
+}
+
+export interface NameEntry {
+  address: number;
+  name: string;
+  kind: "function" | "import" | "export" | "label" | "data" | "string" | "user";
+}
+
+export interface CallNode {
+  address: number;
+  name: string;
+  kind: "root" | "caller" | "callee" | "import";
+  depth: number;
+}
+
+export interface CallGraph {
+  root: number;
+  nodes: CallNode[];
+  edges: [number, number][];
 }
 
 export interface PseudoLine {

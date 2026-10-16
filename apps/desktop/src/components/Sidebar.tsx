@@ -1,7 +1,7 @@
 import { ArrowDownAZ, ArrowDownWideNarrow, Bookmark, ChevronDown, ChevronRight, Filter, Link2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { FunctionSummary, StringEntry, Symbol } from "../engine/types";
+import type { FunctionSummary, NameEntry, StringEntry, Symbol } from "../engine/types";
 import { fmtAddr, fmtSize, hex, useStore } from "../store";
 import { VirtualList } from "./VirtualList";
 
@@ -36,6 +36,7 @@ export function Sidebar() {
   return (
     <div className="sidebar">
       {tab === "functions" && <FunctionsPanel />}
+      {tab === "names" && <NamesPanel />}
       {tab === "imports" && <ImportsPanel />}
       {tab === "exports" && <ExportsPanel />}
       {tab === "strings" && <StringsPanel />}
@@ -387,6 +388,48 @@ function BookmarksPanel() {
             </div>
           ))}
         </div>
+      )}
+    </>
+  );
+}
+
+const NAME_KIND: Record<NameEntry["kind"], string> = { function: "F", import: "I", export: "E", label: "L", data: "D", string: "A", user: "U" };
+
+function NamesPanel() {
+  const session = useStore((s) => s.session)!;
+  const info = useStore((s) => s.info);
+  const revision = useStore((s) => s.revision);
+  const goto = useStore((s) => s.goto);
+  const [names, setNames] = useState<NameEntry[] | null>(null);
+  const [q, setQ, match] = useFilter();
+  useEffect(() => {
+    let live = true;
+    session.names().then((n) => live && setNames(n));
+    return () => {
+      live = false;
+    };
+  }, [session, revision]);
+  const rows = useMemo(() => (names ?? []).filter((n) => match(n.name) || match(hex(n.address))), [names, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <>
+      <Header title="Names" count={rows.length} />
+      <FilterBox value={q} onChange={setQ} placeholder="Filter names" />
+      {names == null ? (
+        <div className="empty">
+          <div className="spinner" />
+        </div>
+      ) : (
+        <VirtualList
+          items={rows}
+          render={(n) => (
+            <button className="row" onClick={() => goto(n.address)} title={`${n.name}
+${n.kind}`}>
+              <span className={`name-kind nk-${n.kind}`}>{NAME_KIND[n.kind]}</span>
+              <span className="row-main">{n.name}</span>
+              <span className="row-addr mono">{fmtAddr(n.address, info)}</span>
+            </button>
+          )}
+        />
       )}
     </>
   );

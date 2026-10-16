@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { EditDialog } from "./components/EditDialog";
 import { SearchDialog } from "./components/SearchDialog";
+import { ContextMenu } from "./components/ContextMenu";
+import { XrefsDialog } from "./components/XrefsDialog";
 import { Toasts } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { Workspace } from "./components/Workspace";
@@ -76,8 +78,17 @@ export function App() {
       } else if ((mod && e.key.toLowerCase() === "k") || (mod && e.key.toLowerCase() === "p")) {
         e.preventDefault();
         st.set("paletteOpen", !st.paletteOpen);
-      } else if (typing || st.dialog || st.paletteOpen || st.search || !st.session) {
+      } else if (mod && e.key === "`") {
+        e.preventDefault();
+        st.set("consoleOpen", !st.consoleOpen);
+      } else if (typing || st.dialog || st.paletteOpen || st.search || st.xrefsFor != null || !st.session) {
         return;
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        st.undo();
+      } else if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
+        e.preventDefault();
+        st.redo();
       } else if (e.altKey && ["b", "t", "i"].includes(e.key.toLowerCase())) {
         e.preventDefault();
         st.set("search", ({ b: "bytes", t: "text", i: "immediate" } as const)[e.key.toLowerCase() as "b" | "t" | "i"]);
@@ -95,7 +106,9 @@ export function App() {
       } else if (e.key === "g" && !mod) {
         e.preventDefault();
         st.set("paletteOpen", true);
-      } else if ((e.altKey && e.key === "ArrowLeft") || (e.key === "Escape" && !st.paletteOpen && !st.menuOpen)) {
+      } else if (e.key === "Escape" && st.highlight) {
+        st.set("highlight", null);
+      } else if ((e.altKey && e.key === "ArrowLeft") || (e.key === "Escape" && !st.paletteOpen && !st.menuOpen && !st.contextMenu)) {
         e.preventDefault();
         st.back();
       } else if (e.altKey && e.key === "ArrowRight") {
@@ -107,8 +120,8 @@ export function App() {
       } else if (mod && e.key === "j") {
         e.preventDefault();
         st.set("inspectorOpen", !st.inspectorOpen);
-      } else if (!mod && !e.altKey && ["1", "2", "3", "4", "5"].includes(e.key)) {
-        st.set("centerTab", (["overview", "disasm", "graph", "pseudo", "hex"] as const)[Number(e.key) - 1]);
+      } else if (!mod && !e.altKey && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
+        st.set("centerTab", (["overview", "disasm", "graph", "pseudo", "calls", "hex"] as const)[Number(e.key) - 1]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -141,6 +154,8 @@ export function App() {
       <CommandPalette />
       <EditDialog />
       <SearchDialog />
+      <XrefsDialog />
+      <ContextMenu />
       <Toasts />
     </>
   );

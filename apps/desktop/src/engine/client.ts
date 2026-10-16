@@ -9,7 +9,12 @@ import type {
   Annotations,
   BinaryInfo,
   Callee,
+  CallGraph,
+  Frame,
   Hit,
+  InsnPatch,
+  ItemKind,
+  NameEntry,
   Pseudocode,
   SearchKind,
   FunctionGraph,
@@ -267,6 +272,20 @@ export class Session {
   patchedOffsets = () => this.c<number[]>("patchedOffsets");
   exportIdc = () => this.c<string>("exportIdc");
   setBookmark = (va: number, text: string | null) => this.c<null>("setBookmark", { va, text });
+  frame = (va: number) => this.c<Frame | null>("frame", { va });
+  names = () => this.c<NameEntry[]>("names");
+  callGraph = (va: number, up = 1, down = 2) => this.c<CallGraph | null>("callGraph", { va, up, down });
+  setItem = (va: number, kind: ItemKind, count = 1) => this.c<null>("setItem", { va, kind, count });
+  cycleData = (va: number) => this.c<ItemKind>("cycleData", { va });
+  makeString = (va: number) => this.c<null>("makeString", { va });
+  makeCode = (va: number) => this.c<null>("makeCode", { va });
+  /** Returns true when analysis re-ran (function undefined). */
+  undefine = (va: number) => this.c<boolean>("undefine", { va });
+  patchInstruction = (va: number, op: InsnPatch) => this.c<null>("patchInstruction", { va, op });
+  /** null when there is nothing to undo; otherwise whether analysis re-ran. */
+  undo = () => this.c<boolean | null>("undo");
+  redo = () => this.c<boolean | null>("redo");
+  history = () => this.c<[number, number]>("history");
 
   /** Writes the (patched) file. Desktop: straight to disk; browser: returns the bytes. */
   async exportPatched(path: string | null): Promise<Uint8Array | null> {

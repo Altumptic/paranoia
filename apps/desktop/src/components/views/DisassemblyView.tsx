@@ -242,7 +242,30 @@ export function DisassemblyView() {
         break;
       case "x":
       case "X":
-        s.set("inspectorOpen", true);
+        e.preventDefault();
+        if (cursor != null) s.set("xrefsFor", cur?.address ?? cursor);
+        break;
+      case "u":
+      case "U":
+        e.preventDefault();
+        if (cur) s.item("undefine", cur.address);
+        break;
+      case "c":
+      case "C":
+        if (e.ctrlKey || e.metaKey) break;
+        e.preventDefault();
+        if (cur) s.item("code", cur.address);
+        break;
+      case "d":
+      case "D":
+        e.preventDefault();
+        if (cur) s.item("data", cur.address);
+        break;
+      case "a":
+      case "A":
+        if (e.ctrlKey || e.metaKey) break;
+        e.preventDefault();
+        if (cur) s.item("string", cur.address);
         break;
       case "p":
       case "P":
@@ -337,7 +360,15 @@ export function DisassemblyView() {
             }
             if (r.kind === "label") {
               return (
-                <div key={vr.key} className="lrow lbl" style={style}>
+                <div
+                  key={vr.key}
+                  className="lrow lbl"
+                  style={style}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    st().set("contextMenu", { x: e.clientX, y: e.clientY, va: r.ins.address, ins: r.ins });
+                  }}
+                >
                   <span className="l-addr">
                     <span className="l-sec">{sectionOf(r.ins.address)}:</span>
                     {hex(r.ins.address, aw)}
@@ -358,6 +389,11 @@ export function DisassemblyView() {
                   parent.current?.focus();
                 }}
                 onDoubleClick={() => ins.target != null && st().goto(ins.target)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  st().setCursor(ins.address);
+                  st().set("contextMenu", { x: e.clientX, y: e.clientY, va: ins.address, ins });
+                }}
               >
                 <span className="l-addr">
                   <span className="l-sec">{sectionOf(ins.address)}:</span>
