@@ -1452,3 +1452,107 @@
   color: var(--syn-sym);
   font-weight: 600;
 }
+
+/* ================= Debugger ================= */
+
+.debug-panel {
+  height: 230px;
+}
+.debug-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  min-height: 0;
+}
+.dbg-col {
+  overflow: auto;
+  padding: 8px 12px;
+  border-right: 1px solid var(--line);
+}
+.dbg-col:last-child {
+  border-right: 0;
+}
+.dbg-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.regs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 14px;
+}
+.reg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  height: 20px;
+}
+.reg-n {
+  width: 44px;
+  color: var(--syn-reg);
+}
+.reg-v {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-2);
+  cursor: default;
+}
+.reg-v.link-tok {
+  cursor: pointer;
+  color: var(--syn-sym);
+}
+.dbg-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+.dbg-paused {
+  color: var(--warn);
+  font-weight: 600;
+}
+.dbg-running {
+  color: var(--ok);
+  font-weight: 600;
+}
+.bp-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: none;
+}
+.l-addr {
+  position: relative;
+}
+.l-bp {
+  position: absolute;
+  left: 52px;
+  top: 6px;
+}
+.pc-arrow {
+  position: absolute;
+  left: 50px;
+  color: var(--warn);
+  font-size: 11px;
+}
+.lrow.ins.bp {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.lrow.ins.pc,
+.gb-line.pc {
+  background: color-mix(in srgb, var(--warn) 22%, transparent) !important;
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.gb-line.bp {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}

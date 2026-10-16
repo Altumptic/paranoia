@@ -18,6 +18,8 @@ export function DisassemblyView() {
   const revision = useStore((s) => s.revision);
   const functions = useStore((s) => s.functions);
   const showBytes = useStore((s) => s.showBytes);
+  const breakpoints = useStore((s) => s.breakpoints);
+  const debugPc = useStore((s) => (s.debug?.state === "paused" ? s.debug.pc : null));
   const st = useStore.getState;
 
   const [insns, setInsns] = useState<Instruction[]>([]);
@@ -152,7 +154,7 @@ export function DisassemblyView() {
       }
       pendingScroll.current = null;
     }
-  }, [rows, rowOf, v]);
+  }, [rows, rowOf, v, cursor]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore.current || !insns.length) return;
@@ -388,7 +390,7 @@ export function DisassemblyView() {
             return (
               <div
                 key={vr.key}
-                className={`lrow ins ${selected ? "sel" : ""}`}
+                className={`lrow ins ${selected ? "sel" : ""} ${debugPc === ins.address ? "pc" : ""} ${breakpoints.has(ins.address) ? "bp" : ""}`}
                 style={style}
                 onMouseDown={() => {
                   st().setCursor(ins.address);
@@ -402,6 +404,8 @@ export function DisassemblyView() {
                 }}
               >
                 <span className="l-addr">
+                  {breakpoints.has(ins.address) && <span className="bp-dot l-bp" />}
+                  {debugPc === ins.address && <span className="pc-arrow">▶</span>}
                   <span className="l-sec">{sectionOf(ins.address)}:</span>
                   {hex(ins.address, aw)}
                 </span>

@@ -6,6 +6,7 @@ import {
   Box,
   FileText,
   Network,
+  Bug,
   Shapes,
   Tags,
   Terminal,
@@ -40,6 +41,7 @@ import { PseudocodeView } from "./views/PseudocodeView";
 import { CallsView } from "./views/CallsView";
 import { NavBand } from "./NavBand";
 import { Console } from "./Console";
+import { DebugPanel } from "./DebugPanel";
 import { AppMenu } from "./AppMenu";
 import { OverviewView } from "./views/OverviewView";
 
@@ -107,6 +109,11 @@ export function Workspace() {
         </button>
 
         <div className="topbar-right">
+          {isDesktop && (
+            <button className={`icon-btn ${st.debugOpen ? "active" : ""}`} onClick={() => st.set("debugOpen", !st.debugOpen)} title="Debugger (F9 to start)">
+              <Bug size={16} />
+            </button>
+          )}
           <button className={`icon-btn ${st.consoleOpen ? "active" : ""}`} onClick={() => st.set("consoleOpen", !st.consoleOpen)} title="Console (Ctrl+`)">
             <Terminal size={16} />
           </button>
@@ -200,6 +207,7 @@ export function Workspace() {
           )}
         </PanelGroup>
       </div>
+      <DebugPanel />
       <Console />
       <StatusBar native={isDesktop} />
     </div>
