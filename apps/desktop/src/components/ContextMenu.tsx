@@ -9,6 +9,7 @@ import {
   FileText,
   GitBranch,
   Hash,
+  Sigma,
   MessageSquare,
   PenLine,
   CircleDot,
@@ -22,6 +23,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { debug } from "../debug";
+import { hasNumber, openEnumDialog, setOperand, toggleHex } from "../operands";
 import { fmtAddr, useStore } from "../store";
 
 interface Entry {
@@ -74,6 +76,17 @@ export function ContextMenu() {
       { icon: Bookmark, label: "Bookmark…", keys: "Alt M", run: () => st().set("dialog", { kind: "bookmark", va, initial: st().annotations.bookmarks?.[String(va)] ?? "" }) },
       { icon: Share2, label: "Cross references…", keys: "X", run: () => st().set("xrefsFor", va) },
       ...(ins?.target != null ? [{ icon: SkipForward, label: "Follow operand", keys: "Enter", run: () => st().goto(ins.target!) }] : []),
+    ],
+    [
+      ...(isCode && hasNumber(ins)
+        ? [
+            { icon: Hash, label: "Operand: hex ↔ decimal", keys: "H", run: () => toggleHex(ins!) },
+            { icon: Type, label: "Operand: character", keys: "R", run: () => setOperand(ins!, "char") },
+            { icon: Binary, label: "Operand: binary", keys: "B", run: () => setOperand(ins!, "bin") },
+            { icon: Sigma, label: "Operand: symbolic constant…", keys: "M", run: () => openEnumDialog(ins!) },
+            { icon: Eraser, label: "Operand: default", run: () => setOperand(ins!, "default") },
+          ]
+        : []),
     ],
     [
       { icon: Code2, label: "Code", keys: "C", run: () => st().item("code", va) },

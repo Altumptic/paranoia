@@ -177,6 +177,8 @@ export interface AddressInfo {
   function: number | null;
   function_name: string | null;
   executable: boolean;
+  /** `file:line` from DWARF debug info. */
+  source?: string;
 }
 
 export interface SearchHit {

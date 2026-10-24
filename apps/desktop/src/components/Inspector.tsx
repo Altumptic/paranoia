@@ -66,6 +66,14 @@ export function Inspector() {
             <dd className="mono">{addr.offset != null ? `0x${hex(addr.offset)}` : "not in file"}</dd>
             <dt>Memory</dt>
             <dd>{addr.executable ? "code (executable)" : "data"}</dd>
+            {addr.source && (
+              <>
+                <dt>Source</dt>
+                <dd className="mono selectable insp-source" title={addr.source}>
+                  {addr.source.split(/[\\/]/).pop()}
+                </dd>
+              </>
+            )}
           </dl>
           <div className="insp-actions">
             <button className="btn sm" onClick={() => openDialog("rename")} title="Rename (N)">

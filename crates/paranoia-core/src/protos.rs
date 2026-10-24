@@ -2,7 +2,7 @@
 //! argument set-up instructions (`; lpFileName`) and to give pseudocode calls
 //! the right number of arguments — IDA does the same with its type libraries.
 
-use crate::model::{Arch, Format, Instruction, TokenKind};
+use crate::model::{Arch, Format, Instruction};
 use crate::Binary;
 
 pub struct Proto {
@@ -318,9 +318,13 @@ fn callee_name(bin: &Binary, ins: &Instruction) -> Option<String> {
 impl Binary {
     /// Labels argument set-up with parameter names and calls with prototypes.
     pub(crate) fn annotate_calls(&self, insns: &mut [Instruction]) {
-        if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
-            return;
+        if matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
+            self.annotate_calls_x86(insns);
         }
+        self.apply_operand_formats(insns);
+    }
+
+    fn annotate_calls_x86(&self, insns: &mut [Instruction]) {
         for i in 0..insns.len() {
             if insns[i].mnemonic != "call" {
                 continue;
@@ -356,18 +360,16 @@ impl Binary {
                     if !writes {
                         None
                     } else {
-                        let dst: String = prev
-                            .operands
-                            .iter()
-                            .take_while(|t| !(t.k == TokenKind::Punct && t.t.contains(',')))
-                            .map(|t| t.t.as_str())
-                            .collect();
-                        arg_index(self.info.arch, self.info.format, &dst)
+                        // Punctuation tokens are merged (`], `), so split the text, not the tokens.
+                        let text: String = prev.operands.iter().map(|t| t.t.as_str()).collect();
+                        let dst = text.split(',').next().unwrap_or("");
+                        arg_index(self.info.arch, self.info.format, dst)
                     }
                 };
                 if let Some(idx) = idx.filter(|&k| k < proto.params.len() && !done[k]) {
                     done[idx] = true;
                     let pname = param_name(proto.params[idx]).to_string();
+                    crate::operands::symbolize_argument(self, &mut insns[j], &name, &pname);
                     let c = &mut insns[j].comment;
                     *c = Some(match c.take() {
                         Some(old) => format!("{pname} = {old}"),

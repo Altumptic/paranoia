@@ -1556,3 +1556,37 @@
 .gb-line.bp {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
+
+/* ================= Symbolic constant picker ================= */
+
+.enum-list {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.enum-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+.enum-row.sel {
+  background: var(--accent-soft, color-mix(in srgb, var(--accent) 14%, transparent));
+}
+.enum-text {
+  color: var(--syn-sym);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

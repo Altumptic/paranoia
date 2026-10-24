@@ -3,6 +3,7 @@ import { ChevronsUp, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Instruction } from "../../engine/types";
+import { hasNumber, openEnumDialog, setOperand, toggleHex } from "../../operands";
 import { addrWidth, hex, useStore } from "../../store";
 import { InstructionText } from "./Listing";
 
@@ -284,9 +285,30 @@ export function DisassemblyView() {
         e.preventDefault();
         s.set("centerTab", "pseudo");
         break;
+      case "h":
+      case "H":
+        if (e.ctrlKey || e.metaKey || e.altKey) break;
+        e.preventDefault();
+        if (hasNumber(cur)) toggleHex(cur!);
+        break;
+      case "r":
+      case "R":
+        if (e.ctrlKey || e.metaKey || e.altKey) break;
+        e.preventDefault();
+        if (hasNumber(cur)) setOperand(cur!, "char");
+        break;
       case "b":
       case "B":
-        s.set("showBytes", !s.showBytes);
+        if (e.ctrlKey || e.metaKey || e.altKey) break;
+        e.preventDefault();
+        if (hasNumber(cur)) setOperand(cur!, "bin");
+        break;
+      case "m":
+      case "M":
+        if (e.ctrlKey || e.metaKey) break;
+        if (e.altKey) break; // Alt+M: bookmark
+        e.preventDefault();
+        if (cur) openEnumDialog(cur);
         break;
     }
   };

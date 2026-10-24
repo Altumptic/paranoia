@@ -292,6 +292,11 @@ export class Session {
   types = () => this.c<TypeLibrary>("types");
   setTypes = (text: string) => this.c<number>("setTypes", { text });
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
+  /** IDA's H / R / B / M; `n` is the number operand's index (null = all of them). */
+  setOperandFormat = (va: number, kind: string, n: number | null, enumName?: string) =>
+    this.c<null>("setOperandFormat", { va, kind, n, enum: enumName ?? null });
+  /** Enums able to express `value`, with the symbolic text: [enum, text][]. */
+  enumCandidates = (value: number, param?: string) => this.c<[string, string][]>("enumCandidates", { value, param: param ?? null });
 
   /** Desktop: a PDB next to the binary (or at its recorded path), if one exists. */
   async findPdb(binaryPath: string): Promise<string | null> {
