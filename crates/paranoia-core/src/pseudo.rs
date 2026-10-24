@@ -237,7 +237,8 @@ impl Ctx<'_> {
         }
         // Stack slots.
         let sdisp = disp as i64 as i128;
-        if index == Register::None && (Some(base) == self.frame_reg || base == Register::RSP || base == Register::ESP) {
+        let below_rsp = matches!(base, Register::RSP | Register::ESP) && sdisp < 0;
+        if index == Register::None && !below_rsp && (Some(base) == self.frame_reg || base == Register::RSP || base == Register::ESP) {
             let name = if base == Register::RSP || base == Register::ESP {
                 format!("var_{:X}", sdisp)
             } else if sdisp < 0 {
@@ -494,6 +495,22 @@ impl Binary {
         emit_range(&mut ctx, &blocks, &order, 0, order.len(), 1, &mut out, &mut emitted);
         out.push(PseudoLine { address: None, indent: 0, tokens: vec![Token { t: "}".into(), k: TokenKind::Punct }] });
         crate::pseudo_opt::optimize(self, &mut out, self.info.format != Format::Pe, bits);
+        crate::pseudo_types::recover_goto_loops(&mut out);
+        crate::pseudo_types::recover_loops(&mut out);
+        let stack = self.frame(f.address).map(|fr| fr.vars.iter().map(|v| (v.name.clone(), v.size)).collect()).unwrap_or_default();
+        let sig = crate::pseudo_types::Signature {
+            name: &name,
+            ret: ret_ty,
+            params: args.iter().map(|r| reg_name(*r)).collect(),
+            fastcall: bits == 64 && self.info.format == Format::Pe,
+            stack,
+            volatile: match (bits, self.info.format) {
+                (32, _) => &["rax", "rcx", "rdx"],
+                (_, Format::Pe) => &["rax", "rcx", "rdx", "r8", "r9", "r10", "r11"],
+                _ => &["rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"],
+            },
+        };
+        crate::pseudo_types::type_variables(&mut out, &sig);
 
         // Keep only labels that some `goto` still targets.
         let mut used = BTreeSet::new();
@@ -1064,6 +1081,22 @@ fn emit_insns(
                 }
             }
             Mnemonic::Jmp if !matches!(ins.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64) => {
+                if let Some(sw) = switch_lines(ctx, insns, ins, indent) {
+                    // Drop the table dispatch (base address, entry load, add) after the index is final.
+                    let idx_def = insns.iter().rev().skip(1).find(|i| {
+                        i.op_count() > 0
+                            && i.op_kind(0) == OpKind::Register
+                            && matches!(i.mnemonic(), Mnemonic::Movsxd | Mnemonic::Movsx | Mnemonic::Movzx | Mnemonic::Mov)
+                            && sw[0].tokens.get(2).is_some_and(|t| reg_name(i.op_register(0).full_register()) == t.t)
+                    });
+                    if let Some(def) = idx_def {
+                        while out.last().and_then(|l| l.address).is_some_and(|a| a > def.ip() && a < ins.ip()) {
+                            out.pop();
+                        }
+                    }
+                    out.extend(sw);
+                    continue;
+                }
                 // `jmp [slot]` is a tail call (import thunks); `jmp reg` is a computed jump.
                 if ins.op_kind(0) == OpKind::Memory {
                     l.kw("return").sp().extend(ctx.op(ins, 0)).p("(").extend(args_expr(ctx)).p(");");
@@ -1124,6 +1157,46 @@ fn emit_insns(
         }
         out.push(PseudoLine { address: Some(ins.ip()), indent, tokens: l.toks });
     }
+}
+
+/// `switch (idx) { case …: goto …; }` for a jump through a recovered table.
+fn switch_lines(ctx: &Ctx, insns: &[Ins], jmp: &Ins, indent: u8) -> Option<Vec<PseudoLine>> {
+    let start = insns.first()?.ip();
+    let sw = crate::switch::recover(&crate::Source(ctx.bin), ctx.bits, start, jmp.ip(), jmp.len() as u64)?;
+    // The scaled index of the table load is the switch variable.
+    let idx = insns
+        .iter()
+        .rev()
+        .find(|i| {
+            (0..i.op_count()).any(|k| i.op_kind(k) == OpKind::Memory) && i.memory_index() != Register::None && i.memory_index_scale() >= 4
+        })
+        .map(|i| i.memory_index())?;
+    let mut groups: Vec<(u64, Vec<i64>)> = Vec::new();
+    for (n, t) in sw.targets.iter().enumerate() {
+        let case = n as i64;
+        match groups.iter_mut().find(|g| g.0 == *t) {
+            Some(g) => g.1.push(case),
+            None => groups.push((*t, vec![case])),
+        }
+    }
+    let var = if ctx.bits == 64 { reg_name(idx.full_register()) } else { reg_name(idx) };
+    let mut out = Vec::new();
+    let mut head = Line::default();
+    head.kw("switch").p(" (").push(var, TokenKind::Register).p(") {");
+    out.push(PseudoLine { address: Some(jmp.ip()), indent, tokens: head.toks });
+    for (t, cases) in groups {
+        let mut l = Line::default();
+        for (k, c) in cases.iter().enumerate() {
+            if k > 0 {
+                l.sp();
+            }
+            l.kw("case").sp().extend(Expr::num(*c as i128)).p(":");
+        }
+        l.sp().kw("goto").sp().extend(ctx.name_or(t, "loc_")).p(";");
+        out.push(PseudoLine { address: Some(t), indent: indent + 1, tokens: l.toks });
+    }
+    out.push(PseudoLine { address: None, indent, tokens: vec![Token { t: "}".into(), k: TokenKind::Punct }] });
+    Some(out)
 }
 
 #[cfg(test)]

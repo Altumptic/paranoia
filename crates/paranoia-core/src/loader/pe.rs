@@ -197,6 +197,7 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
             let table = &table[..(dir.size as usize).min(table.len())];
             let arm64 = machine == pe::header::COFF_MACHINE_ARM64;
             let stride = if arm64 { 8 } else { 12 };
+            let mut chunk_parents = std::collections::HashSet::new();
             for e in table.chunks_exact(stride).take(1_000_000) {
                 let begin = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
                 let end = if arm64 {
@@ -209,11 +210,24 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
                 if begin == 0 || end.is_some_and(|end| end <= begin) {
                     continue;
                 }
+                // x64: entries whose unwind info is chained (UNW_FLAG_CHAININFO) describe a chunk of
+                // the parent function (shrink-wrapped or cold code), not a function of their own.
+                if !arm64 {
+                    let unwind = u32::from_le_bytes([e[8], e[9], e[10], e[11]]);
+                    if let Some(parent) = chained_parent(bytes, &pe.sections, unwind) {
+                        chunk_parents.insert(pe.image_base + parent as u64);
+                        continue;
+                    }
+                }
                 out.seeds.push(Seed {
                     address: pe.image_base + begin as u64,
                     source: FunctionSource::ExceptionTable,
                     end: end.map(|e| pe.image_base + e as u64),
                 });
+            }
+            // Functions with separated chunks are not bounded by their primary range.
+            for s in out.seeds.iter_mut().filter(|s| chunk_parents.contains(&s.address)) {
+                s.end = None;
             }
         }
     }
@@ -234,6 +248,30 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     }
 
     Ok(out)
+}
+
+/// For x64 unwind info chained to another entry (UNW_FLAG_CHAININFO), the RVA of the root function.
+fn chained_parent(bytes: &[u8], sections: &[goblin::pe::section_table::SectionTable], unwind: u32) -> Option<u32> {
+    let mut unwind = unwind;
+    let mut parent = None;
+    for _ in 0..32 {
+        let entry = if unwind & 1 == 1 {
+            // The low bit marks a direct pointer to the parent RUNTIME_FUNCTION.
+            rva_to_offset(sections, unwind & !1)?
+        } else {
+            let o = rva_to_offset(sections, unwind)?;
+            let head = bytes.get(o..o + 4)?;
+            if (head[0] >> 3) & 4 == 0 {
+                return parent;
+            }
+            let codes = (head[2] as usize + 1) & !1;
+            o + 4 + 2 * codes
+        };
+        let rf = bytes.get(entry..entry + 12)?;
+        parent = Some(u32::from_le_bytes([rf[0], rf[1], rf[2], rf[3]]));
+        unwind = u32::from_le_bytes([rf[8], rf[9], rf[10], rf[11]]);
+    }
+    parent
 }
 
 fn rva_to_offset(sections: &[goblin::pe::section_table::SectionTable], rva: u32) -> Option<usize> {
