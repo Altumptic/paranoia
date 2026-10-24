@@ -53,7 +53,7 @@ impl Arch {
 
     /// Whether the disassembler can decode this architecture.
     pub fn disassembly_supported(self) -> bool {
-        matches!(self, Arch::X86 | Arch::X86_64 | Arch::Arm | Arch::Thumb | Arch::Arm64)
+        matches!(self, Arch::X86 | Arch::X86_64 | Arch::Arm | Arch::Thumb | Arch::Arm64 | Arch::Mips | Arch::RiscV)
     }
 }
 

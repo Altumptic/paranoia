@@ -24,6 +24,7 @@ mod frame;
 mod items;
 mod loader;
 mod metrics;
+mod mips;
 pub mod model;
 mod nav;
 mod operands;
@@ -32,6 +33,7 @@ mod protos;
 mod pseudo;
 mod pseudo_opt;
 mod pseudo_types;
+mod riscv;
 mod strings;
 mod switch;
 mod tools;
@@ -339,13 +341,20 @@ impl Binary {
                 end: None,
             }));
             let a = if self.info.disassembly_supported {
-                let mut dis = Disassembler::new(self.info.arch);
+                let mut dis = Disassembler::with_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big);
                 let bits = match self.info.arch {
                     Arch::X86 => 32,
                     Arch::X86_64 => 64,
                     _ => 0,
                 };
-                analysis::run(&Source(self), &mut dis, &seeds, &skip, matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb), bits)
+                analysis::run(
+                    &Source(self),
+                    &mut dis,
+                    &seeds,
+                    &skip,
+                    matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb | Arch::RiscV | Arch::Mips),
+                    bits,
+                )
             } else {
                 Analysis::default()
             };
@@ -572,7 +581,15 @@ impl Binary {
         for b in &f.blocks {
             let bytes = self.bytes_at(b.start)?;
             let len = ((b.end - b.start) as usize).min(bytes.len());
-            let mut insns = disasm::render(self.info.arch, &bytes[..len], b.start, usize::MAX, &names);
+            let mut insns = disasm::render_mode(
+                self.info.arch,
+                self.info.bits,
+                self.info.endian == Endian::Big,
+                &bytes[..len],
+                b.start,
+                usize::MAX,
+                &names,
+            );
             self.annotate(&mut insns);
             self.annotate_calls(&mut insns);
             blocks.push(GraphBlock { start: b.start, end: b.end, instructions: insns, succs: b.succs.clone() });
@@ -605,9 +622,11 @@ impl Binary {
         v.dedup_by_key(|x| x.from);
         // The referencing instruction, like IDA's xrefs dialog shows.
         for x in v.iter_mut().take(400) {
-            if let Some(i) =
-                self.bytes_at(x.from).and_then(|b| disasm::render(self.info.arch, b, x.from, 1, &Names(self)).into_iter().next())
-            {
+            if let Some(i) = self.bytes_at(x.from).and_then(|b| {
+                disasm::render_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big, b, x.from, 1, &Names(self))
+                    .into_iter()
+                    .next()
+            }) {
                 x.text = Some(format!("{} {}", i.mnemonic, i.operands.iter().map(|t| t.t.as_str()).collect::<String>()).trim().to_string());
             }
         }

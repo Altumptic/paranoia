@@ -428,7 +428,15 @@ impl Binary {
                 let bytes = self.bytes_at(cur).unwrap();
                 let len = ((stop - cur) as usize).min(bytes.len());
                 let want = (count - out.len()).min(256);
-                let chunk = crate::disasm::render(self.info.arch, &bytes[..len], cur, want, &names);
+                let chunk = crate::disasm::render_mode(
+                    self.info.arch,
+                    self.info.bits,
+                    self.info.endian == crate::model::Endian::Big,
+                    &bytes[..len],
+                    cur,
+                    want,
+                    &names,
+                );
                 if chunk.is_empty() {
                     out.push(self.data_line_at(cur, range_end));
                 } else {

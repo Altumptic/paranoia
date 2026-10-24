@@ -58,7 +58,11 @@ pub trait NameLookup {
 pub struct Disassembler {
     arch: Arch,
     bits: u32,
+    big: bool,
+    /// Known register values: ARM64 `adrp` pages, RISC-V `auipc`/`lui`, MIPS `lui`.
     adrp: [Option<u64>; 32],
+    /// MIPS: a branch waiting for its delay slot.
+    pending: Option<(Flow, Option<u64>)>,
 }
 
 impl Disassembler {
@@ -67,12 +71,23 @@ impl Disassembler {
             Arch::X86 => 32,
             _ => 64,
         };
-        Disassembler { arch, bits, adrp: [None; 32] }
+        Disassembler { arch, bits, big: false, adrp: [None; 32], pending: None }
+    }
+
+    /// For architectures whose decoding depends on the image: RISC-V XLEN, MIPS width and byte order.
+    pub fn with_mode(arch: Arch, bits: u8, big_endian: bool) -> Self {
+        let mut d = Self::new(arch);
+        if matches!(arch, Arch::RiscV | Arch::Mips) {
+            d.bits = if bits == 64 { 64 } else { 32 };
+        }
+        d.big = big_endian;
+        d
     }
 
     /// Forget register state (call at basic-block boundaries).
     pub fn reset(&mut self) {
         self.adrp = [None; 32];
+        self.pending = None;
     }
 
     pub fn decode(&mut self, bytes: &[u8], va: u64) -> Decoded {
@@ -80,6 +95,8 @@ impl Disassembler {
             Arch::X86 | Arch::X86_64 => decode_x86(self.bits, bytes, va),
             Arch::Arm64 => self.decode_arm64(bytes, va),
             Arch::Arm | Arch::Thumb => decode_arm32(self.arch == Arch::Thumb, bytes, va).1,
+            Arch::RiscV => self.decode_riscv(bytes, va),
+            Arch::Mips => self.decode_mips(bytes, va),
             _ => Decoded::invalid(),
         }
     }
@@ -233,7 +250,13 @@ fn x86_mem_address(ins: &iced_x86::Instruction) -> Option<u64> {
 /// Decodes and formats up to `max` instructions from `bytes` (located at `va`).
 /// Undecodable bytes become a `db` pseudo-instruction so the listing never stalls.
 pub fn render(arch: Arch, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
+    render_mode(arch, 64, false, bytes, va, max, names)
+}
+
+/// Like [`render`], with the image's word size and byte order (RISC-V, MIPS).
+pub fn render_mode(arch: Arch, bits: u8, big: bool, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
     match arch {
+        Arch::RiscV | Arch::Mips => render_rv_mips(arch, bits, big, bytes, va, max, names),
         Arch::X86 | Arch::X86_64 => render_x86(if arch == Arch::X86 { 32 } else { 64 }, bytes, va, max, names),
         Arch::Arm64 => render_arm64(bytes, va, max, names),
         Arch::Arm | Arch::Thumb => render_arm32(arch == Arch::Thumb, bytes, va, max, names),
@@ -754,6 +777,230 @@ fn render_arm32(thumb: bool, bytes: &[u8], va: u64, max: usize, names: &dyn Name
             label: None,
             user_comment: None,
         });
+        pos += len;
+    }
+    out
+}
+
+// ------------------------------------------------------------------------------------------------
+// RISC-V and MIPS
+// ------------------------------------------------------------------------------------------------
+
+impl Disassembler {
+    fn track(&mut self, rd: u8, v: Option<u64>) {
+        if rd != 0 && (rd as usize) < 32 {
+            self.adrp[rd as usize] = v;
+        }
+    }
+
+    fn decode_riscv(&mut self, bytes: &[u8], va: u64) -> Decoded {
+        let Some(i) = crate::riscv::decode(bytes, va, self.bits) else {
+            let len = if bytes.first().is_some_and(|b| b & 3 == 3) { 4 } else { 2 };
+            return Decoded { len, ..Decoded::invalid() };
+        };
+        let mut d = Decoded { len: i.len, flow: i.flow, target: i.target, data_ref: None, mem_size: 0, indirect_slot: None, valid: true };
+        use crate::riscv::Effect;
+        match i.effect {
+            Effect::SetAddr(rd, v) => self.track(rd, Some(v)),
+            Effect::AddImm(rd, rs1, imm) => {
+                let v = self.adrp.get(rs1 as usize).copied().flatten().map(|b| b.wrapping_add(imm as u64));
+                d.data_ref = v.filter(|_| rs1 != 0);
+                self.track(rd, v.filter(|_| rs1 != 0));
+            }
+            Effect::Mem(rd, rs1, imm, size) => {
+                if let Some(b) = self.adrp.get(rs1 as usize).copied().flatten().filter(|_| rs1 != 0) {
+                    d.data_ref = Some(b.wrapping_add(imm as u64));
+                    d.mem_size = size;
+                }
+                self.track(rd, None);
+            }
+            Effect::Jalr(rd, rs1, imm) => {
+                if let Some(b) = self.adrp.get(rs1 as usize).copied().flatten().filter(|_| rs1 != 0) {
+                    d.target = Some(b.wrapping_add(imm as u64));
+                }
+                self.track(rd, None);
+            }
+            Effect::Write(rd) => self.track(rd, None),
+            Effect::None => {}
+        }
+        d
+    }
+
+    fn decode_mips(&mut self, bytes: &[u8], va: u64) -> Decoded {
+        let pending = self.pending.take();
+        let Some(i) = crate::mips::decode(bytes, va, self.big, self.bits == 64) else {
+            return Decoded { len: 4, ..Decoded::invalid() };
+        };
+        let mut d = Decoded { len: 4, flow: Flow::None, target: None, data_ref: None, mem_size: 0, indirect_slot: None, valid: true };
+        use crate::mips::Effect;
+        match i.effect {
+            Effect::SetAddr(rt, v) => self.track(rt, Some(v)),
+            Effect::AddImm(rt, rs, imm) => {
+                let v = self.adrp.get(rs as usize).copied().flatten().filter(|_| rs != 0).map(|b| b.wrapping_add(imm as u64));
+                d.data_ref = v;
+                self.track(rt, v);
+            }
+            Effect::Mem(rt, rs, imm, size) => {
+                if let Some(b) = self.adrp.get(rs as usize).copied().flatten().filter(|_| rs != 0) {
+                    d.data_ref = Some(b.wrapping_add(imm as u64));
+                    d.mem_size = size;
+                }
+                self.track(rt, None);
+            }
+            Effect::Write(rd) => self.track(rd, None),
+            Effect::None => {}
+        }
+        // `jalr t9` / `jr t9` through a register built from `lui` + `addiu`.
+        let mut target = i.target;
+        if target.is_none() && matches!(i.mnemonic.as_str(), "jalr" | "jr") {
+            if let Some(crate::mips::Op::Reg(r)) = i.ops.last() {
+                target = self.adrp.get(*r as usize).copied().flatten();
+            }
+        }
+        if i.delay_slot {
+            // The branch takes effect after its delay slot: report it on the next instruction.
+            self.pending = Some((i.flow, target));
+        } else if i.flow != Flow::None {
+            d.flow = i.flow;
+            d.target = target;
+        }
+        if let Some((flow, t)) = pending {
+            d.flow = flow;
+            d.target = t;
+        }
+        d
+    }
+}
+
+fn rv_mips_tokens(arch: Arch, ops_rv: &[crate::riscv::Op], ops_mips: &[crate::mips::Op], names: &dyn NameLookup) -> Vec<Token> {
+    let num = |v: i64| Token {
+        t: if (-9..=9).contains(&v) {
+            v.to_string()
+        } else if v < 0 {
+            format!("-{:#x}", v.unsigned_abs())
+        } else {
+            format!("{v:#x}")
+        },
+        k: TokenKind::Number,
+    };
+    let addr = |t: u64| match names.name_at(t) {
+        Some(n) => Token { t: n, k: TokenKind::Symbol },
+        None => Token { t: format!("{t:#x}"), k: TokenKind::Address },
+    };
+    let reg = |s: &str| Token { t: s.to_string(), k: TokenKind::Register };
+    let mut out: Vec<Token> = Vec::new();
+    let sep = |out: &mut Vec<Token>| {
+        if !out.is_empty() {
+            out.push(Token { t: ", ".into(), k: TokenKind::Punct });
+        }
+    };
+    let mem = |out: &mut Vec<Token>, off: i64, base: &str| {
+        out.push(num(off));
+        out.push(Token { t: "(".into(), k: TokenKind::Punct });
+        out.push(reg(base));
+        out.push(Token { t: ")".into(), k: TokenKind::Punct });
+    };
+    if arch == Arch::RiscV {
+        use crate::riscv::{Op, FREGS, REGS};
+        for op in ops_rv {
+            sep(&mut out);
+            match op {
+                Op::Reg(r) => out.push(reg(REGS[*r as usize])),
+                Op::FReg(r) => out.push(reg(FREGS[*r as usize])),
+                Op::Imm(v) => out.push(num(*v)),
+                Op::Mem(off, b) => mem(&mut out, *off, REGS[*b as usize]),
+                Op::Addr(t) => out.push(addr(*t)),
+                Op::Csr(c) => match crate::riscv::csr_name(*c) {
+                    Some(n) => out.push(reg(n)),
+                    None => out.push(num(*c as i64)),
+                },
+            }
+        }
+    } else {
+        use crate::mips::{Op, REGS};
+        for op in ops_mips {
+            sep(&mut out);
+            match op {
+                Op::Reg(r) => out.push(reg(&format!("${}", REGS[*r as usize]))),
+                Op::FReg(r) => out.push(reg(&format!("$f{r}"))),
+                Op::Imm(v) => out.push(num(*v)),
+                Op::Mem(off, b) => mem(&mut out, *off, &format!("${}", REGS[*b as usize])),
+                Op::Addr(t) => out.push(addr(*t)),
+                Op::Cop0(r) => out.push(reg(&format!("$cp0_{r}"))),
+            }
+        }
+    }
+    out
+}
+
+fn render_rv_mips(arch: Arch, bits: u8, big: bool, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
+    let mut dis = Disassembler::with_mode(arch, bits, big);
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    while out.len() < max && pos + 2 <= bytes.len() {
+        let ip = va + pos as u64;
+        let rest = &bytes[pos..];
+        let summary = dis.decode(rest, ip);
+        let decoded = if arch == Arch::RiscV {
+            crate::riscv::decode(rest, ip, dis.bits)
+                .map(|i| (i.len as usize, i.mnemonic, i.flow, i.target, rv_mips_tokens(arch, &i.ops, &[], names)))
+        } else {
+            crate::mips::decode(rest, ip, big, bits == 64)
+                .map(|i| (4, i.mnemonic, i.flow, i.target, rv_mips_tokens(arch, &[], &i.ops, names)))
+        };
+        let Some((len, mnemonic, flow, target, mut operands)) = decoded.filter(|d| d.0 <= rest.len()) else {
+            let step = if arch == Arch::RiscV && rest[0] & 3 != 3 { 2 } else { 4 }.min(rest.len());
+            if step < 2 {
+                break;
+            }
+            let raw = &rest[..step];
+            let value = if step == 2 {
+                format!("{:#06x}", u16::from_le_bytes([raw[0], raw[1]]))
+            } else if big {
+                format!("{:#010x}", u32::from_be_bytes(raw.try_into().unwrap()))
+            } else {
+                format!("{:#010x}", u32::from_le_bytes(raw.try_into().unwrap()))
+            };
+            out.push(Instruction {
+                address: ip,
+                size: step as u32,
+                bytes: hex::encode(raw),
+                mnemonic: if step == 2 { ".short" } else { ".word" }.into(),
+                operands: vec![Token { t: value, k: TokenKind::Number }],
+                flow: Flow::None,
+                target: None,
+                comment: None,
+                label: None,
+                user_comment: None,
+            });
+            pos += step;
+            continue;
+        };
+        // Addresses formed by `auipc`/`lui` pairs: show the resolved name after the operands.
+        let data = summary.data_ref.filter(|_| target.is_none());
+        let call_target = target.or(if matches!(flow, Flow::Call | Flow::Jump) { summary.target } else { None });
+        if let Some(t) = data.or(if target.is_none() { call_target } else { None }) {
+            operands.push(Token { t: " ; ".into(), k: TokenKind::Punct });
+            operands.push(match names.name_at(t) {
+                Some(n) => Token { t: n, k: TokenKind::Symbol },
+                None => Token { t: format!("{t:#x}"), k: TokenKind::Address },
+            });
+        }
+        out.push(Instruction {
+            address: ip,
+            size: len as u32,
+            bytes: hex::encode(&rest[..len]),
+            mnemonic,
+            operands,
+            flow,
+            target: call_target.or(data),
+            comment: None,
+            label: None,
+            user_comment: None,
+        });
+        if matches!(flow, Flow::Ret | Flow::Jump) && arch == Arch::RiscV {
+            dis.reset();
+        }
         pos += len;
     }
     out
