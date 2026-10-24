@@ -15,7 +15,7 @@ use crate::model::{Token, TokenKind};
 use crate::pseudo::PseudoLine;
 
 /// Register family (`eax`, `ax`, `al` → `rax`) and width in bits.
-fn family(name: &str) -> Option<(String, u32)> {
+pub(crate) fn family(name: &str) -> Option<(String, u32)> {
     const LEGACY: [(&str, [&str; 4]); 8] = [
         ("rax", ["rax", "eax", "ax", "al"]),
         ("rbx", ["rbx", "ebx", "bx", "bl"]),
@@ -41,7 +41,7 @@ fn family(name: &str) -> Option<(String, u32)> {
                 "" => 64,
                 "d" => 32,
                 "w" => 16,
-                "b" => 8,
+                "b" | "l" => 8,
                 _ => return None,
             };
             return Some((format!("r{digits}"), width));
@@ -54,15 +54,15 @@ fn family(name: &str) -> Option<(String, u32)> {
     None
 }
 
-fn fam_of(t: &Token) -> Option<(String, u32)> {
+pub(crate) fn fam_of(t: &Token) -> Option<(String, u32)> {
     (t.k == TokenKind::Register).then(|| family(&t.t)).flatten()
 }
 
-fn is_label(l: &PseudoLine) -> bool {
+pub(crate) fn is_label(l: &PseudoLine) -> bool {
     l.tokens.len() == 2 && l.tokens[1].t == ":" && l.tokens[0].k == TokenKind::Symbol
 }
 
-fn has_kw(l: &PseudoLine, kw: &str) -> bool {
+pub(crate) fn has_kw(l: &PseudoLine, kw: &str) -> bool {
     l.tokens.iter().any(|t| t.k == TokenKind::Keyword && t.t == kw)
 }
 
@@ -71,7 +71,7 @@ fn opens_or_closes(l: &PseudoLine) -> bool {
 }
 
 /// Index of the callee token when the line performs a call (`f(` / `((void (*)())`).
-fn call_at(l: &PseudoLine) -> Option<usize> {
+pub(crate) fn call_at(l: &PseudoLine) -> Option<usize> {
     l.tokens.windows(2).position(|w| {
         (w[0].k == TokenKind::Symbol && w[1].k == TokenKind::Punct && w[1].t.starts_with('('))
             || (w[0].k == TokenKind::Keyword && w[0].t.starts_with("((void"))
@@ -79,7 +79,7 @@ fn call_at(l: &PseudoLine) -> Option<usize> {
 }
 
 /// `reg = expr;` → (reg token, expression tokens). Compound assignments return None.
-fn assignment(l: &PseudoLine) -> Option<(&Token, Vec<Token>)> {
+pub(crate) fn assignment(l: &PseudoLine) -> Option<(&Token, Vec<Token>)> {
     let [lhs, eq, rest @ ..] = l.tokens.as_slice() else { return None };
     if lhs.k != TokenKind::Register || eq.k != TokenKind::Punct || !eq.t.starts_with(" = ") {
         return None;
@@ -187,6 +187,14 @@ fn killed_first(lines: &[PseudoLine], fam: &str, indent: u8, volatile: &[&str]) 
     false
 }
 
+/// Whether the token at `pos` is the target of an assignment (`x = …`, `x += …`, `x++`).
+fn is_written(toks: &[Token], pos: usize) -> bool {
+    let Some(next) = toks.get(pos + 1).filter(|t| t.k == TokenKind::Punct) else { return false };
+    let n = next.t.as_str();
+    (n.starts_with(" = ") && !n.starts_with(" =="))
+        || [" += ", " -= ", " &= ", " |= ", " ^= ", " *= ", " /= ", " <<= ", " >>= ", "++", "--"].iter().any(|op| n.starts_with(op))
+}
+
 fn is_operator_expr(expr: &[Token]) -> bool {
     expr.len() > 1 && expr.iter().any(|t| t.k == TokenKind::Punct && t.t.trim().len() < t.t.len() && t.t.trim() != ",")
 }
@@ -229,6 +237,9 @@ fn propagate_constant(
     // Every use must be a read (not the target of a compound assignment).
     for &j in &uses {
         let t = &lines[j].tokens;
+        if (0..t.len()).any(|p| fam_of(&t[p]).is_some_and(|f| f.0 == fam) && is_written(t, p)) {
+            return false;
+        }
         if fam_of(&t[0]).is_some_and(|f| f.0 == fam)
             && t.get(1).is_some_and(|x| x.k == TokenKind::Punct && !x.t.starts_with(" = ") && !x.t.starts_with(" =="))
         {
@@ -381,6 +392,9 @@ fn try_at(lines: &mut Vec<PseudoLine>, i: usize, labels: &HashMap<String, usize>
     {
         return false;
     }
+    if (0..lines[j].tokens.len()).any(|p| fam_of(&lines[j].tokens[p]).is_some_and(|f| f.0 == fam) && is_written(&lines[j].tokens, p)) {
+        return false;
+    }
     let toks = &lines[j].tokens;
     let before = pos.checked_sub(1).map(|k| toks[k].t.as_str()).unwrap_or("");
     let after = toks.get(pos + 1).map(|t| t.t.as_str()).unwrap_or("");
@@ -400,7 +414,7 @@ fn try_at(lines: &mut Vec<PseudoLine>, i: usize, labels: &HashMap<String, usize>
 }
 
 /// Re-merges adjacent punctuation so lines stay compact after edits.
-fn merge(v: Vec<Token>) -> Vec<Token> {
+pub(crate) fn merge(v: Vec<Token>) -> Vec<Token> {
     let mut out: Vec<Token> = Vec::with_capacity(v.len());
     for t in v {
         if let Some(last) = out.last_mut() {
@@ -472,7 +486,7 @@ fn symbolize_args(bin: &crate::Binary, lines: &mut [PseudoLine]) {
     }
 }
 
-fn parse_c_number(s: &str) -> Option<i64> {
+pub(crate) fn parse_c_number(s: &str) -> Option<i64> {
     let (neg, s) = s.strip_prefix('-').map(|r| (true, r)).unwrap_or((false, s));
     let v = match s.strip_prefix("0x") {
         Some(h) => u64::from_str_radix(h, 16).ok()? as i64,

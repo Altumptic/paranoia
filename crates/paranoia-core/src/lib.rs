@@ -31,6 +31,7 @@ mod pdbsym;
 mod protos;
 mod pseudo;
 mod pseudo_opt;
+mod pseudo_types;
 mod strings;
 mod switch;
 mod tools;
@@ -767,7 +768,7 @@ impl Binary {
     }
 }
 
-struct Source<'a>(&'a Binary);
+pub(crate) struct Source<'a>(pub(crate) &'a Binary);
 
 impl CodeSource for Source<'_> {
     fn code_at(&self, va: u64) -> Option<&[u8]> {
