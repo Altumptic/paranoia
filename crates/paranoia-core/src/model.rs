@@ -348,6 +348,8 @@ pub struct AddressInfo {
     pub function: Option<u64>,
     pub function_name: Option<String>,
     pub executable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

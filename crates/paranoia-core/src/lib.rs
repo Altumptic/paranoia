@@ -19,21 +19,24 @@ mod analysis;
 pub mod api;
 mod demangle;
 pub mod disasm;
+mod dwarf;
 mod frame;
 mod items;
 mod loader;
 mod metrics;
 pub mod model;
 mod nav;
+mod operands;
 mod pdbsym;
 mod protos;
 mod pseudo;
+mod pseudo_opt;
 mod strings;
 mod switch;
 mod tools;
 mod types;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +89,15 @@ pub struct Annotations {
     /// Local types (structs / enums) declared by the user.
     #[serde(default)]
     pub types: TypeLibrary,
+    /// Operand representation overrides (IDA's H / R / B / M), by instruction.
+    #[serde(default)]
+    pub operands: BTreeMap<u64, Vec<operands::OperandFormat>>,
+}
+
+#[derive(Default)]
+struct SourceLines {
+    files: Vec<String>,
+    lines: Vec<(u64, u32, u32)>,
 }
 
 /// A loaded binary plus everything we learned about it.
@@ -96,6 +108,8 @@ pub struct Binary {
     ranges: Vec<MapRange>,
     symbols: Vec<Symbol>,
     seeds: Vec<Seed>,
+    /// Address → source line from DWARF.
+    source: SourceLines,
     import_slots: HashMap<u64, usize>,
     /// Names from symbols and exports, by address.
     static_names: HashMap<u64, String>,
@@ -180,13 +194,49 @@ impl Binary {
             }
         }
 
+        // DWARF: names, function bounds and source lines (symbols and exports take precedence).
+        let mut info = info;
+        let mut seeds = loaded.seeds;
+        let mut source = SourceLines::default();
+        if let Some(d) = dwarf::load(data, &info.sections, info.endian == Endian::Big) {
+            let executable = |va: u64| ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
+            let known: HashSet<u64> = seeds.iter().map(|s| s.address).collect();
+            let mut added = 0usize;
+            for (low, high, name) in &d.functions {
+                if !executable(*low) {
+                    continue;
+                }
+                static_names.entry(*low).or_insert_with(|| pretty(name));
+                if !known.contains(low) {
+                    seeds.push(Seed { address: *low, source: FunctionSource::Symbol, end: *high });
+                    added += 1;
+                }
+            }
+            for (va, name) in &d.globals {
+                static_names.entry(*va).or_insert_with(|| pretty(name));
+            }
+            info.headers.push(KeyValue {
+                key: "Debug info".into(),
+                value: format!(
+                    "DWARF: {} compile units, {} functions ({} new), {} globals, {} source files",
+                    d.units,
+                    d.functions.len(),
+                    added,
+                    d.globals.len(),
+                    d.files.len()
+                ),
+            });
+            source = SourceLines { files: d.files, lines: d.lines };
+        }
+
         Ok(Binary {
             file: bytes,
             slice,
             info,
             ranges,
             symbols: loaded.symbols,
-            seeds: loaded.seeds,
+            seeds,
+            source,
             import_slots,
             static_names,
             analysis: None,
@@ -573,7 +623,15 @@ impl Binary {
             function: f.map(|f| f.address),
             function_name: f.map(|f| self.function_name(f)),
             executable: self.is_executable(va),
+            source: self.source_line(va),
         }
+    }
+
+    /// `file:line` for `va` from the DWARF line table.
+    pub fn source_line(&self, va: u64) -> Option<String> {
+        let i = self.source.lines.partition_point(|l| l.0 <= va).checked_sub(1)?;
+        let (at, file, line) = self.source.lines[i];
+        (va - at < 0x1000).then(|| format!("{}:{line}", self.source.files.get(file as usize).map(String::as_str).unwrap_or("?")))
     }
 
     /// Searches names, imports, exports and strings. A hex number is treated as an address.

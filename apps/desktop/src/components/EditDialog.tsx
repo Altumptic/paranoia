@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { setOperand } from "../operands";
 import { fmtAddr, useStore } from "../store";
 
 /** Rename / comment prompt (N and ; in the listing). */
@@ -7,17 +8,30 @@ export function EditDialog() {
   const dialog = useStore((s) => s.dialog);
   const info = useStore((s) => s.info);
   const [value, setValue] = useState("");
+  const [choices, setChoices] = useState<[string, string][]>([]);
+  const [pick, setPick] = useState(0);
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (dialog) {
       setValue(dialog.initial);
+      setChoices([]);
+      setPick(0);
+      if (dialog.kind === "enum" && dialog.value != null) {
+        const param = /^([A-Za-z_]\w*)/.exec(dialog.ins?.comment ?? "")?.[1];
+        useStore.getState().session?.enumCandidates(dialog.value, param).then(setChoices).catch(() => {});
+      }
       setTimeout(() => ref.current?.select(), 0);
     }
   }, [dialog]);
 
   if (!dialog) return null;
   const close = () => useStore.getState().set("dialog", null);
+  const filtered = choices.filter(([e, t]) => !value.trim() || (e + " " + t).toLowerCase().includes(value.trim().toLowerCase()));
+  const pickEnum = async (name: string) => {
+    close();
+    if (dialog.ins) await setOperand(dialog.ins, "enum", name);
+  };
   const submit = async () => {
     const st = useStore.getState();
     close();
@@ -42,6 +56,13 @@ export function EditDialog() {
       } catch (e) {
         st.toast(e instanceof Error ? e.message : String(e), "error");
       }
+    } else if (dialog.kind === "enum") {
+      const c = filtered[Math.min(pick, filtered.length - 1)];
+      if (!c || !dialog.ins) {
+        st.toast(choices.length ? "No enum matches the filter" : "No enum has a member with this value — declare one in Local Types", "error");
+        return;
+      }
+      await setOperand(dialog.ins, "enum", c[0]);
     } else if (dialog.kind === "bookmark") {
       await st.bookmark(dialog.va, value.trim() ? value.trim() : null);
       st.toast(value.trim() ? "Bookmark saved" : "Bookmark removed", "success");
@@ -56,7 +77,7 @@ export function EditDialog() {
     <div className="modal-veil" onMouseDown={close}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">
-          {{ rename: "Rename", bookmark: "Bookmark", comment: "Comment", struct: "Apply struct" }[dialog.kind]} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
+          {{ rename: "Rename", bookmark: "Bookmark", comment: "Comment", struct: "Apply struct", enum: "Symbolic constant" }[dialog.kind]} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
         </div>
         {isRename ? (
           <input
@@ -66,7 +87,9 @@ export function EditDialog() {
             onChange={(e) => setValue(e.target.value)}
             list={dialog.kind === "struct" ? "struct-names" : undefined}
             placeholder={
-              dialog.kind === "struct"
+              dialog.kind === "enum"
+                ? `Filter enums for ${dialog.value != null && dialog.value < 0 ? "-0x" + (-dialog.value).toString(16) : "0x" + (dialog.value ?? 0).toString(16)}`
+                : dialog.kind === "struct"
                 ? structNames.length
                   ? `Struct name, e.g. ${structNames[0]} or ${structNames[0]}[4]`
                   : "Declare structs in Local Types first"
@@ -77,9 +100,24 @@ export function EditDialog() {
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
               if (e.key === "Escape") close();
+              if (dialog.kind === "enum" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                e.preventDefault();
+                setPick((p) => Math.max(0, Math.min(filtered.length - 1, p + (e.key === "ArrowDown" ? 1 : -1))));
+              }
             }}
           />
         ) : null}
+        {dialog.kind === "enum" && (
+          <div className="enum-list mono">
+            {filtered.map(([e, t], i) => (
+              <button key={e} className={`enum-row ${i === Math.min(pick, filtered.length - 1) ? "sel" : ""}`} onMouseEnter={() => setPick(i)} onClick={() => pickEnum(e)}>
+                <span className="enum-text">{t}</span>
+                <span className="muted small">{e}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && <div className="muted small">{choices.length ? "Nothing matches the filter." : "No known enum has a member with this value."}</div>}
+          </div>
+        )}
         {dialog.kind === "struct" && (
           <datalist id="struct-names">
             {structNames.map((n) => (

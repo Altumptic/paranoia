@@ -38,20 +38,21 @@ Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF an
 | **Listing** | One view over code **and data** like IDA: `sub_`/`loc_` labels, `db/dw/dd/dq`, strings, `offset`, `extrn`, auto names (`aHelloWorld`, `qword_…`), `XREF` comments, **jump arrows**, argument labels from API prototypes (`; lpFileName`), token highlight, right-click menu |
 | **Items** | Code / data / string / undefine (`C`, `D`, `A`, `U`), create function (`P`), undo / redo |
 | **Graph** | Control-flow graph with true/false/unconditional edges, GPU-composited pan & zoom, minimap |
-| **Pseudocode** | x86 / x64 lifter (F5/Tab): calling-convention arguments, folded conditions, `if { }` and `do { } while` structuring, inline strings, stack variables, intrinsics (`__readgsqword`, `_InterlockedCompareExchange`, …) |
+| **Pseudocode** | x86 / x64 lifter (F5/Tab): calling-convention arguments, **expression propagation** (`CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, …)`), folded conditions, `if { }` and `do { } while` structuring, inline strings, stack variables, intrinsics (`__readgsqword`, `_InterlockedCompareExchange`, …) |
 | **Cross references** | IDA-style xrefs dialog (`X`), callers, callees, **call graph** to any depth, stack frame view |
 | **Names** | MSVC, Itanium C++ and Rust demangling; rename (`N`), comments (`;`), bookmarks (`Alt+M`) — saved per file hash |
 | **Search** | Go to anything (`Ctrl+K`), byte patterns with `??` wildcards (`Alt+B`), text in ASCII and UTF-16 (`Alt+T`), immediate values (`Alt+I`) |
 | **Hex & patching** | Virtualized hex view with data inspector and in-place byte patching; NOP / invert / force-jump instruction patches; save the patched file |
+| **Operands** | Hex ↔ decimal (`H`), character (`R`), binary (`B`), symbolic constant (`M`); ~25 built-in Windows / POSIX enums (`PAGE_*`, `GENERIC_*`, `MB_*`, `SIG*`, …) applied to API arguments automatically |
 | **Types** | Local types from C declarations (struct, union, enum, typedef); apply a structure to data and see its fields in the listing |
-| **Debug info** | PDB symbols (publics, procedures, globals) with GUID matching, found next to the binary automatically |
+| **Debug info** | PDB symbols (publics, procedures, globals) with GUID matching, found next to the binary automatically; DWARF function names, globals and source lines |
 | **Debugger** | Local Windows x64 debugger: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
 | **Scripting** | JavaScript console with the `pn` API — functions, names, xrefs, bytes, rename, comment, patch, goto (`Ctrl+\``) |
 | **Triage** | Hashes (MD5, SHA-1, SHA-256, imphash), entropy map, section map, `checksec`-style mitigations (ASLR, DEP, CFG, RELRO, PIE, canaries, FORTIFY, code signing) |
 | **Interop** | Create functions (`P`), re-run analysis, export names & comments as an **IDA IDC script** |
 | **UI** | Light “ivory” and dark “warm graphite” themes, resizable panels, command palette, drag & drop |
 
-What is *not* here yet — a full decompiler, FLIRT signatures, DWARF, Python scripting and more — is tracked honestly in the [roadmap](docs/ROADMAP.md).
+What is *not* here yet — a full decompiler with types, FLIRT signatures, Python scripting and more — is tracked honestly in the [roadmap](docs/ROADMAP.md).
 
 ## Install
 
@@ -75,7 +76,7 @@ Builds are not code-signed yet, so Windows SmartScreen may ask for confirmation 
 | `C` / `D` / `A` / `U` | Code / data / string / undefine | `Ctrl Z` / `Ctrl Y` | Undo / redo |
 | Right-click | Context menu (patches, items, views) | ``Ctrl ` `` | Script console |
 | `Alt B` / `Alt T` / `Alt I` | Search bytes / text / immediate | `1`–`6` | Overview, listing, graph, pseudocode, calls, hex |
-| `Ctrl B` / `Ctrl J` | Toggle sidebar / inspector | `B` | Toggle opcode bytes |
+| `Ctrl B` / `Ctrl J` | Toggle sidebar / inspector | `H` / `R` / `B` / `M` | Operand: hex ↔ dec / char / binary / enum |
 
 ## Command line
 

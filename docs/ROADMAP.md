@@ -28,13 +28,14 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Hex view & patching, save patched file | ✅ | |
 | Instruction patches (NOP, invert, force jump) | ✅ | x86/x64 and AArch64 |
 | Assemble arbitrary instructions | ⏳ | |
-| Pseudocode | 🟡 | x86/x64 lifter with `if`/`do-while`; a full decompiler (types, SSA, expression propagation, `for`/`switch`) is the largest planned item |
+| Pseudocode | 🟡 | x86/x64 lifter with `if`/`do-while`, expression propagation (`HeapFree(GetProcessHeap(), 0, p)`), symbolic API constants and dead-result removal; typed variables, SSA and `for`/`switch` structuring are next |
+| Operand representation (`H`, `R`, `B`, `M`) | ✅ | Hex / decimal, character, binary, symbolic constant; built-in Windows / POSIX enums applied to API arguments automatically |
 | Types, structures, enums, local types | ✅ | C declarations (struct / union / enum / typedef, arrays, pointers, natural alignment); apply a struct to data (`Alt+Q`) |
 | Stack frame / local variable view | ✅ | Offsets, sizes, read/write counts; same names as pseudocode |
 | Argument labels from API prototypes | ✅ | ~250 WinAPI / libc prototypes (`; lpFileName`) |
 | FLIRT-like library signatures | ⏳ | |
 | PDB debug info | ✅ | Publics, procedures and globals; GUID check; the PDB next to the binary is picked up automatically |
-| DWARF debug info | ⏳ | |
+| DWARF debug info | ✅ | Function names and bounds, globals and source lines (ELF, Mach-O, MinGW / Rust-gnu PE) |
 | Call graph / proximity view | ✅ | Callers / callees to configurable depth |
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
@@ -47,7 +48,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 ## Next milestones
 
 1. **Decompiler v2** — SSA-based expression propagation, variable recovery, `for`/`switch`/`break` structuring, type propagation from imports.
-2. **Signatures & debug info** — FLIRT-style library matching, DWARF symbol loading; typed stack variables.
+2. **Signatures & types** — FLIRT-style library matching; typed stack variables; DWARF types into Local Types.
 3. **Scripting** — embedded Python and JS against the engine API; plugin manifest.
 4. **AI assistant** — optional, local-first (Ollama / LM Studio) or user-supplied API keys: explain function, suggest names, flag suspicious patterns. Nothing leaves the machine unless the user opts in.
 5. **More architectures** — MIPS, RISC-V, PowerPC; mixed ARM/Thumb images.

@@ -55,6 +55,20 @@ struct TextArg {
 }
 
 #[derive(Deserialize)]
+struct OperandArgs {
+    va: u64,
+    #[serde(flatten)]
+    format: crate::operands::OperandFormat,
+}
+
+#[derive(Deserialize)]
+struct ValueArg {
+    value: i64,
+    #[serde(default)]
+    param: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct StructArgs {
     va: u64,
     name: String,
@@ -273,6 +287,16 @@ impl Session {
                 b.checkpoint();
                 b.apply_struct(a.va, &a.name, a.count.unwrap_or(1))?;
                 Ok(Value::Null)
+            }
+            "setOperandFormat" => {
+                let a: OperandArgs = args(args_v)?;
+                b.checkpoint();
+                b.set_operand_format(a.va, a.format)?;
+                Ok(Value::Null)
+            }
+            "enumCandidates" => {
+                let a: ValueArg = args(args_v)?;
+                to(b.enum_candidates(a.value, a.param.as_deref()))
             }
             "version" => Ok(json!(env!("CARGO_PKG_VERSION"))),
             _ => Err(format!("unknown method `{method}`")),

@@ -188,6 +188,8 @@ struct Ctx<'a> {
     /// Registers assigned since the last call, used to guess call arguments.
     written: Vec<Register>,
     pushes: Vec<Expr>,
+    /// Callee-saved register spills in the prologue and their reloads before `ret`.
+    skip: BTreeSet<u64>,
 }
 
 impl Ctx<'_> {
@@ -340,10 +342,13 @@ fn is_prologue_noise(ins: &Ins, frame: Option<Register>) -> bool {
         }
         Mnemonic::Mov => {
             ins.op_kind(0) == OpKind::Register
-                && Some(ins.op_register(0)) == frame
-                && ins.op_kind(1) == OpKind::Register
-                && matches!(ins.op_register(1), Register::RSP | Register::ESP)
+                && (Some(ins.op_register(0)) == frame
+                    && ins.op_kind(1) == OpKind::Register
+                    && matches!(ins.op_register(1), Register::RSP | Register::ESP)
+                    || matches!(ins.op_register(0), Register::RSP | Register::ESP))
         }
+        // Stack-pointer restores in epilogues (`mov rsp, r11`, `lea rsp, [rbp+…]`).
+        Mnemonic::Lea => ins.op_kind(0) == OpKind::Register && matches!(ins.op_register(0), Register::RSP | Register::ESP),
         Mnemonic::Leave | Mnemonic::Nop | Mnemonic::Int3 | Mnemonic::Endbr64 | Mnemonic::Endbr32 => true,
         _ => false,
     }
@@ -434,6 +439,20 @@ impl Binary {
                     }
                 }
                 if i.mnemonic() == Mnemonic::Call {
+                    // A call with a known prototype reads its register arguments.
+                    let callee = match i.op_kind(0) {
+                        OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => self.name_at(i.near_branch_target()),
+                        OpKind::Memory if i.is_ip_rel_memory_operand() => self.name_at(i.ip_rel_memory_address()),
+                        _ => None,
+                    };
+                    if let Some(p) = callee.as_deref().and_then(crate::protos::lookup) {
+                        let n = p.params.iter().filter(|x| **x != "...").count();
+                        for r in conv.iter().take(n) {
+                            if !written.contains(r) && !args.contains(r) {
+                                args.push(*r);
+                            }
+                        }
+                    }
                     break;
                 }
             }
@@ -452,7 +471,8 @@ impl Binary {
             }
         }
 
-        let mut ctx = Ctx { bin: self, bits, frame_reg, args: args.clone(), labels, written: Vec::new(), pushes: Vec::new() };
+        let skip = save_restore_noise(&blocks, f.address);
+        let mut ctx = Ctx { bin: self, bits, frame_reg, args: args.clone(), labels, written: Vec::new(), pushes: Vec::new(), skip };
         let ret_ty = if all.iter().any(|i| i.mnemonic() == Mnemonic::Ret) && writes_rax_before_ret(&blocks) { "__int64" } else { "void" };
 
         let mut out: Vec<PseudoLine> = Vec::new();
@@ -473,6 +493,7 @@ impl Binary {
         let mut emitted = BTreeSet::new();
         emit_range(&mut ctx, &blocks, &order, 0, order.len(), 1, &mut out, &mut emitted);
         out.push(PseudoLine { address: None, indent: 0, tokens: vec![Token { t: "}".into(), k: TokenKind::Punct }] });
+        crate::pseudo_opt::optimize(self, &mut out, self.info.format != Format::Pe, bits);
 
         // Keep only labels that some `goto` still targets.
         let mut used = BTreeSet::new();
@@ -490,6 +511,46 @@ impl Binary {
         let _ = &ctx.args;
         Some(Pseudocode { address: f.address, name, lines: out, note: None })
     }
+}
+
+/// `mov [rsp+X], rbx` before the frame is set up, and the matching `mov rbx, [rsp+Y]`
+/// in blocks that return: MSVC's non-volatile register home slots.
+fn save_restore_noise(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>, entry: u64) -> BTreeSet<u64> {
+    let mut skip = BTreeSet::new();
+    let mut saved = BTreeSet::new();
+    if let Some((v, _)) = blocks.get(&entry) {
+        for i in v.iter().take(12) {
+            let spill = i.mnemonic() == Mnemonic::Mov
+                && i.op_count() == 2
+                && i.op_kind(0) == OpKind::Memory
+                && matches!(i.memory_base(), Register::RSP | Register::RBP)
+                && i.memory_index() == Register::None
+                && i.op_kind(1) == OpKind::Register
+                && is_callee_saved(i.op_register(1));
+            if spill {
+                skip.insert(i.ip());
+                saved.insert(i.op_register(1).full_register());
+            } else if !matches!(i.mnemonic(), Mnemonic::Push | Mnemonic::Sub | Mnemonic::Mov | Mnemonic::Lea) {
+                break;
+            }
+        }
+    }
+    for (v, _) in blocks.values() {
+        if !v.last().is_some_and(|l| l.mnemonic() == Mnemonic::Ret || l.mnemonic() == Mnemonic::Jmp) {
+            continue;
+        }
+        for i in v.iter().rev().take(10) {
+            if i.mnemonic() == Mnemonic::Mov
+                && i.op_kind(0) == OpKind::Register
+                && saved.contains(&i.op_register(0).full_register())
+                && i.op_kind(1) == OpKind::Memory
+                && matches!(i.memory_base(), Register::RSP | Register::R11 | Register::RBP)
+            {
+                skip.insert(i.ip());
+            }
+        }
+    }
+    skip
 }
 
 fn writes_rax_before_ret(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>) -> bool {
@@ -863,7 +924,7 @@ fn emit_insns(
     _here: usize,
 ) {
     for (n, ins) in insns.iter().enumerate() {
-        if is_prologue_noise(ins, ctx.frame_reg) {
+        if is_prologue_noise(ins, ctx.frame_reg) || ctx.skip.contains(&ins.ip()) {
             continue;
         }
         // cmp/test feeding a following jcc/setcc/cmovcc are folded into that consumer.
@@ -898,6 +959,18 @@ fn emit_insns(
                     && ins.op_register(0) == ins.op_register(1) =>
             {
                 l.extend(dst()).p(" = ").extend(Expr::num(0)).p(";");
+            }
+            // `and x, 0` / `or x, -1` are stores of a constant (compilers use them for short encodings).
+            Mnemonic::And | Mnemonic::Or
+                if ins.op_count() == 2 && ins.op_kind(1) != OpKind::Register && ins.op_kind(1) != OpKind::Memory && {
+                    let v = ins.immediate(1) as i64;
+                    (m == Mnemonic::And && v == 0)
+                        || (m == Mnemonic::Or
+                            && (v == -1 || v as u32 == u32::MAX && ins.op0_kind() == OpKind::Memory && ins.memory_size().size() == 4))
+                } =>
+            {
+                let v = if m == Mnemonic::And { 0 } else { -1 };
+                l.extend(dst()).p(" = ").extend(Expr::num(v)).p(";");
             }
             Mnemonic::Add
             | Mnemonic::Sub
