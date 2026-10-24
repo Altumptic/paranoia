@@ -27,6 +27,8 @@ pub enum Arch {
     X86,
     X86_64,
     Arm,
+    /// 32-bit ARM whose code is Thumb-2.
+    Thumb,
     Arm64,
     Mips,
     PowerPc,
@@ -40,6 +42,7 @@ impl Arch {
             Arch::X86 => "x86",
             Arch::X86_64 => "x86-64",
             Arch::Arm => "ARM",
+            Arch::Thumb => "ARM (Thumb-2)",
             Arch::Arm64 => "AArch64",
             Arch::Mips => "MIPS",
             Arch::PowerPc => "PowerPC",
@@ -50,7 +53,7 @@ impl Arch {
 
     /// Whether the disassembler can decode this architecture.
     pub fn disassembly_supported(self) -> bool {
-        matches!(self, Arch::X86 | Arch::X86_64 | Arch::Arm64)
+        matches!(self, Arch::X86 | Arch::X86_64 | Arch::Arm | Arch::Thumb | Arch::Arm64)
     }
 }
 

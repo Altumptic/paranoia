@@ -12,6 +12,7 @@ use iced_x86::{
     SymbolResult,
 };
 use yaxpeax_arch::{Decoder as _, U8Reader};
+use yaxpeax_arm::armv7 as a32;
 use yaxpeax_arm::armv8::a64::{InstDecoder, Opcode, Operand, SizeCode};
 
 use crate::model::{Arch, Flow, Instruction, Token, TokenKind};
@@ -78,6 +79,7 @@ impl Disassembler {
         match self.arch {
             Arch::X86 | Arch::X86_64 => decode_x86(self.bits, bytes, va),
             Arch::Arm64 => self.decode_arm64(bytes, va),
+            Arch::Arm | Arch::Thumb => decode_arm32(self.arch == Arch::Thumb, bytes, va).1,
             _ => Decoded::invalid(),
         }
     }
@@ -234,6 +236,7 @@ pub fn render(arch: Arch, bytes: &[u8], va: u64, max: usize, names: &dyn NameLoo
     match arch {
         Arch::X86 | Arch::X86_64 => render_x86(if arch == Arch::X86 { 32 } else { 64 }, bytes, va, max, names),
         Arch::Arm64 => render_arm64(bytes, va, max, names),
+        Arch::Arm | Arch::Thumb => render_arm32(arch == Arch::Thumb, bytes, va, max, names),
         _ => Vec::new(),
     }
 }
@@ -475,11 +478,285 @@ fn tokenize_arm(s: &str) -> Vec<Token> {
 }
 
 fn is_arm_register(w: &str) -> bool {
-    let w = w.split('.').next().unwrap_or(w);
-    matches!(w, "sp" | "wsp" | "xzr" | "wzr" | "lr" | "fp" | "pc" | "nzcv" | "fpcr" | "fpsr")
-        || (w.len() >= 2
-            && matches!(w.as_bytes()[0], b'x' | b'w' | b'v' | b'q' | b'd' | b's' | b'h' | b'b' | b'z' | b'p')
-            && w[1..].bytes().all(|b| b.is_ascii_digit()))
+    let w = w.split('.').next().unwrap_or(w).trim_end_matches('!');
+    matches!(
+        w,
+        "sp" | "wsp" | "xzr" | "wzr" | "lr" | "fp" | "pc" | "ip" | "sb" | "sl" | "nzcv" | "fpcr" | "fpsr" | "apsr" | "cpsr" | "spsr"
+    ) || (w.len() >= 2
+        && matches!(w.as_bytes()[0], b'x' | b'w' | b'v' | b'q' | b'd' | b's' | b'h' | b'b' | b'z' | b'p' | b'r')
+        && w[1..].bytes().all(|b| b.is_ascii_digit()))
+}
+
+// ------------------------------------------------------------------------------------------------
+// ARM32 / Thumb-2
+// ------------------------------------------------------------------------------------------------
+
+/// Length of the Thumb instruction starting with halfword `h` (2 or 4 bytes).
+fn thumb_len(h: u16) -> usize {
+    if matches!(h >> 11, 0b11101..=0b11111) {
+        4
+    } else {
+        2
+    }
+}
+
+fn sext(v: u32, bits: u32) -> i64 {
+    ((v << (32 - bits)) as i32 >> (32 - bits)) as i64
+}
+
+/// Decodes one ARM or Thumb instruction. Branch targets are computed from the raw
+/// encoding (the decoder's offset conventions differ between encodings).
+fn decode_arm32(thumb: bool, bytes: &[u8], va: u64) -> (Option<a32::Instruction>, Decoded) {
+    let len = if thumb {
+        if bytes.len() < 2 {
+            return (None, Decoded::invalid());
+        }
+        thumb_len(u16::from_le_bytes([bytes[0], bytes[1]]))
+    } else {
+        4
+    };
+    if bytes.len() < len {
+        return (None, Decoded::invalid());
+    }
+    let mut d = Decoded { len: len as u8, flow: Flow::None, target: None, data_ref: None, mem_size: 0, indirect_slot: None, valid: true };
+    let mut reader = U8Reader::new(&bytes[..len]);
+    let mut dec = if thumb { a32::InstDecoder::default_thumb() } else { a32::InstDecoder::default() };
+    // Reject UNPREDICTABLE encodings (e.g. ldrd with an odd/pc register pair) instead
+    // of decoding them; the decoder panics on some of those.
+    dec.set_allow_nonconforming(false);
+    let Ok(inst) = dec.decode(&mut reader) else {
+        return (None, Decoded { len: len as u8, ..Decoded::invalid() });
+    };
+    let conditional = inst.condition != a32::ConditionCode::AL;
+    let reg = |op: a32::Operand| match op {
+        a32::Operand::Reg(r) | a32::Operand::RegWBack(r, _) => Some(r.number()),
+        _ => None,
+    };
+    let writes_pc = reg(inst.operands[0]) == Some(15);
+    let list_has_pc = inst.operands.iter().any(|o| matches!(o, a32::Operand::RegList(l) if l & 0x8000 != 0));
+    // PC reads as the address of the instruction plus 8 (ARM) or 4 (Thumb).
+    let pc = va + if thumb { 4 } else { 8 };
+    let pc_aligned = pc & !3;
+
+    if thumb {
+        let h1 = u16::from_le_bytes([bytes[0], bytes[1]]) as u32;
+        if len == 2 {
+            if h1 >> 12 == 0b1101 && (h1 >> 8) & 0xf < 0b1110 {
+                d.flow = Flow::CondJump;
+                d.target = Some(pc.wrapping_add((sext(h1 & 0xff, 8) << 1) as u64));
+            } else if h1 >> 11 == 0b11100 {
+                d.flow = Flow::Jump;
+                d.target = Some(pc.wrapping_add((sext(h1 & 0x7ff, 11) << 1) as u64));
+            } else if h1 & 0xf500 == 0xb100 {
+                // cbz / cbnz
+                let off = (((h1 >> 9) & 1) << 6) | (((h1 >> 3) & 0x1f) << 1);
+                d.flow = Flow::CondJump;
+                d.target = Some(pc + off as u64);
+            } else if h1 & 0xff00 == 0x4700 {
+                let rm = (h1 >> 3) & 0xf;
+                d.flow = if h1 & 0x80 != 0 {
+                    Flow::Call
+                } else if rm == 14 {
+                    Flow::Ret
+                } else {
+                    Flow::Jump
+                };
+            } else if h1 & 0xff00 == 0xbd00 {
+                d.flow = Flow::Ret; // pop {..., pc}
+            } else if h1 & 0xf800 == 0xa000 {
+                d.data_ref = Some(pc_aligned + ((h1 & 0xff) << 2) as u64); // adr
+            } else if h1 & 0xf800 == 0x4800 {
+                d.data_ref = Some(pc_aligned + ((h1 & 0xff) << 2) as u64); // ldr rt, [pc, #imm]
+                d.mem_size = 4;
+            } else if h1 == 0xdefe || h1 >> 8 == 0xbe {
+                d.flow = Flow::Interrupt; // udf / bkpt
+            }
+        } else {
+            let h2 = u16::from_le_bytes([bytes[2], bytes[3]]) as u32;
+            if h1 >> 11 == 0b11110 && h2 & 0x8000 != 0 {
+                let s = (h1 >> 10) & 1;
+                let j1 = (h2 >> 13) & 1;
+                let j2 = (h2 >> 11) & 1;
+                let op = ((h2 >> 14) & 1, (h2 >> 12) & 1);
+                if op == (0, 0) {
+                    // b<cond>.w
+                    if (h1 >> 6) & 0xf < 0b1110 {
+                        let imm = (s << 20) | (j2 << 19) | (j1 << 18) | ((h1 & 0x3f) << 12) | ((h2 & 0x7ff) << 1);
+                        d.flow = Flow::CondJump;
+                        d.target = Some(pc.wrapping_add(sext(imm, 21) as u64));
+                    }
+                } else {
+                    let i1 = 1 ^ (j1 ^ s);
+                    let i2 = 1 ^ (j2 ^ s);
+                    let imm = (s << 24) | (i1 << 23) | (i2 << 22) | ((h1 & 0x3ff) << 12) | ((h2 & 0x7ff) << 1);
+                    let off = sext(imm, 25) as u64;
+                    match op {
+                        (0, _) => {
+                            d.flow = Flow::Jump;
+                            d.target = Some(pc.wrapping_add(off));
+                        }
+                        (_, 1) => {
+                            d.flow = Flow::Call;
+                            d.target = Some(pc.wrapping_add(off));
+                        }
+                        _ => {
+                            d.flow = Flow::Call; // blx into ARM code
+                            d.target = Some(pc_aligned.wrapping_add(off));
+                        }
+                    }
+                }
+            } else if h1 == 0xe8bd && h2 & 0x8000 != 0 {
+                d.flow = Flow::Ret; // pop.w {..., pc}
+            } else if h1 == 0xf85d && h2 == 0xfb04 {
+                d.flow = Flow::Ret; // ldr pc, [sp], #4
+            } else if h1 & 0xff7f == 0xf85f {
+                // ldr.w rt, [pc, #±imm12]
+                let imm = (h2 & 0xfff) as u64;
+                let a = if h1 & 0x80 != 0 { pc_aligned + imm } else { pc_aligned.wrapping_sub(imm) };
+                if h2 >> 12 == 15 {
+                    d.flow = Flow::Jump;
+                    d.indirect_slot = Some(a);
+                } else {
+                    d.data_ref = Some(a);
+                    d.mem_size = 4;
+                }
+            } else if h1 & 0xfff0 == 0xe8d0 && h2 & 0xffe0 == 0xf000 {
+                d.flow = Flow::Jump; // tbb / tbh
+            }
+        }
+        if conditional && d.flow == Flow::Ret {
+            d.flow = Flow::None;
+        }
+        return (Some(inst), d);
+    }
+
+    // ARM state.
+    let word = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+    match inst.opcode {
+        a32::Opcode::B | a32::Opcode::BL if (word >> 25) & 0b111 == 0b101 => {
+            let off = (sext(word & 0x00ff_ffff, 24) << 2) as u64;
+            d.flow = if inst.opcode == a32::Opcode::BL {
+                Flow::Call
+            } else if conditional {
+                Flow::CondJump
+            } else {
+                Flow::Jump
+            };
+            d.target = Some(pc.wrapping_add(off));
+        }
+        a32::Opcode::BLX if word >> 28 == 0b1111 => {
+            // blx imm: switches to Thumb, H supplies bit 1.
+            let off = ((sext(word & 0x00ff_ffff, 24) << 2) | (((word >> 24) & 1) << 1) as i64) as u64;
+            d.flow = Flow::Call;
+            d.target = Some(pc.wrapping_add(off));
+        }
+        a32::Opcode::BLX => d.flow = Flow::Call,
+        a32::Opcode::BX => {
+            d.flow = if reg(inst.operands[0]) == Some(14) { Flow::Ret } else { Flow::Jump };
+        }
+        a32::Opcode::POP | a32::Opcode::LDM(..) if list_has_pc => d.flow = Flow::Ret,
+        a32::Opcode::LDR if writes_pc => {
+            d.flow = if matches!(inst.operands[1], a32::Operand::RegDerefPostindexOffset(r, 4, true, _) if r.number() == 13) {
+                Flow::Ret
+            } else {
+                Flow::Jump
+            };
+        }
+        a32::Opcode::MOV if writes_pc => {
+            d.flow = if reg(inst.operands[1]) == Some(14) { Flow::Ret } else { Flow::Jump };
+        }
+        a32::Opcode::ADD if writes_pc => d.flow = Flow::Jump,
+        a32::Opcode::ADR => {
+            let rot = ((word >> 8) & 0xf) * 2;
+            let imm = (word & 0xff).rotate_right(rot) as u64;
+            d.data_ref = Some(if (word >> 21) & 0xf == 0b0100 { pc + imm } else { pc.wrapping_sub(imm) });
+        }
+        a32::Opcode::UDF | a32::Opcode::BKPT => d.flow = Flow::Interrupt,
+        _ => {}
+    }
+    if matches!(inst.opcode, a32::Opcode::LDR | a32::Opcode::LDRB | a32::Opcode::LDRH | a32::Opcode::LDRD) {
+        if let a32::Operand::RegDerefPreindexOffset(r, imm, add, false) = inst.operands[1] {
+            if r.number() == 15 {
+                let a = if add { pc + imm as u64 } else { pc.wrapping_sub(imm as u64) };
+                if d.flow == Flow::Jump {
+                    d.indirect_slot = Some(a);
+                } else {
+                    d.data_ref = Some(a);
+                    d.mem_size = 4;
+                }
+            }
+        }
+    }
+    if conditional && matches!(d.flow, Flow::Ret | Flow::Jump) && d.target.is_none() {
+        d.flow = Flow::None;
+    }
+    (Some(inst), d)
+}
+
+fn render_arm32(thumb: bool, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    let step = if thumb { 2 } else { 4 };
+    while out.len() < max && pos + step <= bytes.len() {
+        let ip = va + pos as u64;
+        let (inst, s) = decode_arm32(thumb, &bytes[pos..], ip);
+        let Some(inst) = inst.filter(|_| s.valid) else {
+            let raw = &bytes[pos..pos + step];
+            let value = if thumb {
+                format!("{:#06x}", u16::from_le_bytes([raw[0], raw[1]]))
+            } else {
+                format!("{:#010x}", u32::from_le_bytes(raw.try_into().unwrap()))
+            };
+            out.push(Instruction {
+                address: ip,
+                size: step as u32,
+                bytes: hex::encode(raw),
+                mnemonic: if thumb { ".short" } else { ".word" }.into(),
+                operands: vec![Token { t: value, k: TokenKind::Number }],
+                flow: Flow::None,
+                target: None,
+                comment: None,
+                label: None,
+                user_comment: None,
+            });
+            pos += step;
+            continue;
+        };
+        let len = s.len as usize;
+        let text = inst.to_string();
+        let (mnemonic, ops) = text.split_once(' ').unwrap_or((text.as_str(), ""));
+        let mut operands = tokenize_arm(ops);
+        let target = s.target.or(s.data_ref).or(s.indirect_slot);
+        if let Some(t) = s.target.or(s.data_ref).or(s.indirect_slot) {
+            // Show pc-relative operands as the resolved address / name.
+            let named = names.name_at(t).map(|n| Token { t: n, k: TokenKind::Symbol });
+            let tok = named.unwrap_or(Token { t: format!("{t:#x}"), k: TokenKind::Address });
+            if s.target.is_some() {
+                let branch = operands.iter().rposition(|t| t.k == TokenKind::Address || t.k == TokenKind::Number);
+                match branch {
+                    Some(i) => operands[i] = tok,
+                    None => operands.push(tok),
+                }
+            } else {
+                operands.push(Token { t: " ; ".into(), k: TokenKind::Punct });
+                operands.push(tok);
+            }
+        }
+        out.push(Instruction {
+            address: ip,
+            size: len as u32,
+            bytes: hex::encode(&bytes[pos..pos + len]),
+            mnemonic: mnemonic.to_string(),
+            operands,
+            flow: s.flow,
+            target,
+            comment: None,
+            label: None,
+            user_comment: None,
+        });
+        pos += len;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -532,5 +809,60 @@ mod tests {
         let r = render(Arch::Arm64, &code, 0x4000, 10, &NoNames);
         assert_eq!(r[0].mnemonic, "bl");
         assert_eq!(r[0].operands[0].t, "0x4008");
+    }
+
+    #[test]
+    fn arm32_branches() {
+        // bl +8 ; bx lr ; ldr r0, [pc, #4]
+        let code: Vec<u8> = [0xeb00_0000u32, 0xe12f_ff1e, 0xe59f_0004].iter().flat_map(|w| w.to_le_bytes()).collect();
+        let mut d = Disassembler::new(Arch::Arm);
+        let bl = d.decode(&code, 0x8000);
+        assert_eq!((bl.flow, bl.target), (Flow::Call, Some(0x8008)));
+        assert_eq!(d.decode(&code[4..], 0x8004).flow, Flow::Ret);
+        assert_eq!(d.decode(&code[8..], 0x8008).data_ref, Some(0x8008 + 8 + 4));
+        let r = render(Arch::Arm, &code, 0x8000, 10, &NoNames);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].mnemonic, "bl");
+        assert_eq!(r[0].operands.last().unwrap().t, "0x8008");
+    }
+
+    #[test]
+    fn arm32_never_panics_on_noise() {
+        for seed in [0x2545_f491_4f6c_dd1du64, 0x9e37_79b9_7f4a_7c15, 0xdead_beef_cafe_f00d, 7] {
+            let mut x = seed;
+            let noise: Vec<u8> = (0..128 * 1024)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect();
+            for arch in [Arch::Arm, Arch::Thumb] {
+                let mut d = Disassembler::new(arch);
+                for off in (0..noise.len()).step_by(2) {
+                    d.decode(&noise[off..], 0x10000 + off as u64);
+                }
+                let r = render(arch, &noise, 0x10000, usize::MAX, &NoNames);
+                assert!(r.len() >= noise.len() / 4);
+            }
+        }
+    }
+
+    #[test]
+    fn thumb_branches() {
+        // push {r4, lr} ; bl.w +0x100 ; cbz r0, +4 ; beq -4 ; pop {r4, pc}
+        let code: [u8; 12] = [0x10, 0xb5, 0x00, 0xf0, 0x7e, 0xf8, 0x10, 0xb1, 0xfc, 0xd0, 0x10, 0xbd];
+        let mut d = Disassembler::new(Arch::Thumb);
+        assert_eq!(d.decode(&code, 0x1000).len, 2);
+        let bl = d.decode(&code[2..], 0x1002);
+        assert_eq!((bl.len, bl.flow, bl.target), (4, Flow::Call, Some(0x1002 + 4 + 0xfc)));
+        let cbz = d.decode(&code[6..], 0x1006);
+        assert_eq!((cbz.flow, cbz.target), (Flow::CondJump, Some(0x1006 + 4 + 4)));
+        let beq = d.decode(&code[8..], 0x1008);
+        assert_eq!((beq.flow, beq.target), (Flow::CondJump, Some(0x1008 + 4 - 8)));
+        assert_eq!(d.decode(&code[10..], 0x100a).flow, Flow::Ret);
+        let r = render(Arch::Thumb, &code, 0x1000, 10, &NoNames);
+        assert_eq!(r.iter().map(|i| i.size).collect::<Vec<_>>(), vec![2, 4, 2, 2, 2]);
     }
 }

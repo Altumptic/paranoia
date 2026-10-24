@@ -12,7 +12,8 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Raw binaries, firmware, COFF/OMF objects, DEX, NE/LE | ⏳ | Manual load address and processor selection |
 | x86 / x86-64 disassembly | ✅ | |
 | AArch64 disassembly | ✅ | ADRP-based data references |
-| ARM32/Thumb, MIPS, PowerPC, RISC-V | ⏳ | Headers and strings already work for these |
+| ARM32 / Thumb-2 disassembly | ✅ | Thumb chosen from the entry point's mode bit (Windows on ARM is always Thumb); literal pools and `adr` as data references |
+| MIPS, PowerPC, RISC-V | ⏳ | Headers and strings already work for these |
 | Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` |
 | Switch/jump-table recovery | ✅ | Absolute tables, MSVC `__ImageBase` RVA tables, PIC relative tables |
 | Listing with labels, jump arrows, comments | ✅ | |
@@ -28,29 +29,29 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Instruction patches (NOP, invert, force jump) | ✅ | x86/x64 and AArch64 |
 | Assemble arbitrary instructions | ⏳ | |
 | Pseudocode | 🟡 | x86/x64 lifter with `if`/`do-while`; a full decompiler (types, SSA, expression propagation, `for`/`switch`) is the largest planned item |
-| Types, structures, enums, local types | ⏳ | |
+| Types, structures, enums, local types | ✅ | C declarations (struct / union / enum / typedef, arrays, pointers, natural alignment); apply a struct to data (`Alt+Q`) |
 | Stack frame / local variable view | ✅ | Offsets, sizes, read/write counts; same names as pseudocode |
 | Argument labels from API prototypes | ✅ | ~250 WinAPI / libc prototypes (`; lpFileName`) |
 | FLIRT-like library signatures | ⏳ | |
-| PDB / DWARF debug info | 🟡 | PDB path and GUID shown; symbol loading planned |
+| PDB debug info | ✅ | Publics, procedures and globals; GUID check; the PDB next to the binary is picked up automatically |
+| DWARF debug info | ⏳ | |
 | Call graph / proximity view | ✅ | Callers / callees to configurable depth |
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
 | Scripting | 🟡 | JavaScript console with the `pn` API (IDC/IDAPython counterpart); Python and plugins planned |
-| Debugger (local / remote) | ⏳ | |
+| Debugger | 🟡 | Local Windows x64: breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. x86, Linux and remote planned |
 | Export: IDC script | ✅ | Names, comments, user functions |
 | Project files, undo/redo | ✅ | Annotations auto-save per file hash; undo / redo (200 steps) |
 | Collaboration / shared projects | ⏳ | Pro edition |
 
 ## Next milestones
 
-1. **Types** — structures, enums and typed globals; apply types to data and stack variables.
-2. **Decompiler v2** — SSA-based expression propagation, variable recovery, `for`/`switch`/`break` structuring, type propagation from imports.
-3. **Signatures & debug info** — FLIRT-style library matching, PDB and DWARF symbol loading.
-4. **Scripting** — embedded Python and JS against the engine API; plugin manifest.
-5. **AI assistant** — optional, local-first (Ollama / LM Studio) or user-supplied API keys: explain function, suggest names, flag suspicious patterns. Nothing leaves the machine unless the user opts in.
-6. **More architectures** — ARM32/Thumb, MIPS, RISC-V, PowerPC.
-7. **Debugger** — Windows (DbgEng/WinAPI) and Linux (ptrace/gdbserver) backends.
+1. **Decompiler v2** — SSA-based expression propagation, variable recovery, `for`/`switch`/`break` structuring, type propagation from imports.
+2. **Signatures & debug info** — FLIRT-style library matching, DWARF symbol loading; typed stack variables.
+3. **Scripting** — embedded Python and JS against the engine API; plugin manifest.
+4. **AI assistant** — optional, local-first (Ollama / LM Studio) or user-supplied API keys: explain function, suggest names, flag suspicious patterns. Nothing leaves the machine unless the user opts in.
+5. **More architectures** — MIPS, RISC-V, PowerPC; mixed ARM/Thumb images.
+6. **Debugger** — 32-bit Windows targets, Linux (ptrace / gdbserver) and remote backends.
 
 ## Editions
 

@@ -33,7 +33,7 @@ Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF an
 | Area | What you get |
 | --- | --- |
 | **Formats** | PE / PE32+ (incl. .NET detection, forwarders, TLS callbacks, `.pdata`), ELF (PIE, PLT/GOT imports, symbol versions), Mach-O (universal binaries, dyld bind opcodes, **chained fixups**, export trie) |
-| **Architectures** | x86, x86-64 (iced-x86), AArch64 (yaxpeax-arm, with `adrp`+`add` data references) |
+| **Architectures** | x86, x86-64 (iced-x86), AArch64 (with `adrp`+`add` data references), ARM32 and Thumb-2 (yaxpeax-arm, literal pools) |
 | **Auto-analysis** | Recursive-descent function discovery seeded by entry points, exports, symbols and exception tables; basic blocks; **switch-table recovery**; no-return awareness; import thunks (`j_CreateFileW`) |
 | **Listing** | One view over code **and data** like IDA: `sub_`/`loc_` labels, `db/dw/dd/dq`, strings, `offset`, `extrn`, auto names (`aHelloWorld`, `qword_…`), `XREF` comments, **jump arrows**, argument labels from API prototypes (`; lpFileName`), token highlight, right-click menu |
 | **Items** | Code / data / string / undefine (`C`, `D`, `A`, `U`), create function (`P`), undo / redo |
@@ -43,12 +43,15 @@ Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF an
 | **Names** | MSVC, Itanium C++ and Rust demangling; rename (`N`), comments (`;`), bookmarks (`Alt+M`) — saved per file hash |
 | **Search** | Go to anything (`Ctrl+K`), byte patterns with `??` wildcards (`Alt+B`), text in ASCII and UTF-16 (`Alt+T`), immediate values (`Alt+I`) |
 | **Hex & patching** | Virtualized hex view with data inspector and in-place byte patching; NOP / invert / force-jump instruction patches; save the patched file |
+| **Types** | Local types from C declarations (struct, union, enum, typedef); apply a structure to data and see its fields in the listing |
+| **Debug info** | PDB symbols (publics, procedures, globals) with GUID matching, found next to the binary automatically |
+| **Debugger** | Local Windows x64 debugger: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
 | **Scripting** | JavaScript console with the `pn` API — functions, names, xrefs, bytes, rename, comment, patch, goto (`Ctrl+\``) |
 | **Triage** | Hashes (MD5, SHA-1, SHA-256, imphash), entropy map, section map, `checksec`-style mitigations (ASLR, DEP, CFG, RELRO, PIE, canaries, FORTIFY, code signing) |
 | **Interop** | Create functions (`P`), re-run analysis, export names & comments as an **IDA IDC script** |
 | **UI** | Light “ivory” and dark “warm graphite” themes, resizable panels, command palette, drag & drop |
 
-What is *not* here yet — debugger, scripting, type libraries, FLIRT signatures and more — is tracked honestly in the [roadmap](docs/ROADMAP.md).
+What is *not* here yet — a full decompiler, FLIRT signatures, DWARF, Python scripting and more — is tracked honestly in the [roadmap](docs/ROADMAP.md).
 
 ## Install
 
