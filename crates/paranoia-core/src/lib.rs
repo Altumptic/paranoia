@@ -118,7 +118,10 @@ pub struct Binary {
 impl Binary {
     /// Parses `bytes`. Cheap: no disassembly happens until [`Binary::analyze`].
     pub fn load(file_name: &str, bytes: Vec<u8>) -> Result<Self, Error> {
-        let (format, loaded) = loader::load(&bytes)?;
+        let (format, mut loaded) = loader::load(&bytes)?;
+        if loaded.arch == Some(Arch::Arm) {
+            loader::fix_arm_thumb(&mut loaded, format);
+        }
         let slice = loaded.slice.unwrap_or((0, bytes.len()));
         let data = &bytes[slice.0..slice.0 + slice.1];
 
@@ -291,7 +294,7 @@ impl Binary {
                     Arch::X86_64 => 64,
                     _ => 0,
                 };
-                analysis::run(&Source(self), &mut dis, &seeds, &skip, self.info.arch == Arch::Arm64, bits)
+                analysis::run(&Source(self), &mut dis, &seeds, &skip, matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb), bits)
             } else {
                 Analysis::default()
             };

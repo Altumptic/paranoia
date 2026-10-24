@@ -477,7 +477,7 @@ export function fmtSize(n: number): string {
 
 export function archLabel(a: string): string {
   return (
-    { x86: "x86", x86_64: "x86-64", arm: "ARM", arm64: "AArch64", mips: "MIPS", powerpc: "PowerPC", riscv: "RISC-V" } as Record<
+    { x86: "x86", x86_64: "x86-64", arm: "ARM", thumb: "ARM (Thumb-2)", arm64: "AArch64", mips: "MIPS", powerpc: "PowerPC", riscv: "RISC-V" } as Record<
       string,
       string
     >

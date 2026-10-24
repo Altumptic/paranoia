@@ -95,3 +95,27 @@ pub fn load(bytes: &[u8]) -> Result<(Format, Loaded), Error> {
     .map_err(|e| Error::Malformed(format.label(), e.to_string()))?;
     Ok((format, loaded))
 }
+
+/// 32-bit ARM marks Thumb code with the low address bit. Windows on ARM and
+/// modern Linux (armhf) binaries are Thumb-2 throughout, so a Thumb entry point
+/// switches the whole image to Thumb; code addresses lose their mode bit.
+pub(crate) fn fix_arm_thumb(l: &mut Loaded, format: Format) {
+    let thumb = l.entry & 1 == 1 || format == Format::Pe;
+    if thumb {
+        l.arch = Some(Arch::Thumb);
+    }
+    l.entry &= !1;
+    for s in &mut l.seeds {
+        s.address &= !1;
+        s.end = s.end.map(|e| e & !1);
+    }
+    for s in l.symbols.iter_mut().filter(|s| s.kind == SymbolKind::Function) {
+        s.address &= !1;
+    }
+    let code = |va: u64, l: &Loaded| l.ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
+    let fixed: Vec<u64> =
+        l.exports.iter().map(|e| if e.address & 1 == 1 && code(e.address, l) { e.address & !1 } else { e.address }).collect();
+    for (e, a) in l.exports.iter_mut().zip(fixed) {
+        e.address = a;
+    }
+}
