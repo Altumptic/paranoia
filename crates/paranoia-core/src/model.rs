@@ -273,6 +273,9 @@ pub struct FunctionSummary {
     pub xrefs: usize,
     pub source: FunctionSource,
     pub is_import_thunk: bool,
+    /// Recognised as a runtime-library function (signatures or PDB module).
+    #[serde(default)]
+    pub library: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

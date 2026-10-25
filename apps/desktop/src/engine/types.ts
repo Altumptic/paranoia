@@ -127,6 +127,14 @@ export interface FunctionSummary {
   xrefs: number;
   source: FunctionSource;
   is_import_thunk: boolean;
+  /** Recognised runtime-library function (signatures or PDB module). */
+  library?: boolean;
+}
+
+export interface SigReport {
+  signatures: number;
+  matched: number;
+  names: [number, string][];
 }
 
 export interface GraphBlock {

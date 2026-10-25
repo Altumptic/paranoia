@@ -55,6 +55,21 @@ enum Cmd {
     Pseudo { file: PathBuf, at: String },
     /// Cross references to an address.
     Xrefs { file: PathBuf, at: String },
+    /// Write an IDA-compatible `.pat` signature file from a binary's named functions.
+    Sigmake {
+        file: PathBuf,
+        /// Load symbols from this PDB first.
+        #[arg(long)]
+        pdb: Option<PathBuf>,
+        /// Only functions from the Microsoft runtime libraries (needs a PDB).
+        #[arg(long)]
+        library: bool,
+        /// Output file (stdout when omitted).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Apply a `.pat` signature file and list the recognised functions.
+    Sigapply { file: PathBuf, pat: PathBuf },
 }
 
 fn open(path: &PathBuf) -> Result<Binary> {
@@ -187,6 +202,32 @@ fn main() -> Result<()> {
                 "\n{} functions, {} blocks, {} instructions, {} strings, {} xrefs in {} ms",
                 stats.functions, stats.blocks, stats.instructions, stats.strings, stats.xrefs, stats.millis
             );
+        }
+        Cmd::Sigmake { file, pdb, library, output } => {
+            let mut bin = open(&file)?;
+            bin.analyze();
+            if let Some(p) = pdb {
+                bin.load_pdb(std::fs::read(&p)?, false).map_err(anyhow::Error::msg)?;
+            }
+            let text = bin.make_pat(library);
+            let n = text.lines().count().saturating_sub(1);
+            match output {
+                Some(o) => std::fs::write(&o, text)?,
+                None => print!("{text}"),
+            }
+            eprintln!("{n} signatures");
+        }
+        Cmd::Sigapply { file, pat } => {
+            let mut bin = open(&file)?;
+            bin.analyze();
+            let r = bin.apply_pat(&std::fs::read_to_string(&pat)?).map_err(anyhow::Error::msg)?;
+            if cli.json {
+                return print_json(&r);
+            }
+            for (va, name) in &r.names {
+                println!("{va:#018x}  {name}");
+            }
+            eprintln!("{} of {} signatures matched", r.matched, r.signatures);
         }
         Cmd::Disasm { file, at, count } => {
             let mut bin = open(&file)?;

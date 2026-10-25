@@ -69,6 +69,10 @@ interface State {
   patch(offset: number, hex: string): Promise<void>;
   revertPatches(): Promise<void>;
   exportIdc(): Promise<void>;
+  /** Apply a `.pat` signature file chosen by the user. */
+  applySignatures(): Promise<void>;
+  /** Save a `.pat` file for this binary's named functions. */
+  makeSignatures(): Promise<void>;
   loadPdb(src?: { path: string } | { bytes: ArrayBuffer }): Promise<void>;
   savePatched(): Promise<void>;
   item(op: "undefine" | "code" | "data" | "string", va: number): Promise<void>;
@@ -383,6 +387,39 @@ export const useStore = create<State>((set, get) => ({
       set({ loading: null });
       get().toast(e instanceof Error ? e.message : String(e), "error");
     }
+  },
+
+  async applySignatures() {
+    const { session } = get();
+    if (!session) return;
+    const text = await new Promise<string | undefined>((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".pat,.txt";
+      input.onchange = async () => resolve(input.files?.[0] ? await input.files[0].text() : undefined);
+      input.click();
+    });
+    if (!text) return;
+    try {
+      const r = await session.applyPat(text);
+      await get().afterEdit(false);
+      get().print(`Signatures: ${r.matched} of ${r.signatures} matched${r.names.length ? " — " + r.names.slice(0, 12).map((n) => n[1]).join(", ") + (r.names.length > 12 ? ", …" : "") : ""}`, "info");
+      get().toast(r.matched ? `Recognised ${r.matched} library function${r.matched === 1 ? "" : "s"}` : "No function matched these signatures", r.matched ? "success" : "info");
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async makeSignatures() {
+    const { session, info } = get();
+    if (!session || !info) return;
+    const text = await session.makePat(false);
+    const count = text.split("\n").filter((l) => l && l !== "---").length;
+    if (!count) {
+      get().toast("No named functions to make signatures from — load symbols first", "info");
+      return;
+    }
+    await saveText(`${info.file_name}.pat`, text, [{ name: "FLAIR pattern file", extensions: ["pat"] }]);
   },
 
   async exportIdc() {

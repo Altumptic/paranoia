@@ -1,4 +1,4 @@
-import { Binary, Bookmark, Database, FileCode, FolderOpen, Hash, MoreHorizontal, RefreshCw, RotateCcw, Save, Type, X } from "lucide-react";
+import { Binary, Bookmark, Database, FileCode, FileSignature, FolderOpen, Hash, Library, MoreHorizontal, RefreshCw, RotateCcw, Save, Type, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { pickFile } from "../files";
@@ -40,6 +40,8 @@ export function AppMenu() {
     [
       { icon: RefreshCw, label: "Re-run auto-analysis", run: () => st().reanalyze() },
       { icon: Database, label: "Load PDB symbols…", run: () => st().loadPdb() },
+      { icon: Library, label: "Apply signature file (.pat)…", run: () => st().applySignatures() },
+      { icon: FileSignature, label: "Create signature file (.pat)…", run: () => st().makeSignatures() },
       { icon: FileCode, label: "Export names & comments as IDC…", run: () => st().exportIdc() },
       { icon: Save, label: patches ? `Save patched file (${patches} bytes)…` : "Save file copy…", run: () => st().savePatched() },
       ...(patches ? [{ icon: RotateCcw, label: "Revert all patches", run: () => st().revertPatches(), danger: true }] : []),
