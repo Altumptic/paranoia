@@ -1,10 +1,30 @@
-import { BookOpen, Eraser, Play, X } from "lucide-react";
+import { BookOpen, Eraser, Play, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { desktop } from "../engine/client";
+import { PY_EXAMPLES } from "../pyexamples";
 import { EXAMPLES, runScript } from "../scripting";
 import { useStore } from "../store";
 
-const KEY = "paranoia.script";
+type Lang = "js" | "py";
+const KEY = { js: "paranoia.script", py: "paranoia.script.py" } as const;
+const LANG_KEY = "paranoia.script.lang";
+
+function load(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function save(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 function fmt(v: unknown): string {
   if (typeof v === "string") return v;
@@ -16,40 +36,85 @@ function fmt(v: unknown): string {
   }
 }
 
-/** Output log + JavaScript console (IDA's output window and script box). */
+/** Output log + script console: JavaScript in the app, Python in the user's interpreter (desktop). */
 export function Console() {
   const open = useStore((s) => s.consoleOpen);
   const log = useStore((s) => s.log);
-  const [code, setCode] = useState(() => {
-    try {
-      return localStorage.getItem(KEY) ?? EXAMPLES[0].code;
-    } catch {
-      return EXAMPLES[0].code;
-    }
-  });
+  const [lang, setLang] = useState<Lang>(() => (desktop && load(LANG_KEY, "js") === "py" ? "py" : "js"));
+  const [code, setCode] = useState(() => load(KEY[lang], lang === "py" ? PY_EXAMPLES[0].code : EXAMPLES[0].code));
   const [busy, setBusy] = useState(false);
   const [examples, setExamples] = useState(false);
+  const [python, setPython] = useState<string | null | undefined>(undefined);
   const out = useRef<HTMLDivElement>(null);
+  const t0 = useRef(0);
 
   useEffect(() => {
     out.current?.scrollTo({ top: out.current.scrollHeight });
   }, [log, open]);
 
+  // Python events: output lines, navigation, refresh after edits, completion.
+  useEffect(() => {
+    if (!desktop) return;
+    return desktop.python.on((ev, payload) => {
+      const st = useStore.getState();
+      if (ev === "output") {
+        const p = payload as { stream: string; text: string };
+        st.print(p.text, p.stream === "err" ? "error" : undefined);
+      } else if (ev === "goto") {
+        st.goto(Number(payload));
+      } else if (ev === "refresh") {
+        st.afterEdit(false);
+      } else if (ev === "exit") {
+        const p = payload as { code: number | null };
+        st.print(p.code === 0 ? `done in ${Math.round(performance.now() - t0.current)} ms` : `Python exited with code ${p.code}`, p.code === 0 ? "info" : "error");
+        setBusy(false);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (lang === "py" && desktop && python === undefined) {
+      desktop.python
+        .status()
+        .then((s) => setPython(s.available ? (s.version ?? "") : null))
+        .catch(() => setPython(null));
+    }
+  }, [lang, python]);
+
   if (!open) return null;
   const st = useStore.getState;
+  const list = lang === "py" ? PY_EXAMPLES : EXAMPLES;
+
+  const switchLang = (l: Lang) => {
+    if (l === lang) return;
+    save(KEY[lang], code);
+    save(LANG_KEY, l);
+    setLang(l);
+    setCode(load(KEY[l], l === "py" ? PY_EXAMPLES[0].code : EXAMPLES[0].code));
+    setExamples(false);
+  };
+
   const run = async () => {
-    try {
-      localStorage.setItem(KEY, code);
-    } catch {
-      /* storage unavailable */
+    save(KEY[lang], code);
+    st().print(`› ${code.split("\n")[0]}${code.includes("\n") ? " …" : ""}`, "info");
+    t0.current = performance.now();
+    if (lang === "py") {
+      const s = st().session;
+      if (!desktop || !s) return;
+      setBusy(true);
+      try {
+        await desktop.python.run(code, s.handle, st().cursor ?? 0);
+      } catch (e) {
+        st().print(e instanceof Error ? e.message : String(e), "error");
+        setBusy(false);
+      }
+      return;
     }
     setBusy(true);
-    st().print(`› ${code.split("\n")[0]}${code.includes("\n") ? " …" : ""}`, "info");
-    const t0 = performance.now();
     try {
       const r = await runScript(code, (...a: unknown[]) => st().print(a.map(fmt).join(" ")));
       if (r !== undefined) st().print(fmt(r));
-      st().print(`done in ${Math.round(performance.now() - t0)} ms`, "info");
+      st().print(`done in ${Math.round(performance.now() - t0.current)} ms`, "info");
     } catch (e) {
       st().print(e instanceof Error ? `${e.name}: ${e.message}` : String(e), "error");
     } finally {
@@ -57,11 +122,28 @@ export function Console() {
     }
   };
 
+  const hint =
+    lang === "py"
+      ? python === null
+        ? "Python 3 not found — install it or set PARANOIA_PYTHON"
+        : `Python ${python ?? ""} · paranoia module + idc / idautils · Ctrl+Enter to run`
+      : "JavaScript with the pn API · Ctrl+Enter to run";
+
   return (
     <section className="console">
       <div className="console-bar">
         <span className="side-title">Console</span>
-        <span className="muted small">JavaScript with the <span className="mono">pn</span> API · Ctrl+Enter to run</span>
+        {desktop && (
+          <div className="seg">
+            <button className={`seg-btn ${lang === "js" ? "on" : ""}`} onClick={() => switchLang("js")}>
+              JavaScript
+            </button>
+            <button className={`seg-btn ${lang === "py" ? "on" : ""}`} onClick={() => switchLang("py")}>
+              Python
+            </button>
+          </div>
+        )}
+        <span className="muted small">{hint}</span>
         <span className="flex1" />
         <div className="menu-anchor">
           <button className="btn sm ghost" onClick={() => setExamples(!examples)}>
@@ -69,7 +151,7 @@ export function Console() {
           </button>
           {examples && (
             <div className="menu" style={{ bottom: 34, top: "auto" }}>
-              {EXAMPLES.map((e) => (
+              {list.map((e) => (
                 <button
                   key={e.title}
                   className="menu-item"
@@ -109,20 +191,27 @@ export function Console() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                run();
+                if (!busy) run();
               }
               if (e.key === "Tab") {
                 e.preventDefault();
                 const t = e.currentTarget;
                 const p = t.selectionStart;
-                setCode(code.slice(0, p) + "  " + code.slice(t.selectionEnd));
-                requestAnimationFrame(() => t.setSelectionRange(p + 2, p + 2));
+                const indent = lang === "py" ? "    " : "  ";
+                setCode(code.slice(0, p) + indent + code.slice(t.selectionEnd));
+                requestAnimationFrame(() => t.setSelectionRange(p + indent.length, p + indent.length));
               }
             }}
           />
-          <button className="btn primary sm run-btn" onClick={run} disabled={busy}>
-            <Play size={13} /> Run
-          </button>
+          {busy && lang === "py" ? (
+            <button className="btn sm run-btn" onClick={() => desktop?.python.stop()}>
+              <Square size={12} /> Stop
+            </button>
+          ) : (
+            <button className="btn primary sm run-btn" onClick={run} disabled={busy || (lang === "py" && python === null)}>
+              <Play size={13} /> Run
+            </button>
+          )}
         </div>
       </div>
     </section>

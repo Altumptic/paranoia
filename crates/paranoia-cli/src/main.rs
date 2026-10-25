@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use paranoia_core::{Binary, Instruction};
 
+mod script;
+
 #[derive(Parser)]
 #[command(name = "paranoia", version, about = "Open-source reverse-engineering toolkit")]
 struct Cli {
@@ -70,6 +72,17 @@ enum Cmd {
     },
     /// Apply a `.pat` signature file and list the recognised functions.
     Sigapply { file: PathBuf, pat: PathBuf },
+    /// Run a Python script against a binary without the app (batch mode, like IDA's -S).
+    Script {
+        file: PathBuf,
+        script: PathBuf,
+        /// Python interpreter (default: $PARANOIA_PYTHON, python, python3, py -3).
+        #[arg(long)]
+        python: Option<String>,
+        /// Address returned by `here()` (hex).
+        #[arg(long)]
+        at: Option<String>,
+    },
 }
 
 fn open(path: &PathBuf) -> Result<Binary> {
@@ -216,6 +229,11 @@ fn main() -> Result<()> {
                 None => print!("{text}"),
             }
             eprintln!("{n} signatures");
+        }
+        Cmd::Script { file, script, python, at } => {
+            let cursor = at.map(|a| u64::from_str_radix(a.trim_start_matches("0x"), 16)).transpose()?.unwrap_or(0);
+            let code = script::run(&file, &script, python.as_deref(), cursor)?;
+            std::process::exit(code);
         }
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;
