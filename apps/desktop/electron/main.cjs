@@ -7,6 +7,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const { EngineProcess } = require("./engine.cjs");
+const { PythonRunner } = require("./python.cjs");
 
 const isDev = !app.isPackaged && process.env.PARANOIA_DEV_URL;
 const ROOT = path.resolve(__dirname, "..");
@@ -34,6 +35,8 @@ let pendingOpen = null;
 const engine = new EngineProcess(engineExe(), ["--store", path.join(app.getPath("userData"), "workspace.redb")], (reason) => {
   win?.webContents.send("engine:restarted", reason);
 });
+
+const python = new PythonRunner(engine, (channel, payload) => win?.webContents.send(channel, payload), path.join(__dirname, "paranoia.py"));
 
 function fileArg(argv) {
   // Skip the executable (and the app path in dev); accept the first existing file.
@@ -98,6 +101,14 @@ ipcMain.handle("engine:request", (_e, req) => {
   if (req.op === "export_patched" && req.path !== lastSavePath) throw new Error("export path was not chosen by the user");
   return engine.request(req);
 });
+
+// Python scripts run in the user's own interpreter; they can only call the engine for the open session.
+ipcMain.handle("python:status", () => python.status());
+ipcMain.handle("python:run", (_e, code, handle, cursor) => {
+  if (typeof code !== "string" || !Number.isInteger(handle)) throw new Error("invalid script request");
+  return python.run(code, handle, Number(cursor) || 0);
+});
+ipcMain.handle("python:stop", () => python.stop());
 
 ipcMain.handle("dialog:open", async () => {
   const r = await dialog.showOpenDialog(win, {
@@ -182,6 +193,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("window-all-closed", () => {
+    python.stop();
     engine.stop();
     app.quit();
   });

@@ -138,6 +138,12 @@ export interface DesktopBridge {
   pathForFile(file: File): string | null;
   onOpenPath(cb: (path: string) => void): () => void;
   onEngineRestarted(cb: (reason: string) => void): () => void;
+  python: {
+    status(): Promise<{ available: boolean; version?: string; exe?: string }>;
+    run(code: string, handle: number, cursor: number): Promise<{ started: boolean; version: string }>;
+    stop(): Promise<void>;
+    on(cb: (event: "output" | "exit" | "goto" | "refresh", payload: unknown) => void): () => void;
+  };
 }
 
 declare global {

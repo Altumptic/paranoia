@@ -33,12 +33,12 @@ Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF an
 | Area | What you get |
 | --- | --- |
 | **Formats** | PE / PE32+ (incl. .NET detection, forwarders, TLS callbacks, `.pdata`), ELF (PIE, PLT/GOT imports, symbol versions), Mach-O (universal binaries, dyld bind opcodes, **chained fixups**, export trie) |
-| **Architectures** | x86, x86-64 (iced-x86), AArch64 (with `adrp`+`add` data references), ARM32 and Thumb-2 (yaxpeax-arm, literal pools) |
+| **Architectures** | x86, x86-64 (iced-x86), AArch64 (with `adrp`+`add` data references), ARM32 and Thumb-2 (yaxpeax-arm, literal pools), RISC-V RV32/RV64GC and MIPS32/64 (own decoders, delay slots, `auipc`/`lui` pairs) |
 | **Auto-analysis** | Recursive-descent function discovery seeded by entry points, exports, symbols and exception tables; basic blocks; **switch-table recovery**; no-return awareness; import thunks (`j_CreateFileW`) |
 | **Listing** | One view over code **and data** like IDA: `sub_`/`loc_` labels, `db/dw/dd/dq`, strings, `offset`, `extrn`, auto names (`aHelloWorld`, `qword_…`), `XREF` comments, **jump arrows**, argument labels from API prototypes (`; lpFileName`), token highlight, right-click menu |
 | **Items** | Code / data / string / undefine (`C`, `D`, `A`, `U`), create function (`P`), undo / redo |
 | **Graph** | Control-flow graph with true/false/unconditional edges, GPU-composited pan & zoom, minimap |
-| **Pseudocode** | x86 / x64 lifter (F5/Tab): calling-convention arguments, **expression propagation** (`CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, …)`), folded conditions, `if { }` and `do { } while` structuring, inline strings, stack variables, intrinsics (`__readgsqword`, `_InterlockedCompareExchange`, …) |
+| **Pseudocode** | x86 / x64 decompiler (F5/Tab): **typed variables** (`HANDLE v3 = CreateFileW(a1, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, …)`), expression propagation, `switch`, `while` / `for` / `do-while` with `break` / `continue`, `if` structuring, inline strings, intrinsics |
 | **Cross references** | IDA-style xrefs dialog (`X`), callers, callees, **call graph** to any depth, stack frame view |
 | **Names** | MSVC, Itanium C++ and Rust demangling; rename (`N`), comments (`;`), bookmarks (`Alt+M`) — saved per file hash |
 | **Search** | Go to anything (`Ctrl+K`), byte patterns with `??` wildcards (`Alt+B`), text in ASCII and UTF-16 (`Alt+T`), immediate values (`Alt+I`) |
@@ -47,12 +47,13 @@ Disassembly, control-flow graphs, pseudocode and cross references for PE, ELF an
 | **Types** | Local types from C declarations (struct, union, enum, typedef); apply a structure to data and see its fields in the listing |
 | **Debug info** | PDB symbols (publics, procedures, globals) with GUID matching, found next to the binary automatically; DWARF function names, globals and source lines |
 | **Debugger** | Local Windows x64 debugger: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
-| **Scripting** | JavaScript console with the `pn` API — functions, names, xrefs, bytes, rename, comment, patch, goto (`Ctrl+\``) |
+| **Signatures** | FLIRT-style recognition of library functions: IDA `.pat` files in and out (`paranoia sigmake`), built-in MSVC x64 runtime library, library functions highlighted |
+| **Scripting** | **Python** in your own CPython (`import idc, idautils` work for common calls) and JavaScript, both with the `pn` API (``Ctrl+` ``); headless `paranoia script` batch mode |
 | **Triage** | Hashes (MD5, SHA-1, SHA-256, imphash), entropy map, section map, `checksec`-style mitigations (ASLR, DEP, CFG, RELRO, PIE, canaries, FORTIFY, code signing) |
 | **Interop** | Create functions (`P`), re-run analysis, export names & comments as an **IDA IDC script** |
 | **UI** | Light “ivory” and dark “warm graphite” themes, resizable panels, command palette, drag & drop |
 
-What is *not* here yet — a full decompiler with types, FLIRT signatures, Python scripting and more — is tracked honestly in the [roadmap](docs/ROADMAP.md).
+What is *not* here yet — SSA-based decompilation, IDA `.sig` files, plugins, PowerPC and more — is tracked honestly in the [roadmap](docs/ROADMAP.md).
 
 ## Install
 
@@ -87,6 +88,9 @@ paranoia disasm sample.exe --at main -n 40
 paranoia pseudo sample.exe main
 paranoia xrefs sample.exe CreateFileW
 paranoia strings --referenced sample.exe --json
+paranoia script sample.exe analyse.py --at 140001000   # Python, headless
+paranoia sigmake app.exe --pdb app.pdb -o app.pat       # FLAIR .pat from symbols
+paranoia sigapply other.exe app.pat
 ```
 
 ## Build from source
