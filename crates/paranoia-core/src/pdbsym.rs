@@ -78,13 +78,18 @@ impl Binary {
         // Per-module streams carry static functions with their sizes.
         let dbi = pdb.debug_information().map_err(|e| e.to_string())?;
         let mut modules = dbi.modules().map_err(|e| e.to_string())?;
+        let mut library: Vec<u64> = Vec::new();
         while let Some(m) = modules.next().map_err(|e| e.to_string())? {
+            let lib = is_runtime_library(m.object_file_name().as_ref());
             let Ok(Some(mi)) = pdb.module_info(&m) else { continue };
             let Ok(mut syms) = mi.symbols() else { continue };
             while let Ok(Some(sym)) = syms.next() {
                 match sym.parse() {
                     Ok(pdb::SymbolData::Procedure(p)) => {
                         if let Some(rva) = p.offset.to_rva(&map) {
+                            if lib {
+                                library.push(base + rva.0 as u64);
+                            }
                             add_proc(rva.0, p.len, p.name.to_string().into_owned(), &mut names, &mut seeds);
                         }
                     }
@@ -97,12 +102,14 @@ impl Binary {
                 }
             }
         }
+        self.pdb_library.extend(library);
 
         let mut count = 0;
         for (va, n) in names {
-            let pretty = crate::demangle(&n).unwrap_or(n);
+            let pretty = crate::demangle(&n).unwrap_or_else(|| n.clone());
             // PDB names win over export-derived ones; keep the first for duplicates.
             if self.pdb_names.insert(va) {
+                self.raw_names.insert(va, n);
                 self.static_names.insert(va, pretty);
                 count += 1;
             }
@@ -118,4 +125,29 @@ impl Binary {
     pub fn pdb_path(&self) -> Option<String> {
         self.info.headers.iter().find(|h| h.key == "PDB path").map(|h| h.value.clone())
     }
+}
+
+/// Object files linked from the Microsoft C/C++ runtime and standard library.
+fn is_runtime_library(obj: &str) -> bool {
+    let file = obj.rsplit(['\\', '/']).next().unwrap_or(obj).to_ascii_lowercase();
+    let libs = [
+        "msvcrt.lib",
+        "msvcrtd.lib",
+        "libcmt.lib",
+        "libcmtd.lib",
+        "vcruntime.lib",
+        "libvcruntime.lib",
+        "libvcruntimed.lib",
+        "msvcprt.lib",
+        "libcpmt.lib",
+        "libcpmtd.lib",
+        "ucrt.lib",
+        "libucrt.lib",
+        "libucrtd.lib",
+        "vcruntimed.lib",
+        "msvcmrt.lib",
+        "uuid.lib",
+        "libvcasan.lib",
+    ];
+    libs.contains(&file.as_str())
 }

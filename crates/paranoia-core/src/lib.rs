@@ -34,6 +34,8 @@ mod pseudo;
 mod pseudo_opt;
 mod pseudo_types;
 mod riscv;
+mod sigs;
+pub use sigs::SigReport;
 mod strings;
 mod switch;
 mod tools;
@@ -95,6 +97,9 @@ pub struct Annotations {
     /// Operand representation overrides (IDA's H / R / B / M), by instruction.
     #[serde(default)]
     pub operands: BTreeMap<u64, Vec<operands::OperandFormat>>,
+    /// Library function names recognised by user-applied signature files.
+    #[serde(default)]
+    pub library: BTreeMap<u64, String>,
 }
 
 #[derive(Default)]
@@ -127,6 +132,12 @@ pub struct Binary {
     marks: BTreeSet<u64>,
     /// Addresses named from a loaded PDB.
     pdb_names: BTreeSet<u64>,
+    /// Undecorated-before-demangling names from the PDB (for `.pat` output).
+    raw_names: HashMap<u64, String>,
+    /// Functions whose PDB module is a Microsoft runtime library object.
+    pdb_library: BTreeSet<u64>,
+    /// Built-in signature matches (recomputed by every analysis).
+    lib_names: HashMap<u64, String>,
     /// Annotation snapshots for undo / redo.
     undo_stack: Vec<Annotations>,
     redo_stack: Vec<Annotations>,
@@ -250,6 +261,9 @@ impl Binary {
             original_bytes: BTreeMap::new(),
             marks: BTreeSet::new(),
             pdb_names: BTreeSet::new(),
+            raw_names: HashMap::new(),
+            pdb_library: BTreeSet::new(),
+            lib_names: HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
         })
@@ -359,6 +373,7 @@ impl Binary {
                 Analysis::default()
             };
             self.analysis = Some(a);
+            self.apply_builtin_signatures();
             self.build_strings(4);
             self.build_marks();
             #[cfg(not(target_arch = "wasm32"))]
@@ -416,6 +431,9 @@ impl Binary {
         if let Some(n) = self.annotations.names.get(&f.address).or_else(|| self.static_names.get(&f.address)) {
             return n.clone();
         }
+        if let Some(n) = self.library_name(f.address) {
+            return n.clone();
+        }
         if let Some(imp) = f.thunk_slot.and_then(|s| self.import_slots.get(&s)) {
             let n = &self.info.imports[*imp].name;
             return format!("j_{}", demangle::demangle(n).unwrap_or_else(|| n.clone()));
@@ -441,6 +459,10 @@ impl Binary {
                 xrefs: a.xrefs.get(&f.address).map_or(0, |x| x.iter().filter(|r| r.kind != XrefKind::Data).count()),
                 source: f.source,
                 is_import_thunk: f.thunk_slot.is_some(),
+                library: !self.annotations.names.contains_key(&f.address)
+                    && !self.static_names.contains_key(&f.address)
+                    && self.library_name(f.address).is_some()
+                    || self.pdb_library.contains(&f.address),
             })
             .collect();
         v.sort_by_key(|f| f.address);

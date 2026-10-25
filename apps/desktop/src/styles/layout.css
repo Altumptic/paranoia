@@ -1346,3 +1346,19 @@
 .desktop .drop-veil {
   -webkit-app-region: no-drag;
 }
+
+/* Library functions recognised by signatures (IDA shows them in cyan). */
+.fn-row.lib .row-main {
+  color: var(--lib);
+}
+:root {
+  --lib: #2f7f96;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --lib: #6cc0d6;
+  }
+}
+:root[data-theme="dark"] {
+  --lib: #6cc0d6;
+}

@@ -3,30 +3,7 @@
 //  * Native — the `paranoia-engine` process driven by the desktop shell, workspace store in redb.
 //  * WASM   — the same engine compiled to WebAssembly in a Web Worker (browser build).
 
-import type {
-  AddressInfo,
-  AnalysisStats,
-  Annotations,
-  BinaryInfo,
-  Callee,
-  CallGraph,
-  Frame,
-  Hit,
-  InsnPatch,
-  ItemKind,
-  NameEntry,
-  PdbReport,
-  TypeLibrary,
-  Pseudocode,
-  SearchKind,
-  FunctionGraph,
-  FunctionSummary,
-  Instruction,
-  SearchHit,
-  StringEntry,
-  Symbol,
-  Xref,
-} from "./types";
+import type { AddressInfo, AnalysisStats, Annotations, BinaryInfo, CallGraph, Callee, Frame, FunctionGraph, FunctionSummary, Hit, InsnPatch, Instruction, ItemKind, NameEntry, PdbReport, Pseudocode, SearchHit, SearchKind, SigReport, StringEntry, Symbol, TypeLibrary, Xref } from "./types";
 import type { WorkerRequest, WorkerResponse } from "./wasm.worker";
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
@@ -292,6 +269,10 @@ export class Session {
   types = () => this.c<TypeLibrary>("types");
   setTypes = (text: string) => this.c<number>("setTypes", { text });
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
+  /** Applies an IDA-format `.pat` signature file. */
+  applyPat = (text: string) => this.c<SigReport>("applyPat", { text });
+  /** `.pat` text for the named functions (only runtime ones with `library`). */
+  makePat = (library = false) => this.c<string>("makePat", { library });
   /** IDA's H / R / B / M; `n` is the number operand's index (null = all of them). */
   setOperandFormat = (va: number, kind: string, n: number | null, enumName?: string) =>
     this.c<null>("setOperandFormat", { va, kind, n, enum: enumName ?? null });

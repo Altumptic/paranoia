@@ -102,7 +102,7 @@ function FunctionsPanel() {
           items={rows}
           activeIndex={current}
           render={(f, i) => (
-            <button className={`row fn-row ${i === current ? "active" : ""} ${f.is_import_thunk ? "thunk" : ""}`} onClick={() => goto(f.address)} title={`${f.name}\n${f.instructions} instructions · ${f.blocks} blocks · ${f.xrefs} xrefs`}>
+            <button className={`row fn-row ${i === current ? "active" : ""} ${f.is_import_thunk ? "thunk" : ""} ${f.library ? "lib" : ""}`} onClick={() => goto(f.address)} title={`${f.name}\n${f.instructions} instructions · ${f.blocks} blocks · ${f.xrefs} xrefs`}>
               <span className={`fn-dot src-${f.source}`} />
               <span className="row-main">{f.name}</span>
               {f.xrefs > 0 && <span className="row-xrefs">{f.xrefs}</span>}

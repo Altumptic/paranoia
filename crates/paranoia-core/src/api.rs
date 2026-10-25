@@ -288,6 +288,15 @@ impl Session {
                 b.apply_struct(a.va, &a.name, a.count.unwrap_or(1))?;
                 Ok(Value::Null)
             }
+            "applyPat" => {
+                let a: TextArg = args(args_v)?;
+                b.checkpoint();
+                to(b.apply_pat(&a.text)?)
+            }
+            "makePat" => {
+                let library = args_v.get("library").and_then(Value::as_bool).unwrap_or(false);
+                to(b.make_pat(library))
+            }
             "setOperandFormat" => {
                 let a: OperandArgs = args(args_v)?;
                 b.checkpoint();
