@@ -132,14 +132,21 @@ jobs:
           cd release
           sha256sum -- *.exe > SHA256SUMS
           cat SHA256SUMS
-      - name: SBOM (CycloneDX)
+      # Two SBOMs: Rust crates from Cargo.lock, and npm packages from the lockfile. The npm
+      # one includes development dependencies on purpose: Electron and the UI libraries are
+      # devDependencies that end up inside the app.
+      - name: SBOM — Rust crates (CycloneDX)
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          path: .
+          file: Cargo.lock
           format: cyclonedx-json
-          output-file: release/paranoia-${{ github.ref_name }}.cdx.json
+          output-file: release/paranoia-${{ github.ref_name }}-rust.cdx.json
           upload-artifact: false
           upload-release-assets: false
+      - name: SBOM — npm packages (CycloneDX)
+        shell: bash
+        working-directory: apps/desktop
+        run: npm sbom --sbom-format cyclonedx --sbom-type application > "../../release/paranoia-${{ github.ref_name }}-npm.cdx.json"
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.1.3
@@ -153,11 +160,16 @@ jobs:
           subject-path: |
             release/*.exe
             release/SHA256SUMS
-      - name: SBOM attestation
+      - name: SBOM attestation (Rust)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
           subject-path: release/*.exe
-          sbom-path: release/paranoia-${{ github.ref_name }}.cdx.json
+          sbom-path: release/paranoia-${{ github.ref_name }}-rust.cdx.json
+      - name: SBOM attestation (npm)
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: release/*.exe
+          sbom-path: release/paranoia-${{ github.ref_name }}-npm.cdx.json
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |

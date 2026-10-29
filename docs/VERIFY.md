@@ -7,9 +7,9 @@ Every release starting with **v0.5.1** ships these files next to the executables
 | `SHA256SUMS` | the SHA-256 of each executable |
 | `SHA256SUMS.sigstore.json` | a [Sigstore](https://www.sigstore.dev/) signature over `SHA256SUMS`, made by this repository's release workflow (keyless: no long-lived private key exists) |
 | GitHub attestations | build provenance (which workflow run, commit and tag built the file) and the SBOM, both signed through GitHub |
-| `paranoia-vX.Y.Z.cdx.json` | the SBOM (CycloneDX): every Rust crate and npm package resolved for the build, including build-only tooling |
+| `paranoia-vX.Y.Z-rust.cdx.json`, `paranoia-vX.Y.Z-npm.cdx.json` | the SBOMs (CycloneDX): every Rust crate from `Cargo.lock` and every npm package from `package-lock.json`, including build-only tooling (Electron and the UI libraries are development dependencies that are bundled into the app) |
 
-Releases up to and including v0.5.0 were built before this pipeline and have none of these files.
+Releases up to and including v0.5.0 were built before this pipeline and have none of these files. **v0.5.1** has a single SBOM, `paranoia-v0.5.1.cdx.json`, which lists the Rust crates but **misses the npm packages** (the scanner skipped development dependencies); from v0.5.2 on there are two complete SBOMs.
 
 The Windows executables are **not Authenticode-signed** yet, so Windows SmartScreen may warn on first launch. The steps below are the way to check a download.
 
@@ -64,10 +64,10 @@ gh attestation verify Paranoia-0.5.1-portable.exe --repo Altumptic/paranoia \
 
 ## 4. Look at the SBOM (optional)
 
-`paranoia-vX.Y.Z.cdx.json` is plain JSON. Any CycloneDX tool can read it, for example:
+The SBOMs are plain JSON. Any CycloneDX tool can read them, for example:
 
 ```bash
-grype sbom:paranoia-v0.5.1.cdx.json   # known vulnerabilities in the listed components
+grype sbom:paranoia-v0.5.2-npm.cdx.json   # known vulnerabilities in the listed components
 ```
 
 ## If something does not match
