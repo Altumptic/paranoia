@@ -23,7 +23,7 @@
     "@tanstack/react-virtual": "^3.14.20",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "electron": "44.9.3",
     "electron-builder": "^26.15.3",
     "lucide-react": "^1.57.0",
