@@ -6,9 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
 
+# Least privilege by default; the release job asks for exactly what it needs.
 permissions:
   contents: read
 
+# Third-party actions are pinned to full commit SHAs (the tag is noted for updates).
 jobs:
   engine:
     name: Engine (${{ matrix.os }})
@@ -18,11 +20,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -35,12 +40,15 @@ jobs:
     name: Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -48,29 +56,55 @@ jobs:
       - working-directory: apps/desktop
         run: |
           npm ci
+          npx tsc -b --noEmit
           npm run wasm
           npm run build
+
+  # Known-vulnerable dependencies block the build (PSB §7). Electron ships inside the app,
+  # so the npm audit covers development dependencies too.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-audit
+      - name: RustSec advisories
+        run: cargo audit
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: npm advisories
+        working-directory: apps/desktop
+        run: npm audit --audit-level=moderate
 
   release:
     name: Windows release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [engine, frontend]
+    needs: [engine, frontend, audit]
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: write # upload release assets
+      id-token: write # Sigstore keyless signing and attestations (OIDC, no stored keys)
+      attestations: write # GitHub build provenance and SBOM attestations
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      # No build cache in the release job: every release builds from a clean slate.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-      # Code signing: add WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD
-      # as repository secrets and every release is signed. Without them builds stay unsigned.
+      # Authenticode: add WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD as
+      # repository secrets and the executables are signed. Without them they stay unsigned and
+      # are verified through SHA256SUMS + Sigstore (docs/VERIFY.md).
       - name: Configure code signing
         shell: bash
         env:
@@ -80,17 +114,54 @@ jobs:
           if [ -n "$CERT" ]; then
             echo "CSC_LINK=$CERT" >> "$GITHUB_ENV"
             echo "CSC_KEY_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
-            echo "Signing enabled"
+            echo "Authenticode signing enabled"
           else
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
-            echo "::warning::No signing certificate configured; the release will be unsigned"
+            echo "::notice::No Authenticode certificate configured; executables are unsigned (SHA256SUMS + Sigstore still apply)"
           fi
-      - working-directory: apps/desktop
+      - name: Build
+        working-directory: apps/desktop
         run: |
           npm ci
           npm run dist
-      - uses: softprops/action-gh-release@v2
+      - name: Collect release files
+        shell: bash
+        run: |
+          mkdir release
+          cp apps/desktop/out/Paranoia-Setup-*.exe apps/desktop/out/Paranoia-*-portable.exe release/
+          cd release
+          sha256sum -- *.exe > SHA256SUMS
+          cat SHA256SUMS
+      - name: SBOM (CycloneDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: release/paranoia-${{ github.ref_name }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Sign SHA256SUMS (Sigstore keyless)
+        shell: bash
+        working-directory: release
+        run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/*.exe
+            release/SHA256SUMS
+      - name: SBOM attestation
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: release/*.exe
+          sbom-path: release/paranoia-${{ github.ref_name }}.cdx.json
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
-            apps/desktop/out/Paranoia-Setup-*.exe
-            apps/desktop/out/Paranoia-*-portable.exe
+            release/*.exe
+            release/SHA256SUMS
+            release/SHA256SUMS.sigstore.json
+            release/paranoia-*.cdx.json

@@ -25,11 +25,13 @@ No I/O, no threads, no C dependencies — the same code runs natively and in Web
 
 | Module | Responsibility |
 | --- | --- |
-| `loader/` | PE, ELF and Mach-O loaders producing a normalized `Loaded` image: sections, address map, imports, exports, symbols, function seeds, mitigations, headers. Mach-O imports (bind opcodes, chained fixups) and the export trie are parsed by our own bounds-checked code. |
-| `disasm.rs` | Fast decode for analysis (length, flow, targets, data refs) and token rendering for the UI (iced-x86 for x86/x64, yaxpeax-arm for AArch64). |
-| `analysis.rs` | Recursive-descent function discovery with tail-call and no-return handling, basic blocks and the cross-reference index. |
-| `pseudo.rs` | x86/x64 → C-like lifter with condition folding and `if`/`do-while` structuring. |
-| `tools.rs` | Byte/text/immediate search, callees, user functions, patching, bookmarks, IDC export. |
+| `loader/` | PE, ELF and Mach-O loaders producing a normalized `Loaded` image: sections, address map, imports, exports, symbols, function seeds, mitigations, headers. Mach-O imports (bind opcodes, chained fixups), the export trie and x64 `.pdata` (including chained unwind entries) are parsed by our own bounds-checked code. |
+| `disasm.rs`, `riscv.rs`, `mips.rs` | Fast decode for analysis (length, flow, targets, data refs) and token rendering for the UI: iced-x86 (x86/x64), yaxpeax-arm (AArch64, ARM32, Thumb-2), own decoders for RISC-V and MIPS. |
+| `analysis.rs`, `switch.rs` | Recursive-descent function discovery with tail-call and no-return handling, basic blocks, jump-table recovery and the cross-reference index. |
+| `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, `switch` / loop structuring, typed variables. |
+| `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Data items, local C types, operand representation and built-in constants, API prototypes. |
+| `pdbsym.rs`, `dwarf.rs`, `sigs.rs` | Debug information (PDB, DWARF) and FLIRT-style `.pat` signatures. |
+| `tools.rs`, `nav.rs`, `frame.rs` | Search, patching, call graph, undo, stack frames, IDC export. |
 | `demangle.rs` | MSVC, Itanium and Rust demangling. |
 | `api.rs` | `Session::call(method, args)` — the JSON contract every front-end uses. |
 
@@ -39,7 +41,9 @@ Input files are hostile by default. The loaders never trust sizes or offsets, an
 
 ## Front-ends
 
-- **Desktop** — Electron shell with a sandboxed renderer (`contextIsolation`, no Node integration, strict CSP, no navigation). File writes are only allowed to paths the user just chose in a save dialog. The native engine is bundled under `resources/engine/`.
+- **Desktop** — Electron shell with a sandboxed renderer (`contextIsolation`, no Node integration, CSP without `eval`, no navigation). Every IPC handler checks its sender; the engine opens only files the user chose and writes only to the path picked in the last save dialog; starting the debugger or a Python script needs a native confirmation. The native engine is bundled under `resources/engine/`. Details: [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
+- **Scripting** — the JavaScript console runs each script in a dedicated Web Worker (`script-worker.ts`) that reaches the engine only through `pn` requests; Python scripts run in the user's CPython (`electron/python.cjs`, `electron/paranoia.py`) and talk to the engine through the main process. `paranoia script` runs the same Python module headless.
+- **Debugger** — Windows x64, inside `paranoia-engine` (`debugger.rs`), using the Win32 debugging API on a process it starts.
 - **Browser** — `paranoia-wasm` exposes `pn_alloc` / `pn_open` / `pn_call` and friends; `wasm.worker.ts` runs it off the UI thread. No wasm-bindgen or extra tooling is needed.
 - **CLI** — `paranoia` for scripting and CI.
 

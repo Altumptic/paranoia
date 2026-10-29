@@ -13,7 +13,10 @@ contextBridge.exposeInMainWorld("paranoia", {
   setTitleBar: (color, symbolColor) => ipcRenderer.send("app:titlebar", { color, symbolColor }),
   pathForFile: (file) => {
     try {
-      return webUtils.getPathForFile(file) || null;
+      const p = webUtils.getPathForFile(file) || null;
+      // Only files dropped from disk have a path; let the main process open this one.
+      if (p) ipcRenderer.send("path:allow", p);
+      return p;
     } catch {
       return null;
     }

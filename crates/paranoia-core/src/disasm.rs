@@ -949,8 +949,10 @@ fn render_rv_mips(arch: Arch, bits: u8, big: bool, bytes: &[u8], va: u64, max: u
                 .map(|i| (4, i.mnemonic, i.flow, i.target, rv_mips_tokens(arch, &[], &i.ops, names)))
         };
         let Some((len, mnemonic, flow, target, mut operands)) = decoded.filter(|d| d.0 <= rest.len()) else {
-            let step = if arch == Arch::RiscV && rest[0] & 3 != 3 { 2 } else { 4 }.min(rest.len());
-            if step < 2 {
+            // A truncated 4-byte word at the end of the buffer is shown as a halfword.
+            let want = if arch == Arch::RiscV && rest[0] & 3 != 3 { 2 } else { 4 };
+            let step = if rest.len() >= want { want } else { 2 };
+            if rest.len() < step {
                 break;
             }
             let raw = &rest[..step];

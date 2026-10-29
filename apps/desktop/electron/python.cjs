@@ -9,20 +9,32 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 
+/** A fresh private directory (0700 on Unix) for one run: nothing in it but our files. */
+function privateDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "paranoia-py-"));
+}
+
 /** Finds a Python 3 interpreter: $PARANOIA_PYTHON, then python, python3, py -3. */
 function findPython() {
+  // Look the interpreter up from an empty directory so a stray python.exe in the
+  // current folder is never picked up.
+  const cwd = privateDir();
   const candidates = [];
   if (process.env.PARANOIA_PYTHON) candidates.push([process.env.PARANOIA_PYTHON, []]);
   candidates.push(["python", []], ["python3", []], ["py", ["-3"]]);
   for (const [exe, pre] of candidates) {
     try {
-      const r = spawnSync(exe, [...pre, "-c", "import sys; print(sys.version_info[0], sys.version.split()[0])"], { encoding: "utf8", windowsHide: true, timeout: 8000 });
+      const r = spawnSync(exe, [...pre, "-E", "-c", "import sys; print(sys.version_info[0], sys.version.split()[0])"], { encoding: "utf8", windowsHide: true, timeout: 8000, cwd });
       const out = (r.stdout || "").trim();
-      if (r.status === 0 && out.startsWith("3 ")) return { exe, pre, version: out.slice(2) };
+      if (r.status === 0 && out.startsWith("3 ")) {
+        fs.rmSync(cwd, { recursive: true, force: true });
+        return { exe, pre, version: out.slice(2) };
+      }
     } catch {
       /* try the next one */
     }
   }
+  fs.rmSync(cwd, { recursive: true, force: true });
   return null;
 }
 
@@ -57,17 +69,19 @@ class PythonRunner {
     const st = this.status();
     if (!st.available) throw new Error("Python 3 was not found. Install it from python.org or set PARANOIA_PYTHON to python.exe.");
     this.stop();
-    const dir = path.join(os.tmpdir(), "paranoia-python");
-    fs.mkdirSync(dir, { recursive: true });
+    // A private directory per run: the module and the script, nobody else's files.
+    const dir = privateDir();
     fs.copyFileSync(this.moduleSource, path.join(dir, "paranoia.py"));
-    const script = path.join(dir, `script-${process.pid}.py`);
+    const script = path.join(dir, "script.py");
     fs.writeFileSync(script, code, "utf8");
 
-    const boot = "import paranoia, sys; paranoia._main(sys.argv[1])";
-    const child = spawn(this.python.exe, [...this.python.pre, "-u", "-X", "utf8", "-c", boot, script], {
+    // -E ignores PYTHON* variables (PYTHONPATH, PYTHONSTARTUP, …); the module path is added explicitly.
+    const boot = "import sys; sys.path.insert(0, sys.argv[1]); import paranoia; paranoia._main(sys.argv[2])";
+    const child = spawn(this.python.exe, [...this.python.pre, "-E", "-u", "-X", "utf8", "-c", boot, dir, script], {
+      cwd: dir,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
-      env: { ...process.env, PYTHONPATH: dir + path.delimiter + (process.env.PYTHONPATH || ""), PYTHONIOENCODING: "utf-8", PN_CURSOR: String(cursor || 0) },
+      env: { ...process.env, PN_CURSOR: String(cursor || 0) },
     });
     this.child = child;
     const started = Date.now();
@@ -105,7 +119,7 @@ class PythonRunner {
     readline.createInterface({ input: child.stderr, crlfDelay: Infinity }).on("line", (line) => this.send("python:output", { stream: "err", text: line }));
     child.on("exit", (code) => {
       if (this.child === child) this.child = null;
-      fs.rm(script, () => {});
+      fs.rm(dir, { recursive: true, force: true }, () => {});
       this.send("python:exit", { code, millis: Date.now() - started });
     });
     child.on("error", (e) => this.send("python:output", { stream: "err", text: e.message }));

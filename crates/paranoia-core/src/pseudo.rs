@@ -183,6 +183,10 @@ struct Ctx<'a> {
     bin: &'a Binary,
     bits: u32,
     frame_reg: Option<Register>,
+    /// For a stack-pointer copy that is not a classic frame pointer (MSVC's `mov rax, rsp`
+    /// before `push`/`sub rsp`): what to add to a displacement off that register to get the
+    /// same slot relative to `rsp` after the prologue, so both spellings get one name.
+    frame_shift: Option<i128>,
     args: Vec<Register>,
     labels: BTreeSet<u64>,
     /// Registers assigned since the last call, used to guess call arguments.
@@ -236,7 +240,12 @@ impl Ctx<'_> {
             return if deref || literal { name } else { Expr(vec![Token { t: "&".into(), k: TokenKind::Punct }], false).cat(name) };
         }
         // Stack slots.
-        let sdisp = disp as i64 as i128;
+        let mut sdisp = disp as i64 as i128;
+        let mut base = base;
+        if let (Some(shift), true) = (self.frame_shift, Some(base) == self.frame_reg && index == Register::None) {
+            sdisp += shift;
+            base = if self.bits == 64 { Register::RSP } else { Register::ESP };
+        }
         let below_rsp = matches!(base, Register::RSP | Register::ESP) && sdisp < 0;
         if index == Register::None && !below_rsp && (Some(base) == self.frame_reg || base == Register::RSP || base == Register::ESP) {
             let name = if base == Register::RSP || base == Register::ESP {
@@ -408,6 +417,31 @@ impl Binary {
             })
         });
 
+        // How far the prologue moves rsp after the copy is taken (pushes and `sub rsp, n`).
+        let frame_shift = frame_reg.filter(|r| !matches!(r, Register::RBP | Register::EBP)).and_then(|fr| {
+            let (v, _) = blocks.get(&f.address)?;
+            let slot = if bits == 64 { 8 } else { 4 };
+            let mut delta: i128 = 0;
+            let mut at_copy = None;
+            for i in v.iter().take(16) {
+                match i.mnemonic() {
+                    Mnemonic::Push => delta += slot,
+                    Mnemonic::Sub if i.op_kind(0) == OpKind::Register && matches!(i.op_register(0), Register::RSP | Register::ESP) => {
+                        if i.op_kind(1) == OpKind::Register {
+                            return None; // dynamic allocation: no fixed shift
+                        }
+                        delta += i.immediate(1) as i64 as i128;
+                    }
+                    Mnemonic::Mov if i.op_kind(0) == OpKind::Register && i.op_register(0) == fr && at_copy.is_none() => {
+                        at_copy = Some(delta)
+                    }
+                    Mnemonic::Mov | Mnemonic::Lea | Mnemonic::Xor | Mnemonic::Or => {}
+                    _ => break,
+                }
+            }
+            at_copy.map(|c| delta - c)
+        });
+
         // Arguments: calling-convention registers read before being written.
         let conv: &[Register] = match (bits, self.info.format) {
             (64, Format::Pe) => &[Register::RCX, Register::RDX, Register::R8, Register::R9],
@@ -473,7 +507,8 @@ impl Binary {
         }
 
         let skip = save_restore_noise(&blocks, f.address);
-        let mut ctx = Ctx { bin: self, bits, frame_reg, args: args.clone(), labels, written: Vec::new(), pushes: Vec::new(), skip };
+        let mut ctx =
+            Ctx { bin: self, bits, frame_reg, frame_shift, args: args.clone(), labels, written: Vec::new(), pushes: Vec::new(), skip };
         let ret_ty = if all.iter().any(|i| i.mnemonic() == Mnemonic::Ret) && writes_rax_before_ret(&blocks) { "__int64" } else { "void" };
 
         let mut out: Vec<PseudoLine> = Vec::new();
@@ -535,12 +570,24 @@ impl Binary {
 fn save_restore_noise(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>, entry: u64) -> BTreeSet<u64> {
     let mut skip = BTreeSet::new();
     let mut saved = BTreeSet::new();
+    // MSVC also spills through a copy of the stack pointer: `mov r11, rsp; mov [r11+8], rbx`.
+    let mut sp_copies = vec![Register::RSP, Register::RBP];
     if let Some((v, _)) = blocks.get(&entry) {
         for i in v.iter().take(12) {
+            if i.mnemonic() == Mnemonic::Mov
+                && i.op_count() == 2
+                && i.op_kind(0) == OpKind::Register
+                && i.op_kind(1) == OpKind::Register
+                && i.op_register(1) == Register::RSP
+            {
+                sp_copies.push(i.op_register(0));
+                skip.insert(i.ip());
+                continue;
+            }
             let spill = i.mnemonic() == Mnemonic::Mov
                 && i.op_count() == 2
                 && i.op_kind(0) == OpKind::Memory
-                && matches!(i.memory_base(), Register::RSP | Register::RBP)
+                && sp_copies.contains(&i.memory_base())
                 && i.memory_index() == Register::None
                 && i.op_kind(1) == OpKind::Register
                 && is_callee_saved(i.op_register(1));
