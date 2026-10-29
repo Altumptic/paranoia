@@ -39,7 +39,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | `SHA256SUMS` | ✅ | Release job, `.github/workflows/ci.yml` |
 | Signed checksums, published identity | ✅ | `SHA256SUMS.sigstore.json` (cosign keyless, Rekor log); identity documented in [VERIFY.md](VERIFY.md) |
 | Provenance | ✅ | `actions/attest-build-provenance` for every executable and `SHA256SUMS` |
-| SBOM | ✅ | CycloneDX JSON attached to the release and attested |
+| SBOM | ✅ | CycloneDX JSON for Rust crates and npm packages, attached to the release and attested (v0.5.1's SBOM lacked the npm packages; fixed from v0.5.2) |
 | Security changes in release notes | ✅ | Release checklist below |
 | Windows Authenticode | ⚠️ | PSB-EX-1 |
 

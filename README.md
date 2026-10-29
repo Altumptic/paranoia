@@ -70,7 +70,7 @@ Download from [Releases](https://github.com/Altumptic/paranoia/releases/latest):
 
 - `Paranoia-Setup-<version>.exe` — Windows installer (per-user, no admin rights)
 - `Paranoia-<version>-portable.exe` — single-file portable build
-- `SHA256SUMS`, `SHA256SUMS.sigstore.json`, `paranoia-v<version>.cdx.json` — checksums, their signature and the SBOM (from v0.5.1)
+- `SHA256SUMS`, `SHA256SUMS.sigstore.json` and the CycloneDX SBOMs — checksums, their signature and the bill of materials (from v0.5.1; see [VERIFY.md](docs/VERIFY.md) for what each release contains)
 
 The executables are **not Authenticode-signed yet**, so Windows SmartScreen may ask for confirmation on first launch. Check the download instead:
 
