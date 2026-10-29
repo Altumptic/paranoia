@@ -653,4 +653,26 @@ mod tests {
         assert_eq!(c(0x852e).mnemonic, "mv"); // c.mv a0, a1
         assert_eq!(c(0xa001).flow, Flow::Jump); // c.j 0
     }
+
+    fn noise(seed: u64, n: usize) -> Vec<u8> {
+        let mut x = seed | 1;
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn never_panics_on_noise() {
+        for seed in 1..64u64 {
+            let b = noise(seed, 4096);
+            for off in (0..b.len() - 1).step_by(2) {
+                let _ = decode(&b[off..], off as u64, if seed % 2 == 0 { 64 } else { 32 });
+            }
+        }
+    }
 }

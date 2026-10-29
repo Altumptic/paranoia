@@ -411,4 +411,23 @@ mod tests {
         let s = parse_pat(BUILTIN_MSVC_X64).unwrap();
         assert!(s.len() > 20, "built-in library has {} signatures", s.len());
     }
+
+    #[test]
+    fn hostile_pat_text_is_rejected_cleanly() {
+        let mut x = 0x1234_5678_9abc_def1u64;
+        let alphabet = b"0123456789ABCDEF.: 
+-^@";
+        for _ in 0..2000 {
+            let n = (x % 300) as usize;
+            let text: String = (0..n)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    alphabet[(x % alphabet.len() as u64) as usize] as char
+                })
+                .collect();
+            let _ = parse_pat(&text);
+        }
+    }
 }

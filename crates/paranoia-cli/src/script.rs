@@ -11,9 +11,28 @@ use paranoia_core::api::Session;
 use serde_json::{json, Value};
 
 const MODULE: &str = include_str!("../../../apps/desktop/electron/paranoia.py");
-const BOOT: &str = "import paranoia, sys; paranoia._main(sys.argv[1])";
+// -E ignores PYTHON* variables; the module directory is put on sys.path explicitly.
+const BOOT: &str = "import sys; sys.path.insert(0, sys.argv[1]); import paranoia; paranoia._main(sys.argv[2])";
 
-fn find_python(explicit: Option<&str>) -> Result<(String, Vec<String>)> {
+/// A new, private directory for one run (created by us, 0700 on Unix).
+fn private_dir() -> Result<PathBuf> {
+    let base = std::env::temp_dir();
+    for attempt in 0..32u32 {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        let dir = base.join(format!("paranoia-py-{}-{nanos:x}-{attempt}", std::process::id()));
+        if std::fs::create_dir(&dir).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+            }
+            return Ok(dir);
+        }
+    }
+    bail!("could not create a private temporary directory")
+}
+
+fn find_python(explicit: Option<&str>, cwd: &Path) -> Result<(String, Vec<String>)> {
     let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
     if let Some(p) = explicit.map(str::to_string).or_else(|| std::env::var("PARANOIA_PYTHON").ok()) {
         candidates.push((p, vec![]));
@@ -24,7 +43,8 @@ fn find_python(explicit: Option<&str>) -> Result<(String, Vec<String>)> {
     for (exe, pre) in candidates {
         let ok = Command::new(&exe)
             .args(&pre)
-            .args(["-c", "import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)"])
+            .args(["-E", "-c", "import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)"])
+            .current_dir(cwd)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -41,21 +61,22 @@ pub fn run(binary: &Path, script: &Path, python: Option<&str>, cursor: u64) -> R
     let name = binary.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut session = Session::open(&name, bytes).map_err(anyhow::Error::msg)?;
 
-    let dir: PathBuf = std::env::temp_dir().join("paranoia-python");
-    std::fs::create_dir_all(&dir)?;
+    let dir = private_dir()?;
+    let result = run_in(&dir, &mut session, script, python, cursor);
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+fn run_in(dir: &Path, session: &mut Session, script: &Path, python: Option<&str>, cursor: u64) -> Result<i32> {
     std::fs::write(dir.join("paranoia.py"), MODULE)?;
-    let (exe, pre) = find_python(python)?;
-    let mut path = dir.as_os_str().to_owned();
-    if let Some(old) = std::env::var_os("PYTHONPATH") {
-        path.push(if cfg!(windows) { ";" } else { ":" });
-        path.push(old);
-    }
+    let script = std::fs::canonicalize(script).with_context(|| format!("reading {}", script.display()))?;
+    let (exe, pre) = find_python(python, dir)?;
     let mut child = Command::new(exe)
         .args(pre)
-        .args(["-u", "-X", "utf8", "-c", BOOT])
-        .arg(script)
-        .env("PYTHONPATH", path)
-        .env("PYTHONIOENCODING", "utf-8")
+        .args(["-E", "-u", "-X", "utf8", "-c", BOOT])
+        .arg(dir)
+        .arg(&script)
+        .current_dir(dir)
         .env("PN_CURSOR", cursor.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

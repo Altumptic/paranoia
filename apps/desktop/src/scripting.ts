@@ -1,84 +1,70 @@
-// Scripting API exposed to the console as `pn` — the Paranoia counterpart of
-// IDC / IDAPython. Scripts are the user's own code and run in the UI context.
+// JavaScript console: the Paranoia counterpart of IDC. Each run gets a fresh, dedicated
+// worker (src/script-worker.ts) with no DOM and no desktop bridge; the `pn` API there
+// reaches the engine through `call()` requests that this module forwards for the open
+// file. The page itself never evaluates script text, so its CSP can forbid `eval`.
 
-import type { SearchKind } from "./engine/types";
 import { useStore } from "./store";
 
-function session() {
-  const s = useStore.getState().session;
-  if (!s) throw new Error("no file is open");
-  return s;
+let current: { worker: Worker; cancel: () => void } | null = null;
+
+/** Stops the running script, if any. */
+export function stopScript() {
+  const c = current;
+  current = null;
+  c?.worker.terminate();
+  c?.cancel();
 }
 
-async function edited(reanalyzed = false) {
-  await useStore.getState().afterEdit(reanalyzed);
-}
-
-const hexStr = (v: number) => "0x" + v.toString(16).toUpperCase();
-
-export function makeApi(print: (...a: unknown[]) => void) {
-  const pn = {
-    /** File summary (format, arch, hashes, sections, imports, exports, …). */
-    info: () => session().info(),
-    /** All functions: { address, name, size, blocks, instructions, xrefs, … } */
-    functions: () => session().functions(),
-    /** Every named address. */
-    names: () => session().names(),
-    strings: () => session().strings(),
-    /** Name shown for an address (or null). */
-    name: async (va: number) => (await session().addressInfo(va)).name,
-    /** The function containing `va`. */
-    functionAt: (va: number) => session().functionAt(va),
-    /** Cross references to `va`. */
-    xrefs: (va: number) => session().xrefs(va),
-    /** Functions called from the function containing `va`. */
-    callees: (va: number) => session().callees(va),
-    /** Listing lines (code or data) starting at `va`. */
-    disasm: (va: number, count = 20) => session().disassemble(va, count),
-    /** Pseudocode text of the function containing `va`. */
-    pseudo: async (va: number) => {
-      const p = await session().pseudocode(va);
-      return p ? p.lines.map((l) => "    ".repeat(l.indent) + l.tokens.map((t) => t.t).join("")).join("\n") : null;
-    },
-    /** Bytes at a virtual address. */
-    read: async (va: number, len: number) => {
-      const off = await session().vaToOffset(va);
-      if (off == null) throw new Error(`${hexStr(va)} has no file bytes`);
-      return Array.from(await session().read(off, len));
-    },
-    /** Searches: kind = "bytes" | "text" | "immediate". */
-    search: (kind: SearchKind, query: string) => session().searchAdvanced(kind, query),
-    rename: async (va: number, name: string) => {
-      await session().rename(va, name);
-      await edited();
-    },
-    comment: async (va: number, text: string) => {
-      await session().setComment(va, text);
-      await edited();
-    },
-    bookmark: async (va: number, text: string | null) => {
-      await session().setBookmark(va, text);
-      await edited();
-    },
-    makeFunction: async (va: number) => {
-      await session().makeFunction(va);
-      await edited(true);
-    },
-    /** Writes bytes at a virtual address. */
-    patch: async (va: number, bytes: number[]) => {
-      const off = await session().vaToOffset(va);
-      if (off == null) throw new Error(`${hexStr(va)} has no file bytes`);
-      await session().patch(off, bytes.map((b) => (b & 0xff).toString(16).padStart(2, "0")).join(""));
-      await edited();
-    },
-    /** Moves the cursor (and the views) to `va`. */
-    goto: (va: number) => useStore.getState().goto(va),
-    /** Current cursor address. */
-    here: () => useStore.getState().cursor,
-    hex: hexStr,
-    print,
-  };
-  return pn;
+/** Runs `code` with `pn` and `print` in scope (top-level `await` allowed); resolves with its value. */
+export function runScript(code: string, print: (...a: unknown[]) => void): Promise<unknown> {
+  stopScript();
+  const st = useStore.getState();
+  const session = st.session;
+  if (!session) return Promise.reject(new Error("no file is open"));
+  const worker = new Worker(new URL("./script-worker.ts", import.meta.url), { type: "module", name: "paranoia-script" });
+  return new Promise((resolve, reject) => {
+    current = { worker, cancel: () => reject(new Error("stopped")) };
+    let edits = false;
+    let reanalyzed = false;
+    const finish = async () => {
+      worker.terminate();
+      if (current?.worker === worker) current = null;
+      if (edits) await useStore.getState().afterEdit(reanalyzed);
+    };
+    worker.onmessage = async (e: MessageEvent) => {
+      const m = e.data as { type: string; [k: string]: unknown };
+      switch (m.type) {
+        case "call":
+          try {
+            const value = await session.backend.call(session.handle, String(m.method), m.args ?? null);
+            worker.postMessage({ type: "reply", id: m.id, ok: true, value });
+          } catch (err) {
+            worker.postMessage({ type: "reply", id: m.id, ok: false, error: err instanceof Error ? err.message : String(err) });
+          }
+          break;
+        case "print":
+          print(...(m.args as unknown[]));
+          break;
+        case "goto":
+          useStore.getState().goto(Number(m.va));
+          break;
+        case "edited":
+          edits = true;
+          reanalyzed ||= Boolean(m.reanalyzed);
+          break;
+        case "done":
+          await finish();
+          if (m.ok) resolve(m.value);
+          else reject(new Error(String(m.error)));
+          break;
+      }
+    };
+    worker.onerror = async (e) => {
+      await finish();
+      reject(new Error(e.message || "script worker failed"));
+    };
+    worker.postMessage({ type: "run", code, cursor: st.cursor });
+  });
 }
 
 export const EXAMPLES: { title: string; code: string }[] = [
@@ -121,11 +107,3 @@ print(s.length, "referenced strings");`,
 }`,
   },
 ];
-
-/** Runs a script with `pn` and `print` in scope. Top-level `await` is allowed. */
-export async function runScript(code: string, print: (...a: unknown[]) => void): Promise<unknown> {
-  const pn = makeApi(print);
-  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => (...a: unknown[]) => Promise<unknown>;
-  const fn = new AsyncFunction("pn", "print", `"use strict";\n${code}`);
-  return fn(pn, print);
-}

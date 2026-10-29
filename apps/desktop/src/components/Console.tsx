@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { desktop } from "../engine/client";
 import { PY_EXAMPLES } from "../pyexamples";
-import { EXAMPLES, runScript } from "../scripting";
+import { EXAMPLES, runScript, stopScript } from "../scripting";
 import { useStore } from "../store";
 
 type Lang = "js" | "py";
@@ -203,8 +203,17 @@ export function Console() {
               }
             }}
           />
-          {busy && lang === "py" ? (
-            <button className="btn sm run-btn" onClick={() => desktop?.python.stop()}>
+          {busy ? (
+            <button
+              className="btn sm run-btn"
+              onClick={() => {
+                if (lang === "py") {
+                  desktop?.python.stop();
+                } else {
+                  stopScript();
+                }
+              }}
+            >
               <Square size={12} /> Stop
             </button>
           ) : (

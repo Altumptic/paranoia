@@ -263,4 +263,49 @@ mod tests {
         assert_eq!(lib.enums["Color"].members, vec![("Red".into(), 0), ("Green".into(), 5), ("Blue".into(), 6)]);
         assert!(parse("struct A { Foo f; };", 8).is_err());
     }
+
+    #[test]
+    fn hostile_declarations_do_not_panic() {
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        let pieces = [
+            "struct ",
+            "union ",
+            "enum ",
+            "typedef ",
+            "A",
+            "B",
+            "{",
+            "}",
+            ";",
+            "[",
+            "]",
+            "*",
+            "int ",
+            "char ",
+            "x",
+            "=",
+            ",",
+            "9999999999",
+            "-1",
+            "
+",
+            "A a;",
+            "struct A a;",
+        ];
+        for _ in 0..3000 {
+            let n = (x % 40) as usize;
+            let src: String = (0..n)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    pieces[(x % pieces.len() as u64) as usize]
+                })
+                .collect();
+            let _ = parse(&src, 8);
+        }
+        // Self-referential and deeply nested types terminate.
+        let _ = parse("struct A { struct A inner; };", 8);
+        let _ = parse("struct A { int x[4294967295]; struct A y[4294967295]; };", 8);
+    }
 }

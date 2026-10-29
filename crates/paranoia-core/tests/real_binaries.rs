@@ -96,6 +96,13 @@ fn corrupted_inputs_do_not_panic() {
             let _ = bin.disassemble(entry, 64);
             let _ = bin.function_graph(entry);
             let _ = bin.search("a", 50);
+            // Newer passes: decompiler, signatures, debug-info lookups.
+            for f in bin.functions().iter().take(12) {
+                let _ = bin.pseudocode(f.address);
+                let _ = bin.address_info(f.address);
+                let _ = bin.frame(f.address);
+            }
+            let _ = bin.make_pat(false);
         }
     }
 }

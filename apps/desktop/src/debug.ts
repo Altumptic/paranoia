@@ -57,17 +57,15 @@ export const debug = {
 
   async start() {
     const st = useStore.getState();
-    const ok = window.confirm(
-      "Debugging runs this program on your computer.\n\nOnly debug files you trust, or do it inside a virtual machine. Malware will execute with your user's permissions.\n\nStart the program now?",
-    );
-    if (!ok) return;
+    // The confirmation is a native dialog shown by the main process before the program starts.
     try {
       await dbg("start", { breakpoints: [...st.breakpoints], break_on_entry: true });
       useStore.setState({ debug: { state: "running", reason: "Starting…", pc: null, pc_runtime: 0, base: 0, regs: [], stack: [], breakpoints: [], log: [], exit_code: null }, debugOpen: true });
       st.print(`▶ Debugging ${st.info?.file_name}`, "info");
       startPolling();
     } catch (e) {
-      st.toast(e instanceof Error ? e.message : String(e), "error");
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/cancelled/.test(msg)) st.toast(msg, "error");
     }
   },
 

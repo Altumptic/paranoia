@@ -472,4 +472,26 @@ mod tests {
         let be = decode(&0x03e0_0008u32.to_be_bytes(), 0, true, false).unwrap();
         assert_eq!(be.mnemonic, "jr");
     }
+
+    fn noise(seed: u64, n: usize) -> Vec<u8> {
+        let mut x = seed | 1;
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn never_panics_on_noise() {
+        for seed in 1..64u64 {
+            let b = noise(seed, 4096);
+            for off in (0..b.len() - 3).step_by(4) {
+                let _ = decode(&b[off..], off as u64, seed % 2 == 0, seed % 3 == 0);
+            }
+        }
+    }
 }

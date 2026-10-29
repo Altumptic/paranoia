@@ -139,8 +139,9 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     let mut imphash_parts = Vec::new();
     for imp in &pe.imports {
         let ordinal = imp.name.starts_with("ORDINAL ").then_some(imp.ordinal);
+        // goblin names ordinal imports "ORDINAL n"; use an identifier that reads as code.
         out.imports.push(Import {
-            name: imp.name.to_string(),
+            name: if ordinal.is_some() { format!("Ordinal_{}", imp.ordinal) } else { imp.name.to_string() },
             library: imp.dll.to_string(),
             address: pe.image_base + imp.offset as u64,
             ordinal,
