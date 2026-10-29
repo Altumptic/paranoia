@@ -313,7 +313,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "paranoia-cli"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "cpp_demangle",
  "gimli",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-db"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "redb",
  "serde",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-engine"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "iced-x86",
  "paranoia-core",
@@ -368,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "paranoia-wasm"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "paranoia-core",
  "serde_json",
