@@ -10,7 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 cpp_demangle = "0.5.1"
-gimli = { version = "0.32.3", default-features = false, features = ["read", "std"] }
+gimli = { version = "0.34.0", default-features = false, features = ["read", "std"] }
 goblin = "0.10.7"
 hex = "0.4.3"
 iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
