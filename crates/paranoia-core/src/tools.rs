@@ -225,6 +225,8 @@ impl Binary {
     }
 
     pub fn reanalyze(&mut self) {
+        self.call_args.clear();
+        self.ret_types.clear();
         self.analysis = None;
         self.analyze();
     }

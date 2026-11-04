@@ -500,10 +500,12 @@ impl Binary {
     }
 
     /// Replaces the local type library with `source` (C declarations).
+    /// Types recovered from DWARF come back afterwards (user declarations win on a clash).
     pub fn set_types(&mut self, source: &str) -> Result<usize, String> {
         let lib = crate::types::parse(source, self.ptr_size())?;
         let n = lib.structs.len() + lib.enums.len();
         self.annotations.types = lib;
+        self.merge_dwarf_types();
         Ok(n)
     }
 

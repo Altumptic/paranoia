@@ -187,7 +187,6 @@ struct Ctx<'a> {
     /// before `push`/`sub rsp`): what to add to a displacement off that register to get the
     /// same slot relative to `rsp` after the prologue, so both spellings get one name.
     frame_shift: Option<i128>,
-    args: Vec<Register>,
     labels: BTreeSet<u64>,
     /// Registers assigned since the last call, used to guess call arguments.
     written: Vec<Register>,
@@ -373,10 +372,13 @@ fn is_callee_saved(r: Register) -> bool {
 
 impl Binary {
     /// C-like pseudocode for the function containing `va` (x86 / x86-64).
-    pub fn pseudocode(&self, va: u64) -> Option<Pseudocode> {
+    /// Rendering also harvests which typed variables flow into internal callees,
+    /// so their pseudocode inherits the types (cross-call type propagation).
+    pub fn pseudocode(&mut self, va: u64) -> Option<Pseudocode> {
         let a = self.analysis.as_ref()?;
         let idx = self.function_index_containing(va)?;
         let f = &a.functions[idx];
+        let f_addr = f.address;
         let name = self.function_name(f);
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             return Some(Pseudocode {
@@ -407,7 +409,7 @@ impl Binary {
         let all: Vec<&Ins> = blocks.values().flat_map(|(v, _)| v.iter()).collect();
 
         // Frame pointer: `mov rbp, rsp` in the entry block.
-        let frame_reg = blocks.get(&f.address).and_then(|(v, _)| {
+        let frame_reg = blocks.get(&f_addr).and_then(|(v, _)| {
             v.iter().take(8).find_map(|i| {
                 (i.mnemonic() == Mnemonic::Mov
                     && i.op_kind(0) == OpKind::Register
@@ -419,7 +421,7 @@ impl Binary {
 
         // How far the prologue moves rsp after the copy is taken (pushes and `sub rsp, n`).
         let frame_shift = frame_reg.filter(|r| !matches!(r, Register::RBP | Register::EBP)).and_then(|fr| {
-            let (v, _) = blocks.get(&f.address)?;
+            let (v, _) = blocks.get(&f_addr)?;
             let slot = if bits == 64 { 8 } else { 4 };
             let mut delta: i128 = 0;
             let mut at_copy = None;
@@ -451,7 +453,7 @@ impl Binary {
         let mut args = Vec::new();
         if !conv.is_empty() {
             let mut written = BTreeSet::new();
-            for i in blocks.get(&f.address).map(|(v, _)| v.as_slice()).unwrap_or(&[]) {
+            for i in blocks.get(&f_addr).map(|(v, _)| v.as_slice()).unwrap_or(&[]) {
                 for o in 0..i.op_count() {
                     if i.op_kind(o) == OpKind::Register {
                         let r = i.op_register(o).full_register();
@@ -506,9 +508,8 @@ impl Binary {
             }
         }
 
-        let skip = save_restore_noise(&blocks, f.address);
-        let mut ctx =
-            Ctx { bin: self, bits, frame_reg, frame_shift, args: args.clone(), labels, written: Vec::new(), pushes: Vec::new(), skip };
+        let skip = save_restore_noise(&blocks, f_addr);
+        let mut ctx = Ctx { bin: self, bits, frame_reg, frame_shift, labels, written: Vec::new(), pushes: Vec::new(), skip };
         let ret_ty = if all.iter().any(|i| i.mnemonic() == Mnemonic::Ret) && writes_rax_before_ret(&blocks) { "__int64" } else { "void" };
 
         let mut out: Vec<PseudoLine> = Vec::new();
@@ -522,7 +523,7 @@ impl Binary {
             sig.push("__int64", TokenKind::Keyword).sp().push(reg_name(*r), TokenKind::Register);
         }
         sig.p(")");
-        out.push(PseudoLine { address: Some(f.address), indent: 0, tokens: sig.toks });
+        out.push(PseudoLine { address: Some(f_addr), indent: 0, tokens: sig.toks });
         out.push(PseudoLine { address: None, indent: 0, tokens: vec![Token { t: "{".into(), k: TokenKind::Punct }] });
 
         let order: Vec<u64> = blocks.keys().copied().collect();
@@ -532,7 +533,7 @@ impl Binary {
         crate::pseudo_opt::optimize(self, &mut out, self.info.format != Format::Pe, bits);
         crate::pseudo_types::recover_goto_loops(&mut out);
         crate::pseudo_types::recover_loops(&mut out);
-        let stack = self.frame(f.address).map(|fr| fr.vars.iter().map(|v| (v.name.clone(), v.size)).collect()).unwrap_or_default();
+        let stack = self.frame(f_addr).map(|fr| fr.vars.iter().map(|v| (v.name.clone(), v.size)).collect()).unwrap_or_default();
         let sig = crate::pseudo_types::Signature {
             name: &name,
             ret: ret_ty,
@@ -546,6 +547,69 @@ impl Binary {
             },
         };
         crate::pseudo_types::type_variables(&mut out, &sig);
+        // Struct member access (IDA's `->field`): types set with `Y` in this function,
+        // plus types inherited from callers (argument types) and callees (return types).
+        let mut user = self.annotations.var_types.get(&f_addr).cloned().unwrap_or_default();
+        let mut inherited: BTreeMap<u64, &Vec<Option<String>>> = BTreeMap::new();
+        for (caller, edges) in &self.call_args {
+            if let Some(arg_tys) = edges.get(&f_addr) {
+                inherited.insert(*caller, arg_tys);
+            }
+        }
+        for arg_tys in inherited.values() {
+            for (k, ty) in arg_tys.iter().enumerate() {
+                if k < args.len() && ty.is_some() {
+                    user.entry(format!("a{}", k + 1)).or_insert_with(|| ty.clone().unwrap());
+                }
+            }
+        }
+        let names: HashMap<String, u64> = self.functions().into_iter().map(|s| (s.name, s.address)).collect();
+        let mut writes: HashMap<String, usize> = HashMap::new();
+        for l in &out {
+            if let Some((lhs, _)) = crate::pseudo_opt::assignment(l) {
+                *writes.entry(lhs.t.clone()).or_default() += 1;
+            }
+        }
+        // `v2 = G(…);` where G's result type is known: the variable adopts it.
+        if bits == 64 {
+            for l in &out {
+                if crate::pseudo_opt::call_at(l) != Some(2) || l.tokens[1].t != " = " {
+                    continue;
+                }
+                let Some(&callee) = names.get(&l.tokens[2].t) else { continue };
+                let Some(ty) = self.ret_types.get(&callee) else { continue };
+                if writes.get(&l.tokens[0].t).copied() == Some(1) {
+                    user.entry(l.tokens[0].t.clone()).or_insert_with(|| ty.clone());
+                }
+            }
+        }
+        let types = crate::pseudo_structs::resolved_var_types(&out, &self.annotations.types, &user);
+        crate::pseudo_structs::member_access(&mut out, &self.annotations.types, &user);
+
+        // Cross-call propagation: record typed arguments and typed call results, so the
+        // callee's pseudocode (and other callers) can adopt the types.
+        if bits == 64 {
+            if types.is_empty() {
+                self.call_args.remove(&f_addr);
+            } else {
+                let mut edges: HashMap<u64, Vec<Option<String>>> = HashMap::new();
+                for l in &out {
+                    let Some(c) = crate::pseudo_opt::call_at(l) else { continue };
+                    let Some(&callee) = names.get(&l.tokens[c].t) else { continue };
+                    edges.insert(callee, call_arg_types(l, c, &types));
+                    if c == 2 && l.tokens[1].t == " = " && writes.get(&l.tokens[0].t).copied() == Some(1) {
+                        if let Some(ty) = types.get(&l.tokens[0].t) {
+                            self.ret_types.entry(callee).or_insert_with(|| ty.clone());
+                        }
+                    }
+                }
+                if edges.is_empty() {
+                    self.call_args.remove(&f_addr);
+                } else {
+                    self.call_args.insert(f_addr, edges);
+                }
+            }
+        }
 
         // Keep only labels that some `goto` still targets.
         let mut used = BTreeSet::new();
@@ -560,9 +624,59 @@ impl Binary {
             let is_label = l.tokens.len() == 2 && l.tokens[1].t == ":" && l.tokens[0].k == TokenKind::Symbol;
             !is_label || used.contains(&l.tokens[0].t)
         });
-        let _ = &ctx.args;
-        Some(Pseudocode { address: f.address, name, lines: out, note: None })
+        Some(Pseudocode { address: f_addr, name, lines: out, note: None })
     }
+}
+
+/// Types of a call's arguments by position: `Some` when the whole argument is one
+/// variable with a known type, `None` otherwise (expressions, names, numbers).
+fn call_arg_types(l: &PseudoLine, c: usize, types: &HashMap<String, String>) -> Vec<Option<String>> {
+    let toks = &l.tokens;
+    let mut out: Vec<Option<String>> = Vec::new();
+    let mut depth = 0i32;
+    let mut content: Vec<usize> = Vec::new();
+    let mut arg = 0usize;
+    let finalize = |out: &mut Vec<Option<String>>, content: &[usize], arg: usize| {
+        let ty = match content {
+            [k] if toks[*k].k == TokenKind::Register => types.get(&toks[*k].t).cloned(),
+            _ => None,
+        };
+        if out.len() <= arg {
+            out.resize(arg + 1, None);
+        }
+        out[arg] = ty;
+    };
+    for (k, t) in toks.iter().enumerate().skip(c + 1) {
+        if matches!(t.k, TokenKind::Punct | TokenKind::Keyword) {
+            let mut end = false;
+            for ch in t.t.chars() {
+                match ch {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = true;
+                        }
+                    }
+                    ',' if depth == 1 => {
+                        finalize(&mut out, &content, arg);
+                        arg += 1;
+                        content.clear();
+                    }
+                    _ => {}
+                }
+            }
+            if end {
+                finalize(&mut out, &content, arg);
+                return out;
+            }
+            continue;
+        }
+        if depth == 1 {
+            content.push(k);
+        }
+    }
+    out
 }
 
 /// `mov [rsp+X], rbx` before the frame is set up, and the matching `mov rbx, [rsp+Y]`

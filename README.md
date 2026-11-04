@@ -44,11 +44,11 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 | **Architectures** | x86 and x86-64 (iced-x86), AArch64, ARM32 and Thumb-2 (yaxpeax-arm), RISC-V RV32/RV64GC and MIPS32/64 (own decoders) |
 | **Auto-analysis** | Recursive-descent function discovery from entry points, exports, symbols and exception tables; basic blocks; switch-table recovery; no-return awareness; import thunks |
 | **Listing** | Code and data in one view: `sub_` / `loc_` labels, `db/dw/dd/dq`, strings, `offset`, `extrn`, auto names (`aHelloWorld`, `qword_…`), `XREF` comments, jump arrows, argument labels from API prototypes |
-| **Decompiler** | x86 / x64 (`Tab` / `F5`): typed variables (`HANDLE v3 = CreateFileW(a1, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, …)`), expression propagation, `switch`, `while` / `for` / `do-while` with `break` / `continue` |
+| **Decompiler** | x86 / x64 (`Tab` / `F5`): typed variables (`HANDLE v3 = CreateFileW(a1, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, …)`), expression propagation, `switch`, `while` / `for` / `do-while` with `break` / `continue`; type a variable (`Y`) and struct fields render as `ctx->FileName`, with the type flowing into the functions it is passed to, back through typed call results, and along pointer fields — so linked lists and trees stay readable (`p = ctx->next; p->id`) |
 | **Graph & xrefs** | Control-flow graph with pan, zoom and minimap; xrefs dialog (`X`), call graph, stack frames |
 | **Editing** | Rename (`N`), comments (`;`), bookmarks, code / data / string / undefine (`C` `D` `A` `U`), create function (`P`), operand display (`H` `R` `B` `M`), local C types, undo / redo — saved per file hash |
 | **Hex & patching** | Hex view with data inspector, byte patching, NOP / invert / force-jump patches, save the patched file |
-| **Debug info** | PDB symbols (found next to the binary, GUID-checked); DWARF names, globals and source lines |
+| **Debug info** | PDB symbols (found next to the binary, GUID-checked); DWARF names, globals, source lines and struct / enum definitions imported into Local Types |
 | **Signatures** | FLIRT-style library recognition with IDA `.pat` files in and out; built-in MSVC x64 runtime library |
 | **Debugger** | Windows x64: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
 | **Scripting** | Python in your own interpreter — `import idc, idautils` works for common calls — and JavaScript, both with the `pn` API; headless `paranoia script` batch mode |
@@ -105,6 +105,7 @@ Details: [security design and threat model](docs/SECURITY-DESIGN.md) · [baselin
 | `Esc` / `Alt ←` | Back | `Alt →` | Forward |
 | `Enter` / double-click | Follow operand | `X` | Cross references |
 | `N` | Rename | `;` | Comment |
+| `Y` | Type variable (pseudocode) | `Alt M` / `Ctrl M` | Bookmark / list bookmarks |
 | `P` | Create function | `Alt M` / `Ctrl M` | Bookmark / list bookmarks |
 | `C` / `D` / `A` / `U` | Code / data / string / undefine | `Ctrl Z` / `Ctrl Y` | Undo / redo |
 | `H` / `R` / `B` / `M` | Operand: hex ↔ dec / char / binary / enum | ``Ctrl ` `` | Script console |
@@ -149,6 +150,8 @@ The browser build (`npm run dev`, then open http://localhost:1420) runs the same
 > **Windows note.** Everything builds with the `x86_64-pc-windows-gnu` toolchain without a C compiler. If your checkout path contains spaces and you hit `dlltool` errors, set `CARGO_TARGET_DIR` to a path without spaces.
 
 ## Repository layout
+
+> AI assistants: start with [AGENTS.md](AGENTS.md) — one page with the repo map, commands, invariants and recipes, so you never have to rediscover the project.
 
 ```
 crates/

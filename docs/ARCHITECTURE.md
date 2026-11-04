@@ -29,8 +29,9 @@ No I/O, no threads, no C dependencies — the same code runs natively and in Web
 | `disasm.rs`, `riscv.rs`, `mips.rs` | Fast decode for analysis (length, flow, targets, data refs) and token rendering for the UI: iced-x86 (x86/x64), yaxpeax-arm (AArch64, ARM32, Thumb-2), own decoders for RISC-V and MIPS. |
 | `analysis.rs`, `switch.rs` | Recursive-descent function discovery with tail-call and no-return handling, basic blocks, jump-table recovery and the cross-reference index. |
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, `switch` / loop structuring, typed variables. |
+| `pseudo_structs.rs` | Struct member access: variables typed in the UI (`Y`) render `*(T*)(v + off)` as `v->field`, with nesting, arrays and `&v->field`; the signature and declarations follow. Pointer fields chain (a loaded `struct T *next` is typed `T *`), and rendering a function records typed arguments and typed call results, so callee signatures and other callers adopt the types (cross-call type propagation, a runtime cache). |
 | `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Data items, local C types, operand representation and built-in constants, API prototypes. |
-| `pdbsym.rs`, `dwarf.rs`, `sigs.rs` | Debug information (PDB, DWARF) and FLIRT-style `.pat` signatures. |
+| `pdbsym.rs`, `dwarf.rs`, `sigs.rs` | Debug information (PDB; DWARF names, globals, source lines and local types) and FLIRT-style `.pat` signatures. |
 | `tools.rs`, `nav.rs`, `frame.rs` | Search, patching, call graph, undo, stack frames, IDC export. |
 | `demangle.rs` | MSVC, Itanium and Rust demangling. |
 | `api.rs` | `Session::call(method, args)` — the JSON contract every front-end uses. |

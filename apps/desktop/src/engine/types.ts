@@ -205,6 +205,8 @@ export interface Annotations {
   items?: Record<string, { kind: ItemKind; count: number }>;
   undefined?: number[];
   types?: TypeLibrary;
+  /** Pseudocode variable types (IDA's `Y`): function address → variable → C type. */
+  var_types?: Record<string, Record<string, string>>;
 }
 
 export type ItemKind = "byte" | "word" | "dword" | "qword" | "ascii" | "utf16" | "code" | "struct";
