@@ -60,7 +60,8 @@ function parseEndpoint(raw) {
 
 /** Messages for `task`; the code is truncated so a huge function cannot blow up the request. */
 function buildMessages(task, info) {
-  const t = TASKS[task];
+  // Own keys only: `constructor` / `__proto__` are not tasks.
+  const t = typeof task === "string" && Object.hasOwn(TASKS, task) ? TASKS[task] : null;
   if (!t) throw new Error(`unknown assistant task ${JSON.stringify(task)}`);
   const code = String(info.code ?? "");
   const clipped = code.length > MAX_CODE_CHARS ? `${code.slice(0, MAX_CODE_CHARS)}\n/* … ${code.length - MAX_CODE_CHARS} more characters omitted … */` : code;

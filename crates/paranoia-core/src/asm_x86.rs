@@ -305,6 +305,9 @@ pub fn assemble(text: &str, ip: u64, bitness: u32) -> Result<Vec<u8>, String> {
     if bitness != 32 && bitness != 64 {
         return Err("the assembler supports 32-bit and 64-bit x86".into());
     }
+    if text.len() > 1024 {
+        return Err("one instruction per line, please (the text is too long)".into());
+    }
     let text = text.split(';').next().unwrap_or("").trim();
     if text.is_empty() {
         return Err("nothing to assemble".into());
@@ -456,5 +459,6 @@ mod tests {
         assert!(assemble("mov [eax], 5", 0, 32).unwrap_err().contains("operand size"));
         assert!(assemble("mov eax, [", 0, 32).is_err());
         assert!(assemble("", 0, 32).is_err());
+        assert!(assemble(&"nop ".repeat(400), 0, 32).unwrap_err().contains("too long"));
     }
 }
