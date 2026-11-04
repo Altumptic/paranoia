@@ -118,8 +118,9 @@ impl Engine {
                 let h = handle.ok_or("missing handle")?;
                 let s = self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))?;
                 let info = s.binary().info();
-                if info.format != paranoia_core::Format::Pe || info.arch != paranoia_core::Arch::X86_64 {
-                    return Err("the debugger currently supports 64-bit Windows executables".into());
+                if info.format != paranoia_core::Format::Pe || !matches!(info.arch, paranoia_core::Arch::X86_64 | paranoia_core::Arch::X86)
+                {
+                    return Err("the debugger supports 32-bit and 64-bit Windows executables".into());
                 }
                 if info.kind != "Executable" {
                     return Err("only executables can be started (DLLs need a host process)".into());
@@ -140,6 +141,7 @@ impl Engine {
                     breakpoints: bps,
                     break_on_entry: args.get("break_on_entry").and_then(Value::as_bool).unwrap_or(true),
                     image_size: size,
+                    wow64: info.arch == paranoia_core::Arch::X86,
                 })?;
                 self.debugger = Some(d);
                 Ok(json!(true))

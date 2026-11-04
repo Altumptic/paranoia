@@ -198,6 +198,40 @@ impl Binary {
         self.patch(off, &new)
     }
 
+    /// Assembles `text` at `va` and, when `apply` is set, writes it over the instruction(s) there.
+    /// The bytes may be longer than the original instruction: the following instructions they
+    /// overwrite are replaced and any remainder is padded with NOPs. Returns the bytes assembled.
+    pub fn assemble_at(&mut self, va: u64, text: &str, apply: bool) -> Result<Vec<u8>, String> {
+        let bitness = match self.info.arch {
+            Arch::X86 => 32,
+            Arch::X86_64 => 64,
+            _ => return Err("the assembler supports x86 and x64".into()),
+        };
+        let bytes = crate::asm_x86::assemble(text, va, bitness)?;
+        if !apply {
+            return Ok(bytes);
+        }
+        let off = self.va_to_offset(va).ok_or("address has no file bytes")?;
+        // Cover whole instructions: a half-overwritten one would leave garbage behind.
+        let mut covered = 0usize;
+        for ins in self.listing(va, 16).map_err(|e| e.to_string())? {
+            if ins.size == 0 || hex::decode(&ins.bytes).map_or(true, |b| b.len() < ins.size as usize) {
+                return Err("cannot patch a data item".into());
+            }
+            covered += ins.size as usize;
+            if covered >= bytes.len() {
+                break;
+            }
+        }
+        if covered < bytes.len() {
+            return Err("the new code does not fit before the next non-code item".into());
+        }
+        let mut out = bytes.clone();
+        out.resize(covered, 0x90);
+        self.patch(off, &out)?;
+        Ok(bytes)
+    }
+
     // --------------------------------------------------------------------------------------------
     // Undo / redo
     // --------------------------------------------------------------------------------------------

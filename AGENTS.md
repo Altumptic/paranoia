@@ -24,7 +24,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | --- | --- |
 | `Cargo.toml` | Workspace; **the** version source (`[workspace.package] version`, inherited by every crate) |
 | `crates/paranoia-core/` | The whole analysis engine (~13k lines, the heart of the project) |
-| `crates/paranoia-engine/src/` | `main.rs` — engine process (JSON over stdio, workspace store); `debugger.rs` — Windows x64 debugger |
+| `crates/paranoia-engine/src/` | `main.rs` — engine process (JSON over stdio, workspace store); `debugger.rs` — Windows x64 + 32-bit (WOW64) debugger |
 | `crates/paranoia-cli/src/` | `main.rs` — `paranoia <subcommand>`; `script.rs` — headless Python batch mode |
 | `crates/paranoia-db/src/` | redb store: annotations + recent files, keyed by file SHA-256 |
 | `crates/paranoia-wasm/src/` | The engine for the browser, plain C ABI (no wasm-bindgen) |
@@ -45,6 +45,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, loops/switch, typed variables |
 | `pseudo_structs.rs` | Struct member access in pseudocode (types set with `Y`); argument/return types flow across internal calls, pointer fields chain |
 | `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Listing items + auto names, local C types, operand display/constants, ~250 API prototypes |
+| `asm_x86.rs` | Text assembler (Intel syntax) on iced's encoder; `Binary::assemble_at` (API `assemble`) patches code with it |
 | `pdbsym.rs`, `pdbtypes.rs`, `dwarf.rs`, `sigs.rs` | PDB (symbols; types in `pdbtypes.rs`), DWARF (names, lines, struct/enum types). Types from debug info live in `Binary::debug_types` (runtime, NOT in annotations); read types only via `Binary::type_view()` (user Local Types win), FLIRT-style `.pat` signatures (+ `sigs/msvc_x64.pat` built-in) |
 | `tools.rs`, `nav.rs`, `frame.rs` | Search/patching/user functions/export, call graph + undo, stack frames |
 | `strings.rs`, `metrics.rs`, `demangle.rs` | String extraction, entropy/hashes, MSVC/Itanium/Rust demangling |

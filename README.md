@@ -50,7 +50,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 | **Hex & patching** | Hex view with data inspector, byte patching, NOP / invert / force-jump patches, save the patched file |
 | **Debug info** | PDB symbols (found next to the binary, GUID-checked); PDB and DWARF struct / union / enum definitions as searchable debug-info types (for `Y` and the decompiler); DWARF names, globals and source lines |
 | **Signatures** | FLIRT-style library recognition with IDA `.pat` files in and out; built-in MSVC x64 runtime library |
-| **Debugger** | Windows x64: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
+| **Debugger** | Windows x64 and 32-bit programs: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
 | **Scripting** | Python in your own interpreter — `import idc, idautils` works for common calls — and JavaScript, both with the `pn` API; headless `paranoia script` batch mode |
 | **Triage** | Hashes, entropy map, section map, `checksec`-style mitigations (ASLR, DEP, CFG, RELRO, PIE, canaries, FORTIFY) |
 
@@ -61,7 +61,7 @@ Stated here so nobody has to find them the hard way (full list in the [roadmap](
 - The decompiler covers x86 / x64 only; it does not yet do SSA-based variable recovery or struct member access.
 - MIPS support is checked with decoder tests on known encodings, not yet on a full MIPS binary.
 - IDA's compressed `.sig` signature files are not read — use `.pat` files.
-- The debugger is Windows x64 only.
+- The debugger is Windows only (x64 and 32-bit programs); Linux and remote targets are planned.
 - Windows executables are not Authenticode-signed yet (see below).
 
 ## Install and verify

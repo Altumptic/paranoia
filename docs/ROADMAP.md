@@ -29,7 +29,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Search: bytes, text, immediates | ✅ | |
 | Hex view & patching, save patched file | ✅ | |
 | Instruction patches (NOP, invert, force jump) | ✅ | x86/x64 and AArch64 |
-| Assemble arbitrary instructions | ⏳ | |
+| Assemble arbitrary instructions | ✅ | x86 / x64, Intel syntax (`Edit → Assemble…`): `mov eax, [ebx+ecx*4+8]`, `jz 0x401020`, `lock xadd [rdi], eax`, `db 0x90, 0xcc`; the shortest encoding wins, longer code takes over the following instructions and the rest is NOP-padded. Branch targets and RIP-relative operands are absolute addresses |
 | Pseudocode | 🟡 | x86/x64: typed variables (`a1…`, `v1…` split at independent overwrites, types from API prototypes), expression propagation, `switch`, `while`/`for`/`do-while` with `break`/`continue`, symbolic API constants, struct member access (`Y` types a variable; fields, nesting, arrays render as `ctx->name`), argument/return types that flow across internal calls, and pointer fields that chain (`p = ctx->next` is typed `PKT *`, so lists and trees keep rendering as `p->…`). Pointer arithmetic on typed pointers follows C (`p += 0x60` on a 48-byte `T *` prints `p += 2`; other byte counts keep an explicit `(uint8_t *)` cast). Not yet: SSA-based variable recovery, other architectures |
 | Operand representation (`H`, `R`, `B`, `M`) | ✅ | Hex / decimal, character, binary, symbolic constant; built-in Windows / POSIX enums applied to API arguments automatically |
 | Types, structures, enums, local types | ✅ | C declarations (struct / union / enum / typedef, arrays, pointers, natural alignment); apply a struct to data (`Alt+Q`) |
@@ -43,7 +43,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
 | Scripting | ✅ | Python (your CPython, IDAPython-style `idc` / `idautils` names) and JavaScript consoles; headless `paranoia script` batch mode. Plugins planned |
-| Debugger | 🟡 | Local Windows x64: breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. x86, Linux and remote planned |
+| Debugger | 🟡 | Local Windows x64 and 32-bit (WOW64) programs: breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. Linux and remote planned |
 | Export: IDC script | ✅ | Names, comments, user functions |
 | Project files, undo/redo | ✅ | Annotations auto-save per file hash; undo / redo (200 steps) |
 | Collaboration / shared projects | ⏳ | Pro edition |
@@ -55,7 +55,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 3. **Plugins** — a plugin manifest on top of the Python and JavaScript APIs.
 4. **AI assistant** — optional, local-first (Ollama / LM Studio) or user-supplied API keys: explain function, suggest names, flag suspicious patterns. Nothing leaves the machine unless the user opts in.
 5. **More architectures** — PowerPC; mixed ARM/Thumb images; pseudocode beyond x86.
-6. **Debugger** — 32-bit Windows targets, Linux (ptrace / gdbserver) and remote backends.
+6. **Debugger** — ~~32-bit Windows targets~~ (done), Linux (ptrace / gdbserver) and remote backends.
 
 ## Editions
 
