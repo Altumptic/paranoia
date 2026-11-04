@@ -13,7 +13,6 @@ import {
   Braces,
   Code2,
   FileOutput,
-  FolderOpen,
   GitBranch,
   Import,
   LayoutDashboard,
@@ -21,16 +20,13 @@ import {
   PanelRight,
   Quote,
   Search,
-  ShieldCheck,
-  X,
 } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
 import { isDesktop } from "../engine/client";
-import { pickFile } from "../files";
 import { archLabel, fmtAddr, formatLabel, useStore, type CenterTab, type SidebarTab } from "../store";
 import { Inspector } from "./Inspector";
-import { Whale } from "./Logo";
+import { Mark } from "./Logo";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { ThemeToggle } from "./ThemeToggle";
@@ -42,7 +38,7 @@ import { CallsView } from "./views/CallsView";
 import { NavBand } from "./NavBand";
 import { Console } from "./Console";
 import { DebugPanel } from "./DebugPanel";
-import { AppMenu } from "./AppMenu";
+import { MenuBar } from "./MenuBar";
 import { OverviewView } from "./views/OverviewView";
 
 const SIDEBAR: { id: SidebarTab; icon: typeof Box; label: string }[] = [
@@ -70,71 +66,54 @@ export function Workspace() {
   const info = useStore((s) => s.info)!;
   const st = useStore();
 
-  const chooseFile = async () => {
-    const src = await pickFile();
-    if (src) st.open(src);
-  };
-
   return (
     <div className="workspace">
       <header className="topbar">
-        <div className="brand" onClick={() => st.set("centerTab", "overview")} title="Overview">
-          <Whale size={28} />
-          <span className="wordmark">Paranoia</span>
-        </div>
-        <div className="nav-btns">
+        <button className="mark-btn" onClick={() => st.set("centerTab", "overview")} title="Paranoia — overview" aria-label="Paranoia overview">
+          <Mark size={20} />
+        </button>
+        <MenuBar />
+
+        <div className="topbar-center">
           <button className="icon-btn" disabled={st.historyIndex <= 0} onClick={st.back} title="Back (Esc / Alt+←)">
-            <ArrowLeft size={16} />
+            <ArrowLeft size={15} />
           </button>
           <button className="icon-btn" disabled={st.historyIndex >= st.history.length - 1} onClick={st.forward} title="Forward (Alt+→)">
-            <ArrowRight size={16} />
+            <ArrowRight size={15} />
+          </button>
+          <button className="command-center" onClick={() => st.set("paletteOpen", true)} title={`${st.path ?? info.file_name}
+Go to address, function or string (Ctrl K)`}>
+            <Search size={13} />
+            <span className={`fmt fmt-${info.format}`}>{formatLabel(info.format)}</span>
+            <span className="cc-name">{info.file_name}</span>
+            <span className="cc-arch">
+              {archLabel(info.arch)} · {info.bits}-bit
+            </span>
+            <span className="kbd">Ctrl K</span>
           </button>
         </div>
-
-        <div className="file-chip" title={st.path ?? info.file_name}>
-          <span className={`fmt fmt-${info.format}`}>{formatLabel(info.format)}</span>
-          <span className="file-name">{info.file_name}</span>
-          <span className="file-arch">
-            {archLabel(info.arch)} · {info.bits}-bit
-          </span>
-          <button className="file-close" onClick={() => st.close()} title="Close file">
-            <X size={13} />
-          </button>
-        </div>
-
-        <button className="search-trigger" onClick={() => st.set("paletteOpen", true)}>
-          <Search size={14} />
-          <span>Go to address, function, string…</span>
-          <span className="kbd">Ctrl K</span>
-        </button>
 
         <div className="topbar-right">
           {isDesktop && (
             <button className={`icon-btn ${st.debugOpen ? "active" : ""}`} onClick={() => st.set("debugOpen", !st.debugOpen)} title="Debugger (F9 to start)">
-              <Bug size={16} />
+              <Bug size={15} />
             </button>
           )}
           <button className={`icon-btn ${st.consoleOpen ? "active" : ""}`} onClick={() => st.set("consoleOpen", !st.consoleOpen)} title="Console (Ctrl+`)">
-            <Terminal size={16} />
+            <Terminal size={15} />
           </button>
           <ThemeToggle />
-          <span className="badge accent" title="All analysis happens locally">
-            <ShieldCheck size={12} /> Local
-          </span>
-          <button className="btn sm" onClick={chooseFile}>
-            <FolderOpen size={14} /> Open
-          </button>
+          <span className="tb-divider" />
           <button className={`icon-btn ${st.sidebarOpen ? "active" : ""}`} onClick={() => st.set("sidebarOpen", !st.sidebarOpen)} title="Toggle sidebar (Ctrl+B)">
-            <PanelLeft size={16} />
+            <PanelLeft size={15} />
           </button>
           <button
             className={`icon-btn ${st.inspectorOpen ? "active" : ""}`}
             onClick={() => st.set("inspectorOpen", !st.inspectorOpen)}
             title="Toggle inspector (Ctrl+J)"
           >
-            <PanelRight size={16} />
+            <PanelRight size={15} />
           </button>
-          <AppMenu />
         </div>
       </header>
 

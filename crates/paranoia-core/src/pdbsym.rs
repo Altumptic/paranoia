@@ -14,6 +14,9 @@ use crate::Binary;
 pub struct PdbReport {
     pub functions: usize,
     pub names: usize,
+    /// Struct / union / enum definitions imported into the debug-info types.
+    #[serde(default)]
+    pub types: usize,
     pub guid: String,
     /// False when the PDB belongs to a different build (loaded anyway on request).
     pub matched: bool,
@@ -114,11 +117,13 @@ impl Binary {
                 count += 1;
             }
         }
+        // Type definitions: a PDB without a type stream just contributes none.
+        let types = crate::pdbtypes::read_types(&mut pdb).map(|lib| self.add_debug_types(lib)).map_or(0, |(s, e)| s + e);
         let functions = seeds.len();
         let seeds: Vec<Seed> = seeds.into_iter().filter(|s| self.is_executable(s.address)).collect();
         self.seeds.extend(seeds);
         self.reanalyze();
-        Ok(PdbReport { functions, names: count, guid, matched })
+        Ok(PdbReport { functions, names: count, types, guid, matched })
     }
 
     /// The PDB file name recorded in the binary (CodeView), if any.

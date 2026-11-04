@@ -45,7 +45,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, loops/switch, typed variables |
 | `pseudo_structs.rs` | Struct member access in pseudocode (types set with `Y`); argument/return types flow across internal calls, pointer fields chain |
 | `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Listing items + auto names, local C types, operand display/constants, ~250 API prototypes |
-| `pdbsym.rs`, `dwarf.rs`, `sigs.rs` | PDB, DWARF (names, lines, struct/enum types → Local Types), FLIRT-style `.pat` signatures (+ `sigs/msvc_x64.pat` built-in) |
+| `pdbsym.rs`, `pdbtypes.rs`, `dwarf.rs`, `sigs.rs` | PDB (symbols; types in `pdbtypes.rs`), DWARF (names, lines, struct/enum types). Types from debug info live in `Binary::debug_types` (runtime, NOT in annotations); read types only via `Binary::type_view()` (user Local Types win), FLIRT-style `.pat` signatures (+ `sigs/msvc_x64.pat` built-in) |
 | `tools.rs`, `nav.rs`, `frame.rs` | Search/patching/user functions/export, call graph + undo, stack frames |
 | `strings.rs`, `metrics.rs`, `demangle.rs` | String extraction, entropy/hashes, MSVC/Itanium/Rust demangling |
 | `api.rs` | **The contract**: `Session::call(method, args)` — the only way in |
@@ -122,4 +122,4 @@ CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, muta
 
 ## Where the work is
 
-Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: decompiler SSA (variable recovery), signature formats (`.sig` reading, PDB types → Local Types), plugins, a local-first AI assistant, PowerPC / mixed ARM+Thumb, debugger beyond Windows x64. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
+Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: decompiler SSA (variable recovery), signature formats (`.sig` reading), plugins, a local-first AI assistant, PowerPC / mixed ARM+Thumb, debugger beyond Windows x64. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.

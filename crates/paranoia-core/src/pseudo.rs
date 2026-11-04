@@ -583,8 +583,9 @@ impl Binary {
                 }
             }
         }
-        let types = crate::pseudo_structs::resolved_var_types(&out, &self.annotations.types, &user);
-        crate::pseudo_structs::member_access(&mut out, &self.annotations.types, &user);
+        let view = self.type_view();
+        let types = crate::pseudo_structs::resolved_var_types(&out, &view, &user);
+        crate::pseudo_structs::member_access(&mut out, &view, &user);
 
         // Cross-call propagation: record typed arguments and typed call results, so the
         // callee's pseudocode (and other callers) can adopt the types.

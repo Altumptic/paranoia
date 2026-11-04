@@ -10,6 +10,7 @@ export function EditDialog() {
   const [value, setValue] = useState("");
   const [choices, setChoices] = useState<[string, string][]>([]);
   const [pick, setPick] = useState(0);
+  const [found, setFound] = useState<string[]>([]);
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -24,6 +25,17 @@ export function EditDialog() {
       setTimeout(() => ref.current?.select(), 0);
     }
   }, [dialog]);
+
+  // Struct names offered while typing: the user's Local Types plus the debug-info (DWARF / PDB) ones.
+  const wantsStruct = dialog?.kind === "struct" || dialog?.kind === "vartype";
+  useEffect(() => {
+    if (!wantsStruct) return;
+    const q = value.replace(/\[.*$/, "").replace(/\*/g, "").trim();
+    const t = setTimeout(() => {
+      useStore.getState().session?.findTypes(q, 30).then((h) => setFound(h.filter((x) => x.kind === "struct").map((x) => x.name))).catch(() => {});
+    }, 120);
+    return () => clearTimeout(t);
+  }, [wantsStruct, value]);
 
   if (!dialog) return null;
   const close = () => useStore.getState().set("dialog", null);
@@ -85,7 +97,7 @@ export function EditDialog() {
   };
 
   const isRename = dialog.kind !== "comment";
-  const structNames = Object.keys(useStore.getState().annotations.types?.structs ?? {});
+  const structNames = [...new Set([...Object.keys(useStore.getState().annotations.types?.structs ?? {}), ...found])];
   return (
     <div className="modal-veil" onMouseDown={close}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>

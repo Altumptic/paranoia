@@ -69,7 +69,7 @@ function createWindow() {
     title: "Paranoia",
     icon: path.join(ROOT, "build", "icon.png"),
     titleBarStyle: "hidden",
-    titleBarOverlay: nativeTheme.shouldUseDarkColors ? { color: "#1f1e1d", symbolColor: "#c3c1b8", height: 47 } : { color: "#f5f4ee", symbolColor: "#4d4c48", height: 47 },
+    titleBarOverlay: nativeTheme.shouldUseDarkColors ? { color: "#1f1e1d", symbolColor: "#c3c1b8", height: 38 } : { color: "#f5f4ee", symbolColor: "#4d4c48", height: 38 },
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -251,7 +251,7 @@ ipcMain.on("app:titlebar", (e, c) => {
   if (!trusted(e)) return;
   const hex = /^#[0-9a-f]{6}$/i;
   if (win && c && hex.test(c.color) && hex.test(c.symbolColor)) {
-    win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: 47 });
+    win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: 38 });
     win.setBackgroundColor(c.color);
   }
 });

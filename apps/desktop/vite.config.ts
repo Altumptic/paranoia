@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+import pkg from "./package.json";
+
 // Production pages carry their Content-Security-Policy in a <meta> tag as well, so it holds
 // wherever the build is served from. Console scripts run in a worker, so no 'unsafe-eval'.
 const CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'";
@@ -16,6 +18,7 @@ export default defineConfig({
     },
   ],
   base: "./",
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/release/**", "**/dist/**"] } },
   worker: { format: "es" },

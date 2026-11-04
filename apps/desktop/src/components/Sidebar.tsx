@@ -1,7 +1,7 @@
 import { ArrowDownAZ, ArrowDownWideNarrow, Bookmark, ChevronDown, ChevronRight, Filter, Link2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { FunctionSummary, NameEntry, StringEntry, Symbol } from "../engine/types";
+import type { FunctionSummary, NameEntry, StringEntry, StructDef, Symbol, TypeHit } from "../engine/types";
 import { fmtAddr, fmtSize, hex, useStore } from "../store";
 import { VirtualList } from "./VirtualList";
 
@@ -462,6 +462,25 @@ function TypesPanel() {
   const [open, setOpen] = useState<string | null>(null);
   const st = useStore.getState;
   const structs = Object.values(lib?.structs ?? {});
+  const [debugCount, setDebugCount] = useState<[number, number]>([0, 0]);
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<TypeHit[]>([]);
+  const [defs, setDefs] = useState<Record<string, StructDef | null>>({});
+  const revision = useStore((s) => s.revision);
+  useEffect(() => {
+    session.debugTypeCounts().then(setDebugCount).catch(() => {});
+  }, [session, revision]);
+  useEffect(() => {
+    if (!debugCount[0] && !debugCount[1]) return setHits([]);
+    const t = setTimeout(() => {
+      session.findTypes(query, 60).then((h) => setHits(h.filter((x) => x.origin === "debug"))).catch(() => {});
+    }, 120);
+    return () => clearTimeout(t);
+  }, [session, query, debugCount]);
+  const openDebug = (name: string) => {
+    setOpen(open === name ? null : name);
+    if (!(name in defs)) session.structDef(name).then((d) => setDefs((m) => ({ ...m, [name]: d }))).catch(() => {});
+  };
   const save = async () => {
     try {
       const n = await session.setTypes(text);
@@ -518,6 +537,55 @@ function TypesPanel() {
             )}
           </div>
         ))}
+        {(debugCount[0] > 0 || debugCount[1] > 0) && (
+          <>
+            <div className="types-sub">
+              <span>Debug info</span>
+              <span className="muted small">
+                {debugCount[0].toLocaleString()} structs · {debugCount[1].toLocaleString()} enums
+              </span>
+            </div>
+            <input className="input sm" value={query} placeholder="Filter debug-info types…" spellCheck={false} onChange={(e) => setQuery(e.target.value)} />
+            {hits.map((h) => (
+              <div key={h.name} className="type-card">
+                <button className="type-head" onClick={() => (h.kind === "struct" ? openDebug(h.name) : undefined)}>
+                  {h.kind === "struct" ? open === h.name ? <ChevronDown size={13} /> : <ChevronRight size={13} /> : <span style={{ width: 13 }} />}
+                  <span className="mono type-name">{h.name}</span>
+                  <span className="muted small">{h.kind === "enum" ? "enum" : `${h.size.toString(16).toUpperCase()}h bytes`}</span>
+                  <span className="side-head-spacer" />
+                  {h.kind === "struct" && (
+                    <span
+                      className="link small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (cursor != null) st().set("dialog", { kind: "struct", va: cursor, initial: h.name });
+                      }}
+                    >
+                      apply
+                    </span>
+                  )}
+                </button>
+                {open === h.name && defs[h.name] && (
+                  <table className="frame-table mono">
+                    <tbody>
+                      {defs[h.name]!.fields.map((f, i) => (
+                        <tr key={i}>
+                          <td className="fr-off">{f.offset.toString(16).toUpperCase()}</td>
+                          <td className="fr-name">{f.name}</td>
+                          <td className="fr-size">
+                            {f.ty}
+                            {f.count > 1 ? `[${f.count}]` : ""}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            ))}
+            {hits.length === 0 && <div className="muted small">No debug-info type matches.</div>}
+          </>
+        )}
       </div>
     </>
   );

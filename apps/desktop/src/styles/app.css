@@ -53,8 +53,8 @@
   --kraft: #d4a27f;
   --accent-soft: color-mix(in srgb, var(--accent) 11%, transparent);
   --accent-glow: color-mix(in srgb, var(--accent) 28%, transparent);
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-sm: 6px;
   --shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 8%, transparent),
     0 10px 30px color-mix(in srgb, var(--shadow-color) 14%, transparent);
   --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -203,22 +203,22 @@ textarea {
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text) 16%, transparent);
+  background: color-mix(in srgb, var(--text) 14%, transparent);
   border-radius: 8px;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text) 28%, transparent);
+  background: color-mix(in srgb, var(--text) 30%, transparent);
   background-clip: padding-box;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -240,9 +240,9 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 9px;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 7px;
   border: 1px solid var(--line-2);
   background: var(--bg-2);
   cursor: pointer;

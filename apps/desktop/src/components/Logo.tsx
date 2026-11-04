@@ -16,6 +16,23 @@ export function Whale({ size = 28, className }: { size?: number; className?: str
   );
 }
 
+/**
+ * The whale as a quiet, single-colour mark for the title bar (like the small grey icon in an
+ * editor's title bar): it takes the surrounding text colour and has no wordmark.
+ */
+export function Mark({ size = 18, className }: { size?: number; className?: string }) {
+  const id = useId().replace(/:/g, "");
+  return (
+    <svg className={className} width={size} height={(size * 60.2) / 120} viewBox={WHALE_VIEWBOX} role="img" aria-label="Paranoia">
+      <mask id={`k${id}`}>
+        <rect width="120" height="61" fill="#fff" />
+        <circle cx={WHALE_EYE.cx} cy={WHALE_EYE.cy} r={WHALE_EYE.r} fill="#000" />
+      </mask>
+      <path d={WHALE_PATH} fill="currentColor" mask={`url(#k${id})`} />
+    </svg>
+  );
+}
+
 /** The app icon: clay tile, ivory whale and a quiet swell line (matches assets/brand/app-icon.svg). */
 export function AppIcon({ size = 64, className }: { size?: number; className?: string }) {
   return (

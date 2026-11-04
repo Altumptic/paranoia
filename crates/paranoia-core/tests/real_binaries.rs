@@ -249,20 +249,21 @@ fn typed_returns_flow_to_callers() {
     assert!(text.contains("CTX *"), "the return type did not come back:\n{text}");
 }
 
-/// DWARF struct / enum definitions become local types usable by `Y` and the decompiler.
+/// DWARF struct / enum definitions become debug-info types usable by `Y` and the decompiler,
+/// without ever entering the saved annotations.
 #[test]
-fn dwarf_types_become_local_types() {
+fn dwarf_types_become_debug_types() {
     let Ok(path) = std::env::current_exe() else { return };
     let Ok(bytes) = std::fs::read(&path) else { return };
     let Ok(mut bin) = Binary::load("self", bytes) else { return };
     // Debug builds carry DWARF; a stripped build has no `.debug_info` and simply skips.
     let has_dwarf = bin.info().sections.iter().any(|s| s.name.ends_with("debug_info"));
-    // Loading annotations (what the workspace does on open) also merges the DWARF types,
-    // so no analysis has to run for this test.
     bin.set_annotations(paranoia_core::Annotations::default());
-    let types = bin.annotations().types.clone();
+    // Debug-info types are a runtime layer: the persisted Local Types stay the user's own.
+    assert!(bin.annotations().types.structs.is_empty(), "debug types leaked into the annotations");
+    let types = bin.debug_types().clone();
     if !has_dwarf {
-        assert!(types.structs.is_empty(), "local types appeared without DWARF");
+        assert!(types.structs.is_empty(), "debug types appeared without DWARF");
         return;
     }
     assert!(!types.structs.is_empty(), "DWARF is present but no struct types were recovered");
@@ -275,15 +276,46 @@ fn dwarf_types_become_local_types() {
         assert!(f.offset < s.size, "{name}.{} at {:#x} past the size {:#x}", f.name, f.offset, s.size);
     }
     assert!(s.fields.iter().any(|f| f.offset > 0), "{name}: every field is at offset 0");
-    // Enums, when the image has any, carry their members.
     if let Some((n, e)) = types.enums.iter().find(|(_, e)| !e.members.is_empty()) {
         assert!(!n.is_empty());
         assert!(e.members.iter().all(|(m, _)| !m.is_empty()));
     }
-    // Editing Local Types must bring the DWARF types back alongside the user's declarations.
-    let before = types.structs.len();
+    // The view finds them.
+    let hits = bin.type_view().search(name, 5);
+    assert!(hits.iter().any(|h| &h.name == name && h.origin == "debug"), "search did not find {name}");
+    // A user declaration of the same name wins (Rust type names like `a::B` cannot be declared in C).
+    if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        bin.set_types(&format!("typedef struct {name} {{ DWORD a; DWORD b; }} {name};")).unwrap();
+        let hits = bin.type_view().search(name, 5);
+        assert!(hits.iter().any(|h| &h.name == name && h.origin == "user"), "user type does not shadow the debug one");
+        assert!(!hits.iter().any(|h| &h.name == name && h.origin == "debug"), "shadowed debug type still listed");
+    }
     bin.set_types("typedef struct _UserT { DWORD a; DWORD b; } UserT;").unwrap();
-    let after = bin.annotations().types.clone();
-    assert!(after.structs.contains_key("UserT"), "user type missing");
-    assert!(after.structs.len() > before, "DWARF types did not come back after set_types");
+    assert!(bin.annotations().types.structs.contains_key("UserT"), "user type missing");
+    // Debug types survive editing the Local Types.
+    assert_eq!(bin.debug_types().structs.len(), types.structs.len());
+}
+
+/// A real MSVC PDB (shipped inside an npm dev dependency, so it may be absent): its type stream
+/// becomes debug-info types with exact layouts, and nothing leaks into the saved annotations.
+#[test]
+fn pdb_types_become_debug_types() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/node_modules/electron-winstaller/vendor");
+    let (Ok(exe), Ok(pdb)) = (std::fs::read(dir.join("Setup.exe")), std::fs::read(dir.join("Setup.pdb"))) else { return };
+    let mut bin = Binary::load("Setup.exe", exe).unwrap();
+    let report = bin.load_pdb(pdb, false).unwrap();
+    assert!(report.matched && report.types > 100, "{report:?}");
+    assert!(bin.annotations().types.structs.is_empty(), "PDB types leaked into the annotations");
+    let dos = bin.debug_types().structs.get("_IMAGE_DOS_HEADER").expect("_IMAGE_DOS_HEADER from the PDB");
+    assert_eq!(dos.size, 64);
+    let f = |n: &str| dos.fields.iter().find(|f| f.name == n).unwrap_or_else(|| panic!("no field {n}"));
+    assert_eq!((f("e_magic").offset, f("e_magic").elem_size), (0, 2));
+    assert_eq!((f("e_res").offset, f("e_res").count), (0x1c, 4));
+    assert_eq!((f("e_lfanew").offset, f("e_lfanew").elem_size), (0x3c, 4));
+    // Every imported field lies inside its struct (union members overlap, so only the start is checked).
+    for s in bin.debug_types().structs.values() {
+        assert!(s.fields.iter().all(|f| f.offset < s.size), "{} has a field past its size", s.name);
+    }
+    // The type search and a Local Types declaration of the same name layer as documented.
+    assert!(bin.type_view().search("IMAGE_DOS", 5).iter().any(|h| h.name == "_IMAGE_DOS_HEADER" && h.origin == "debug"));
 }

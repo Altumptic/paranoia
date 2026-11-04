@@ -41,6 +41,7 @@ interface State {
   annotations: Annotations;
   search: SearchKind | null;
   menuOpen: boolean;
+  aboutOpen: boolean;
   /** Token text highlighted across views (IDA's yellow highlight). */
   highlight: string | null;
   /** Address whose cross references are shown in the X dialog. */
@@ -111,6 +112,7 @@ export const useStore = create<State>((set, get) => ({
   annotations: { names: {}, comments: {} },
   search: null,
   menuOpen: false,
+  aboutOpen: false,
   highlight: null,
   xrefsFor: null,
   contextMenu: null,
@@ -380,9 +382,9 @@ export const useStore = create<State>((set, get) => ({
       }
       const [functions, stats] = await Promise.all([session.functions(), session.stats()]);
       set({ functions, stats, loading: null, revision: get().revision + 1 });
-      const text = `PDB ${r.guid}: ${r.names} names, ${r.functions} functions${r.matched ? "" : " (GUID mismatch)"}`;
+      const text = `PDB ${r.guid}: ${r.names} names, ${r.functions} functions, ${r.types} types${r.matched ? "" : " (GUID mismatch)"}`;
       get().print(text, "info");
-      get().toast(`Loaded symbols: ${r.names} names`, "success");
+      get().toast(`Loaded symbols: ${r.names} names${r.types ? `, ${r.types} types` : ""}`, "success");
     } catch (e) {
       set({ loading: null });
       get().toast(e instanceof Error ? e.message : String(e), "error");

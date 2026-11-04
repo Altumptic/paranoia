@@ -48,7 +48,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 | **Graph & xrefs** | Control-flow graph with pan, zoom and minimap; xrefs dialog (`X`), call graph, stack frames |
 | **Editing** | Rename (`N`), comments (`;`), bookmarks, code / data / string / undefine (`C` `D` `A` `U`), create function (`P`), operand display (`H` `R` `B` `M`), local C types, undo / redo — saved per file hash |
 | **Hex & patching** | Hex view with data inspector, byte patching, NOP / invert / force-jump patches, save the patched file |
-| **Debug info** | PDB symbols (found next to the binary, GUID-checked); DWARF names, globals, source lines and struct / enum definitions imported into Local Types |
+| **Debug info** | PDB symbols (found next to the binary, GUID-checked); PDB and DWARF struct / union / enum definitions as searchable debug-info types (for `Y` and the decompiler); DWARF names, globals and source lines |
 | **Signatures** | FLIRT-style library recognition with IDA `.pat` files in and out; built-in MSVC x64 runtime library |
 | **Debugger** | Windows x64: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
 | **Scripting** | Python in your own interpreter — `import idc, idautils` works for common calls — and JavaScript, both with the `pn` API; headless `paranoia script` batch mode |

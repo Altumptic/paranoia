@@ -29,6 +29,7 @@ pub mod model;
 mod nav;
 mod operands;
 mod pdbsym;
+mod pdbtypes;
 mod protos;
 mod pseudo;
 mod pseudo_opt;
@@ -124,7 +125,7 @@ pub struct Binary {
     source: SourceLines,
     /// Struct / union / enum definitions carried by DWARF, merged into the annotations
     /// once analysis starts (user-defined types with the same name win).
-    dwarf_types: TypeLibrary,
+    debug_types: TypeLibrary,
     import_slots: HashMap<u64, usize>,
     /// Names from symbols and exports, by address.
     static_names: HashMap<u64, String>,
@@ -226,7 +227,7 @@ impl Binary {
         let mut info = info;
         let mut seeds = loaded.seeds;
         let mut source = SourceLines::default();
-        let mut dwarf_types = TypeLibrary::default();
+        let mut debug_types = TypeLibrary::default();
         if let Some(d) = dwarf::load(data, &info.sections, info.endian == Endian::Big) {
             let executable = |va: u64| ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
             let known: HashSet<u64> = seeds.iter().map(|s| s.address).collect();
@@ -256,7 +257,7 @@ impl Binary {
                 ),
             });
             source = SourceLines { files: d.files, lines: d.lines };
-            dwarf_types = d.types;
+            debug_types = d.types;
         }
 
         Ok(Binary {
@@ -267,7 +268,7 @@ impl Binary {
             symbols: loaded.symbols,
             seeds,
             source,
-            dwarf_types,
+            debug_types,
             import_slots,
             static_names,
             analysis: None,
@@ -410,21 +411,35 @@ impl Binary {
             xrefs: a.xrefs.values().map(Vec::len).sum(),
             millis: self.analysis_millis,
         };
-        self.merge_dwarf_types();
         stats
     }
 
-    /// Adds DWARF-derived local types the annotations do not have yet. Idempotent;
-    /// user-declared types always win, so this is safe to call after every load and edit.
-    fn merge_dwarf_types(&mut self) {
-        let types = std::mem::take(&mut self.dwarf_types);
-        for (name, def) in &types.structs {
-            self.annotations.types.structs.entry(name.clone()).or_insert_with(|| def.clone());
+    /// The user's Local Types over the types from debug info (DWARF, PDB).
+    pub fn type_view(&self) -> types::TypeView<'_> {
+        types::TypeView { user: &self.annotations.types, debug: &self.debug_types }
+    }
+
+    /// Struct / enum definitions recovered from debug info; runtime data, never saved.
+    pub fn debug_types(&self) -> &TypeLibrary {
+        &self.debug_types
+    }
+
+    /// Adds definitions from `lib` that no earlier source defined (the first source wins).
+    pub(crate) fn add_debug_types(&mut self, lib: TypeLibrary) -> (usize, usize) {
+        let (mut s, mut e) = (0, 0);
+        for (name, def) in lib.structs {
+            if let std::collections::btree_map::Entry::Vacant(v) = self.debug_types.structs.entry(name) {
+                v.insert(def);
+                s += 1;
+            }
         }
-        for (name, def) in &types.enums {
-            self.annotations.types.enums.entry(name.clone()).or_insert_with(|| def.clone());
+        for (name, def) in lib.enums {
+            if let std::collections::btree_map::Entry::Vacant(v) = self.debug_types.enums.entry(name) {
+                v.insert(def);
+                e += 1;
+            }
         }
-        self.dwarf_types = types;
+        (s, e)
     }
 
     fn build_strings(&mut self, min_len: usize) {
@@ -819,8 +834,6 @@ impl Binary {
         self.call_args.clear();
         self.ret_types.clear();
         self.annotations = a;
-        // Workspace annotations replace the defaults: re-add the DWARF types they lack.
-        self.merge_dwarf_types();
         self.apply_saved_patches();
         if had_functions && self.analysis.is_some() {
             self.reanalyze();
