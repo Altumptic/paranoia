@@ -45,6 +45,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, loops/switch, typed variables |
 | `pseudo_structs.rs` | Struct member access in pseudocode (types set with `Y`); argument/return types flow across internal calls, pointer fields chain |
 | `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Listing items + auto names, local C types, operand display/constants, ~250 API prototypes |
+| `pseudo_ssa.rs` | Variable recovery: flow graph from the structured pseudocode lines (over-approximated on purpose — an extra edge only merges variables), reaching definitions, webs. `type_variables_with` falls back to the old splitting if the structure cannot be read; `Binary::set_ssa_variables(false)` switches it off for comparison |
 | `asm_x86.rs` | Text assembler (Intel syntax) on iced's encoder; `Binary::assemble_at` (API `assemble`) patches code with it |
 | `pdbsym.rs`, `pdbtypes.rs`, `dwarf.rs`, `sigs.rs` | PDB (symbols; types in `pdbtypes.rs`), DWARF (names, lines, struct/enum types). Types from debug info live in `Binary::debug_types` (runtime, NOT in annotations); read types only via `Binary::type_view()` (user Local Types win), FLIRT-style `.pat` signatures (+ `sigs/msvc_x64.pat` built-in) |
 | `tools.rs`, `nav.rs`, `frame.rs` | Search/patching/user functions/export, call graph + undo, stack frames |

@@ -34,6 +34,7 @@ mod pdbtypes;
 mod protos;
 mod pseudo;
 mod pseudo_opt;
+mod pseudo_ssa;
 mod pseudo_structs;
 mod pseudo_types;
 mod riscv;
@@ -153,6 +154,8 @@ pub struct Binary {
     /// Cross-call argument types harvested while rendering pseudocode:
     /// caller address → callee address → argument types by position (None = unknown).
     /// Runtime cache, derived from `var_types`; not persisted and not undone.
+    /// Reaching-definition variables in the decompiler (on); off keeps the older, coarser splitting.
+    ssa_vars: bool,
     call_args: HashMap<u64, HashMap<u64, Vec<Option<String>>>>,
     /// Result types harvested when a caller stores a known-typed variable from a call
     /// (callee address → C type). Same runtime-cache rules as `call_args`.
@@ -285,6 +288,7 @@ impl Binary {
             lib_names: HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            ssa_vars: true,
             call_args: HashMap::new(),
             ret_types: HashMap::new(),
         })
@@ -413,6 +417,12 @@ impl Binary {
             millis: self.analysis_millis,
         };
         stats
+    }
+
+    /// Chooses reaching-definition (SSA-style) variable recovery in the decompiler (default) or the older
+    /// splitting that only separates top-level overwrites. Mainly for comparing the two.
+    pub fn set_ssa_variables(&mut self, on: bool) {
+        self.ssa_vars = on;
     }
 
     /// The user's Local Types over the types from debug info (DWARF, PDB).

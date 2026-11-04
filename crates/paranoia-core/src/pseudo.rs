@@ -546,7 +546,7 @@ impl Binary {
                 _ => &["rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"],
             },
         };
-        crate::pseudo_types::type_variables(&mut out, &sig);
+        crate::pseudo_types::type_variables_with(&mut out, &sig, self.ssa_vars);
         // Struct member access (IDA's `->field`): types set with `Y` in this function,
         // plus types inherited from callers (argument types) and callees (return types).
         let mut user = self.annotations.var_types.get(&f_addr).cloned().unwrap_or_default();
