@@ -1452,6 +1452,26 @@
   color: var(--syn-sym);
   font-weight: 600;
 }
+.types-list {
+  overflow-x: hidden;
+}
+.type-head {
+  min-width: 0;
+}
+.type-head > * {
+  flex: none;
+  white-space: nowrap;
+}
+.type-head > .type-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.type-head > .side-head-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
 
 /* ================= Debugger ================= */
 
