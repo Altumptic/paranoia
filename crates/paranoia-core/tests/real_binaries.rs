@@ -148,3 +148,142 @@ fn structs_in_listing() {
     assert_eq!(l[4].address, va + 16);
     assert!(l[0].label.as_deref().unwrap_or("").starts_with("stru_"));
 }
+
+/// Typing a pseudocode variable (`Y`) rewrites member access and the signature.
+#[test]
+fn var_types_in_pseudocode() {
+    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    bin.set_types("typedef struct _CTX { DWORD magic; DWORD count; char *name; DWORD ids[4]; } CTX;").unwrap();
+    let f = bin.functions().iter().find(|f| f.blocks > 6).map(|f| f.address).unwrap();
+    let plain = bin.pseudocode(f).unwrap();
+    let text = |pc: &paranoia_core::Pseudocode| {
+        pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n")
+    };
+    bin.set_var_type(f, "a1", "CTX *");
+    let typed = text(&bin.pseudocode(f).unwrap());
+    assert!(typed.contains("CTX * a1"), "signature must carry the type:\n{typed}");
+    // The same call twice is deterministic; removing the type restores the plain output.
+    bin.set_var_type(f, "a1", "");
+    assert_eq!(text(&bin.pseudocode(f).unwrap()), text(&plain));
+}
+
+/// Argument types flow across internal calls: when a caller passes its typed `a1`
+/// to another function, the callee's signature adopts the type on its own.
+#[test]
+fn var_types_flow_across_calls() {
+    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    bin.set_types("typedef struct _CTX { DWORD magic; DWORD count; char *name; } CTX;").unwrap();
+    let funcs: Vec<u64> = bin.functions().iter().map(|f| f.address).take(150).collect();
+    // Render once (harvests nothing yet), type every first argument, render again:
+    // forwarding callers now export `CTX *` to everyone they call with `a1`.
+    for &va in &funcs {
+        let _ = bin.pseudocode(va);
+    }
+    for &va in &funcs {
+        bin.set_var_type(va, "a1", "CTX *");
+    }
+    for &va in &funcs {
+        let _ = bin.pseudocode(va);
+    }
+    let signatures: Vec<String> = funcs
+        .iter()
+        .filter_map(|&va| bin.pseudocode(va))
+        .map(|pc| pc.lines.first().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).unwrap_or_default())
+        .collect();
+    assert!(
+        signatures.iter().any(|s| s.contains("CTX * a1")),
+        "no callee inherited the argument type from its caller; first signatures:\n{}",
+        signatures.iter().take(10).cloned().collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// A typed call result teaches the callee's return type, and the variable that
+/// stores that call adopts the type back once its own annotation is removed.
+#[test]
+fn typed_returns_flow_to_callers() {
+    use paranoia_core::TokenKind;
+    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    bin.set_types("typedef struct _CTX { DWORD magic; DWORD count; char *name; } CTX;").unwrap();
+    let funcs: Vec<(u64, String)> = bin.functions().iter().map(|f| (f.address, f.name.clone())).collect();
+    let internal: std::collections::HashSet<String> = funcs.iter().map(|f| f.1.clone()).collect();
+    // Find `F` with a single-assignment store of an internal call: `vN = G(…);`.
+    let mut hit: Option<(u64, String)> = None;
+    for &(va, _) in funcs.iter().take(150) {
+        let Some(pc) = bin.pseudocode(va) else { continue };
+        for l in &pc.lines {
+            let t = &l.tokens;
+            if t.len() < 4 || t[1].t != " = " || t[0].k != TokenKind::Register || t[2].k != TokenKind::Symbol {
+                continue;
+            }
+            if !internal.contains(&t[2].t) {
+                continue;
+            }
+            let writes = pc
+                .lines
+                .iter()
+                .filter(|x| x.tokens.first().is_some_and(|f| f.t == t[0].t) && x.tokens.get(1).is_some_and(|e| e.t == " = "))
+                .count();
+            if writes == 1 {
+                hit = Some((va, t[0].t.clone()));
+                break;
+            }
+        }
+        if hit.is_some() {
+            break;
+        }
+    }
+    let Some((f, var)) = hit else { return };
+    // 1. Type the stored variable: rendering records the callee's result type.
+    bin.set_var_type(f, &var, "CTX *");
+    let _ = bin.pseudocode(f);
+    bin.set_var_type(f, &var, "");
+    // 2. With the annotation gone the type comes back from the callee's return type.
+    let pc = bin.pseudocode(f).unwrap();
+    let text: String = pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("CTX *"), "the return type did not come back:\n{text}");
+}
+
+/// DWARF struct / enum definitions become local types usable by `Y` and the decompiler.
+#[test]
+fn dwarf_types_become_local_types() {
+    let Ok(path) = std::env::current_exe() else { return };
+    let Ok(bytes) = std::fs::read(&path) else { return };
+    let Ok(mut bin) = Binary::load("self", bytes) else { return };
+    // Debug builds carry DWARF; a stripped build has no `.debug_info` and simply skips.
+    let has_dwarf = bin.info().sections.iter().any(|s| s.name.ends_with("debug_info"));
+    // Loading annotations (what the workspace does on open) also merges the DWARF types,
+    // so no analysis has to run for this test.
+    bin.set_annotations(paranoia_core::Annotations::default());
+    let types = bin.annotations().types.clone();
+    if !has_dwarf {
+        assert!(types.structs.is_empty(), "local types appeared without DWARF");
+        return;
+    }
+    assert!(!types.structs.is_empty(), "DWARF is present but no struct types were recovered");
+    assert!(types.structs.len() > 5, "only {} structs from DWARF", types.structs.len());
+    let (name, s) = types.structs.iter().find(|(_, s)| !s.fields.is_empty()).expect("a struct with fields");
+    assert!(s.size > 0, "{name} has no size");
+    for f in &s.fields {
+        assert!(!f.name.is_empty(), "{name} has an unnamed field");
+        assert!(f.elem_size > 0, "{name}.{} has a zero element size", f.name);
+        assert!(f.offset < s.size, "{name}.{} at {:#x} past the size {:#x}", f.name, f.offset, s.size);
+    }
+    assert!(s.fields.iter().any(|f| f.offset > 0), "{name}: every field is at offset 0");
+    // Enums, when the image has any, carry their members.
+    if let Some((n, e)) = types.enums.iter().find(|(_, e)| !e.members.is_empty()) {
+        assert!(!n.is_empty());
+        assert!(e.members.iter().all(|(m, _)| !m.is_empty()));
+    }
+    // Editing Local Types must bring the DWARF types back alongside the user's declarations.
+    let before = types.structs.len();
+    bin.set_types("typedef struct _UserT { DWORD a; DWORD b; } UserT;").unwrap();
+    let after = bin.annotations().types.clone();
+    assert!(after.structs.contains_key("UserT"), "user type missing");
+    assert!(after.structs.len() > before, "DWARF types did not come back after set_types");
+}

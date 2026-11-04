@@ -1,9 +1,13 @@
 //! DWARF debug information (ELF, Mach-O, and MinGW / Rust-gnu PE files):
-//! function names and bounds, global variables and the line table.
+//! function names and bounds, global variables, the line table, and local types
+//! (structs, unions and enums with their fields and layouts).
+
+use std::collections::HashMap;
 
 use gimli::{AttributeValue, EndianSlice, RunTimeEndian, SectionId};
 
 use crate::model::Section;
+use crate::types::{EnumDef, Field, StructDef, TypeLibrary};
 
 #[derive(Debug, Default)]
 pub struct DwarfInfo {
@@ -14,6 +18,8 @@ pub struct DwarfInfo {
     /// `(address, file index, line)`, sorted by address.
     pub lines: Vec<(u64, u32, u32)>,
     pub units: usize,
+    /// Struct, union and enum definitions carried by the debug info.
+    pub types: TypeLibrary,
 }
 
 const SHF_COMPRESSED: u64 = 0x800;
@@ -50,8 +56,17 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
             }
             None
         };
+        // One pass collects function boundaries, globals and the raw local-type DIEs;
+        // the types are resolved afterwards, once every definition in the unit is known.
+        let mut t = TypeCollect::default();
+        let mut frames: Vec<(i64, Frame)> = Vec::new();
+        let mut depth: i64 = 0;
         let mut entries = unit.entries();
-        while let Ok(Some((_, e))) = entries.next_dfs() {
+        while let Ok(Some((delta, e))) = entries.next_dfs() {
+            depth += delta as i64;
+            while frames.last().is_some_and(|(d, _)| *d >= depth) {
+                frames.pop();
+            }
             match e.tag() {
                 gimli::DW_TAG_subprogram => {
                     let Some(low) =
@@ -112,9 +127,52 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
                         out.globals.push((a, n));
                     }
                 }
+                gimli::DW_TAG_structure_type | gimli::DW_TAG_union_type | gimli::DW_TAG_class_type => {
+                    let Some(name) = die_name(&dwarf, &unit, e) else { continue };
+                    let off = e.offset().0;
+                    t.heads.insert(off, Head { name, size: udata(e, gimli::DW_AT_byte_size).unwrap_or(0), is_enum: false });
+                    frames.push((depth, Frame::Struct(off)));
+                }
+                gimli::DW_TAG_enumeration_type => {
+                    let Some(name) = die_name(&dwarf, &unit, e) else { continue };
+                    let off = e.offset().0;
+                    t.heads.insert(off, Head { name, size: udata(e, gimli::DW_AT_byte_size).unwrap_or(4), is_enum: true });
+                    frames.push((depth, Frame::Enum(off)));
+                }
+                gimli::DW_TAG_array_type => frames.push((depth, Frame::Array(e.offset().0))),
+                gimli::DW_TAG_subrange_type => {
+                    if let Some((_, Frame::Array(off))) = frames.last() {
+                        let n = udata(e, gimli::DW_AT_count)
+                            .or_else(|| sdata(e, gimli::DW_AT_upper_bound).filter(|v| *v >= 0).map(|v| (v as u64).saturating_add(1)))
+                            .unwrap_or(1);
+                        t.array_counts.entry(*off).or_default().push(n);
+                    }
+                }
+                gimli::DW_TAG_member => {
+                    let Some((_, Frame::Struct(off))) = frames.last() else { continue };
+                    // Bit fields cannot be represented as plain fields yet.
+                    if udata(e, gimli::DW_AT_bit_size).is_some() {
+                        continue;
+                    }
+                    let Some(name) = die_name(&dwarf, &unit, e) else { continue };
+                    let type_ref = match e.attr_value(gimli::DW_AT_type).ok().flatten() {
+                        Some(AttributeValue::UnitRef(o)) => Some(o.0),
+                        _ => None,
+                    };
+                    let offset = member_offset(e).unwrap_or(0);
+                    t.members.entry(*off).or_default().push(MemberRaw { name, offset, type_ref });
+                }
+                gimli::DW_TAG_enumerator => {
+                    let Some((_, Frame::Enum(off))) = frames.last() else { continue };
+                    if let (Some(name), Some(v)) = (die_name(&dwarf, &unit, e), sdata(e, gimli::DW_AT_const_value)) {
+                        t.enumerators.entry(*off).or_default().push((name, v));
+                    }
+                }
                 _ => {}
             }
         }
+        // Local types: structs, unions and enums with their fields.
+        build_types(&t, &dwarf, &unit, &mut out.types);
         // Line table.
         if let Some(program) = unit.line_program.clone() {
             let comp_dir = unit.comp_dir.map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
@@ -153,6 +211,228 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
     out.lines.sort_unstable_by_key(|l| l.0);
     out.lines.dedup_by_key(|l| l.0);
     Some(out)
+}
+
+// ------------------------------------------------------------------------------------------------
+// Local types
+
+/// A struct / union / enum definition inside one unit, keyed by DIE offset.
+struct Head {
+    name: String,
+    size: u64,
+    is_enum: bool,
+}
+
+struct MemberRaw {
+    name: String,
+    offset: u64,
+    type_ref: Option<usize>,
+}
+
+#[derive(Default)]
+struct TypeCollect {
+    heads: HashMap<usize, Head>,
+    members: HashMap<usize, Vec<MemberRaw>>,
+    enumerators: HashMap<usize, Vec<(String, i64)>>,
+    array_counts: HashMap<usize, Vec<u64>>,
+}
+
+/// An enclosing container DIE, used to attach members to their parent.
+enum Frame {
+    Struct(usize),
+    Enum(usize),
+    Array(usize),
+}
+
+const MAX_TYPE_DEPTH: u32 = 6;
+
+/// The reader the type helpers work with (as everywhere in this module).
+type Reader<'a> = EndianSlice<'a, RunTimeEndian>;
+
+/// A DWARF attribute as an unsigned integer (any integer form).
+fn udata(e: &gimli::DebuggingInformationEntry<Reader>, at: gimli::DwAt) -> Option<u64> {
+    match e.attr_value(at).ok().flatten()? {
+        AttributeValue::Udata(v) | AttributeValue::Data8(v) => Some(v),
+        AttributeValue::Data1(v) => Some(v as u64),
+        AttributeValue::Data2(v) => Some(v as u64),
+        AttributeValue::Data4(v) => Some(v as u64),
+        AttributeValue::Sdata(v) if v >= 0 => Some(v as u64),
+        _ => None,
+    }
+}
+
+/// A DWARF attribute as a signed integer (any integer form).
+fn sdata(e: &gimli::DebuggingInformationEntry<Reader>, at: gimli::DwAt) -> Option<i64> {
+    match e.attr_value(at).ok().flatten()? {
+        AttributeValue::Udata(v) | AttributeValue::Data8(v) => Some(v as i64),
+        AttributeValue::Data1(v) => Some(v as i64),
+        AttributeValue::Data2(v) => Some(v as i64),
+        AttributeValue::Data4(v) => Some(v as i64),
+        AttributeValue::Sdata(v) => Some(v),
+        _ => None,
+    }
+}
+
+fn die_name<'a>(
+    dwarf: &gimli::Dwarf<Reader<'a>>,
+    unit: &gimli::Unit<Reader<'a>>,
+    e: &gimli::DebuggingInformationEntry<Reader<'a>>,
+) -> Option<String> {
+    let v = e.attr_value(gimli::DW_AT_name).ok().flatten()?;
+    dwarf.attr_string(unit, v).ok().map(|s| s.to_string_lossy().into_owned())
+}
+
+/// `DW_AT_data_member_location` in both the constant and `DW_OP_plus_uconst` forms.
+fn member_offset(e: &gimli::DebuggingInformationEntry<Reader>) -> Option<u64> {
+    match e.attr_value(gimli::DW_AT_data_member_location).ok().flatten()? {
+        AttributeValue::Exprloc(expr) => {
+            let bytes = expr.0.slice();
+            if bytes.first() != Some(&0x23) {
+                return None; // only DW_OP_plus_uconst maps to one constant offset
+            }
+            let mut v = 0u64;
+            let mut shift = 0u32;
+            for b in &bytes[1..] {
+                if shift > 63 {
+                    return None;
+                }
+                v |= ((b & 0x7f) as u64) << shift;
+                if b & 0x80 == 0 {
+                    return Some(v);
+                }
+                shift += 7;
+            }
+            None
+        }
+        _ => udata(e, gimli::DW_AT_data_member_location),
+    }
+}
+
+/// A resolved member type.
+struct Resolved {
+    size: u64,
+    ty: String,
+    nested: Option<String>,
+    pointer: bool,
+    count: u64,
+}
+
+/// Name a pointer points at (`PKT`, `char`, `void`), for the `PKT *` spelling.
+fn pointee_name<'a>(
+    c: &TypeCollect,
+    dwarf: &gimli::Dwarf<Reader<'a>>,
+    unit: &gimli::Unit<Reader<'a>>,
+    pointer: &gimli::DebuggingInformationEntry<Reader<'a>>,
+    depth: u32,
+) -> Option<String> {
+    let Some(AttributeValue::UnitRef(off)) = pointer.attr_value(gimli::DW_AT_type).ok().flatten() else {
+        return Some("void".into());
+    };
+    if depth > MAX_TYPE_DEPTH {
+        return Some("void".into());
+    }
+    let Ok(e) = unit.entry(off) else { return Some("void".into()) };
+    let name = match e.tag() {
+        gimli::DW_TAG_structure_type
+        | gimli::DW_TAG_union_type
+        | gimli::DW_TAG_class_type
+        | gimli::DW_TAG_enumeration_type
+        | gimli::DW_TAG_base_type
+        | gimli::DW_TAG_typedef => c.heads.get(&off.0).map(|h| h.name.clone()).or_else(|| die_name(dwarf, unit, &e)),
+        _ => None,
+    };
+    Some(name.filter(|n| !n.is_empty()).unwrap_or_else(|| "void".into()))
+}
+
+fn resolve_type<'a>(
+    c: &TypeCollect,
+    dwarf: &gimli::Dwarf<Reader<'a>>,
+    unit: &gimli::Unit<Reader<'a>>,
+    off: usize,
+    addr_size: u64,
+    depth: u32,
+) -> Option<Resolved> {
+    if depth > MAX_TYPE_DEPTH {
+        return None;
+    }
+    let e = unit.entry(gimli::UnitOffset(off)).ok()?;
+    match e.tag() {
+        gimli::DW_TAG_pointer_type => {
+            let name = pointee_name(c, dwarf, unit, &e, depth)?;
+            Some(Resolved { size: addr_size.max(4), ty: format!("{name} *"), nested: None, pointer: true, count: 1 })
+        }
+        gimli::DW_TAG_structure_type | gimli::DW_TAG_union_type | gimli::DW_TAG_class_type => {
+            let h = c.heads.get(&off)?;
+            Some(Resolved { size: h.size, ty: h.name.clone(), nested: Some(h.name.clone()), pointer: false, count: 1 })
+        }
+        gimli::DW_TAG_enumeration_type => {
+            let h = c.heads.get(&off)?;
+            Some(Resolved { size: h.size, ty: h.name.clone(), nested: None, pointer: false, count: 1 })
+        }
+        gimli::DW_TAG_base_type => {
+            let size = udata(&e, gimli::DW_AT_byte_size).unwrap_or(8);
+            let name = die_name(dwarf, unit, &e).unwrap_or_else(|| "int".into());
+            Some(Resolved { size, ty: name, nested: None, pointer: false, count: 1 })
+        }
+        gimli::DW_TAG_typedef
+        | gimli::DW_TAG_const_type
+        | gimli::DW_TAG_volatile_type
+        | gimli::DW_TAG_restrict_type
+        | gimli::DW_TAG_atomic_type => match e.attr_value(gimli::DW_AT_type).ok().flatten()? {
+            AttributeValue::UnitRef(o) => resolve_type(c, dwarf, unit, o.0, addr_size, depth + 1),
+            _ => None,
+        },
+        gimli::DW_TAG_array_type => {
+            let AttributeValue::UnitRef(elem_off) = e.attr_value(gimli::DW_AT_type).ok().flatten()? else { return None };
+            let elem = resolve_type(c, dwarf, unit, elem_off.0, addr_size, depth + 1)?;
+            let count: u64 = c.array_counts.get(&off)?.iter().copied().fold(1u64, |acc, n| acc.saturating_mul(n));
+            Some(Resolved { size: elem.size, ty: elem.ty, nested: elem.nested, pointer: elem.pointer, count: count.max(1) })
+        }
+        gimli::DW_TAG_subroutine_type => {
+            Some(Resolved { size: addr_size.max(4), ty: "void *".into(), nested: None, pointer: true, count: 1 })
+        }
+        _ => None,
+    }
+}
+
+/// Resolves the collected DIEs of one unit into struct and enum definitions.
+fn build_types<'a>(c: &TypeCollect, dwarf: &gimli::Dwarf<Reader<'a>>, unit: &gimli::Unit<Reader<'a>>, lib: &mut TypeLibrary) {
+    let addr_size = u64::from(unit.encoding().address_size);
+    for (off, head) in &c.heads {
+        if head.is_enum || head.size == 0 || head.name.is_empty() {
+            continue;
+        }
+        let Some(raw) = c.members.get(off) else { continue };
+        let mut fields = Vec::with_capacity(raw.len());
+        for m in raw {
+            let Some(type_ref) = m.type_ref else { continue };
+            let Some(r) = resolve_type(c, dwarf, unit, type_ref, addr_size, 0) else { continue };
+            fields.push(Field {
+                name: m.name.clone(),
+                ty: r.ty,
+                offset: m.offset,
+                elem_size: r.size.max(1),
+                count: r.count.max(1),
+                nested: r.nested,
+                pointer: r.pointer,
+            });
+        }
+        if fields.is_empty() {
+            continue;
+        }
+        let align = fields.iter().map(|f| f.elem_size.min(8)).max().unwrap_or(1).max(1);
+        lib.structs.entry(head.name.clone()).or_insert(StructDef { name: head.name.clone(), size: head.size, align, fields });
+    }
+    for (off, head) in &c.heads {
+        if !head.is_enum {
+            continue;
+        }
+        let Some(members) = c.enumerators.get(off) else { continue };
+        if members.is_empty() {
+            continue;
+        }
+        lib.enums.entry(head.name.clone()).or_insert(EnumDef { name: head.name.clone(), members: members.clone() });
+    }
 }
 
 fn join_path(comp_dir: &str, dir: &str, file: &str) -> String {

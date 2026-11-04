@@ -21,12 +21,15 @@ export function PseudocodeView() {
   const cursor = useStore((s) => s.cursor);
   const revision = useStore((s) => s.revision);
   const functions = useStore((s) => s.functions);
+  const highlight = useStore((s) => s.highlight);
   const st = useStore.getState;
   const [code, setCode] = useState<Pseudocode | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "none">("loading");
   const box = useRef<HTMLDivElement>(null);
 
   const byName = useMemo(() => new Map(functions.map((f) => [f.name, f.address])), [functions]);
+  // Variables the `Y` (type variable) command applies to.
+  const isVar = (t: string) => /^(a\d+|v\d+|var_[0-9A-Fa-f]+|arg_[0-9A-Fa-f]+)$/.test(t);
 
   const inside = code && cursor != null && functions.some((f) => f.address === code.address && cursor >= f.address && cursor < f.address + Math.max(1, f.size));
   useEffect(() => {
@@ -100,6 +103,11 @@ export function PseudocodeView() {
     }
   };
 
+  const typeVar = (name: string) => {
+    const current = st().annotations.var_types?.[String(code.address)]?.[name] ?? "";
+    st().set("dialog", { kind: "vartype", va: code.address, initial: current, varName: name });
+  };
+
   return (
     <div className="pseudo-wrap">
       <div className="pseudo-bar">
@@ -125,6 +133,9 @@ export function PseudocodeView() {
             } else if (e.key === "n" || e.key === "N") {
               e.preventDefault();
               st().set("dialog", { kind: "rename", va: code.address, initial: code.name });
+            } else if ((e.key === "y" || e.key === "Y") && highlight && isVar(highlight)) {
+              e.preventDefault();
+              typeVar(highlight);
             }
           }}
         >
@@ -134,13 +145,26 @@ export function PseudocodeView() {
               <span className="pl-code" style={{ paddingLeft: l.indent * 28 }}>
                 {l.tokens.map((t, k) => {
                   const target = t.k === "symbol" ? byName.get(t.t) : undefined;
+                  const markable = isVar(t.t) || (t.k === "number" && t.t !== "0");
                   return (
                     <span
                       key={k}
-                      className={`${CLASS[t.k]} ${target != null ? "link-tok" : ""}`}
-                      onDoubleClick={target != null ? () => st().goto(target, { tab: "pseudo" }) : undefined}
-                      onClick={target != null ? (e) => (e.ctrlKey || e.metaKey) && st().goto(target, { tab: "pseudo" }) : undefined}
-                      title={target != null ? "Double-click to open" : undefined}
+                      className={`${CLASS[t.k]} ${target != null ? "link-tok" : ""} ${highlight != null && t.t === highlight && !target ? "hl" : ""}`}
+                      onDoubleClick={
+                        target != null
+                          ? () => st().goto(target, { tab: "pseudo" })
+                          : isVar(t.t)
+                          ? () => typeVar(t.t)
+                          : undefined
+                      }
+                      onClick={
+                        target != null
+                          ? (e) => (e.ctrlKey || e.metaKey) && st().goto(target, { tab: "pseudo" })
+                          : markable
+                          ? () => st().set("highlight", st().highlight === t.t ? null : t.t)
+                          : undefined
+                      }
+                      title={target != null ? "Double-click to open" : isVar(t.t) ? "Double-click to type (Y)" : undefined}
                     >
                       {t.t}
                     </span>

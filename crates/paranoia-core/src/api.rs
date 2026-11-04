@@ -45,6 +45,13 @@ struct Rename {
 }
 
 #[derive(Deserialize)]
+struct VarType {
+    va: u64,
+    var: String,
+    ty: String,
+}
+
+#[derive(Deserialize)]
 struct Offset {
     offset: u64,
 }
@@ -186,6 +193,12 @@ impl Session {
                 b.checkpoint();
                 let a: Rename = args(args_v)?;
                 b.set_comment(a.va, &a.text);
+                Ok(Value::Null)
+            }
+            "setVarType" => {
+                let a: VarType = args(args_v)?;
+                b.checkpoint();
+                b.set_var_type(a.va, &a.var, &a.ty);
                 Ok(Value::Null)
             }
             "annotations" => to(b.annotations()),

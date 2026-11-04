@@ -275,6 +275,8 @@ export class Session {
   types = () => this.c<TypeLibrary>("types");
   setTypes = (text: string) => this.c<number>("setTypes", { text });
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
+  /** Types a pseudocode variable (IDA's `Y`): `va` is the function address, `ty` like `MY_STRUCT *` (empty resets). */
+  setVarType = (va: number, variable: string, ty: string) => this.c<null>("setVarType", { va, var: variable, ty });
   /** Applies an IDA-format `.pat` signature file. */
   applyPat = (text: string) => this.c<SigReport>("applyPat", { text });
   /** `.pat` text for the named functions (only runtime ones with `library`). */

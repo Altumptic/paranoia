@@ -56,6 +56,19 @@ export function EditDialog() {
       } catch (e) {
         st.toast(e instanceof Error ? e.message : String(e), "error");
       }
+    } else if (dialog.kind === "vartype") {
+      const v = value.trim();
+      if (v && !/^(struct\s+)?[A-Za-z_]\w*\s*\*$/.test(v)) {
+        st.toast("Enter a pointer type like MY_STRUCT * — declare the struct in Local Types first", "error");
+        return;
+      }
+      try {
+        await st.session!.setVarType(dialog.va, dialog.varName ?? "", v);
+        await st.afterEdit(false);
+        st.toast(v ? `${dialog.varName} is now ${v}` : `Type of ${dialog.varName} reset`, "success");
+      } catch (e) {
+        st.toast(e instanceof Error ? e.message : String(e), "error");
+      }
     } else if (dialog.kind === "enum") {
       const c = filtered[Math.min(pick, filtered.length - 1)];
       if (!c || !dialog.ins) {
@@ -77,7 +90,15 @@ export function EditDialog() {
     <div className="modal-veil" onMouseDown={close}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">
-          {{ rename: "Rename", bookmark: "Bookmark", comment: "Comment", struct: "Apply struct", enum: "Symbolic constant" }[dialog.kind]} <span className="mono muted">{fmtAddr(dialog.va, info)}</span>
+          {{
+            rename: "Rename",
+            bookmark: "Bookmark",
+            comment: "Comment",
+            struct: "Apply struct",
+            enum: "Symbolic constant",
+            vartype: "Type variable",
+          }[dialog.kind]}{" "}
+          {dialog.kind === "vartype" ? <span className="mono muted">{dialog.varName}</span> : <span className="mono muted">{fmtAddr(dialog.va, info)}</span>}
         </div>
         {isRename ? (
           <input
@@ -85,7 +106,7 @@ export function EditDialog() {
             className="input mono"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            list={dialog.kind === "struct" ? "struct-names" : undefined}
+            list={dialog.kind === "struct" ? "struct-names" : dialog.kind === "vartype" ? "vartype-names" : undefined}
             placeholder={
               dialog.kind === "enum"
                 ? `Filter enums for ${dialog.value != null && dialog.value < 0 ? "-0x" + (-dialog.value).toString(16) : "0x" + (dialog.value ?? 0).toString(16)}`
@@ -93,6 +114,10 @@ export function EditDialog() {
                 ? structNames.length
                   ? `Struct name, e.g. ${structNames[0]} or ${structNames[0]}[4]`
                   : "Declare structs in Local Types first"
+                : dialog.kind === "vartype"
+                ? structNames.length
+                  ? `Pointer type, e.g. ${structNames[0]} * — empty to reset`
+                  : "Declare the struct in Local Types first"
                 : dialog.kind === "bookmark"
                   ? "Describe this location — leave empty to remove"
                   : "Leave empty to restore the automatic name"
@@ -122,6 +147,13 @@ export function EditDialog() {
           <datalist id="struct-names">
             {structNames.map((n) => (
               <option key={n} value={n} />
+            ))}
+          </datalist>
+        )}
+        {dialog.kind === "vartype" && (
+          <datalist id="vartype-names">
+            {structNames.map((n) => (
+              <option key={n} value={`${n} *`} />
             ))}
           </datalist>
         )}

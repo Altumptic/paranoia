@@ -32,6 +32,7 @@ mod pdbsym;
 mod protos;
 mod pseudo;
 mod pseudo_opt;
+mod pseudo_structs;
 mod pseudo_types;
 mod riscv;
 mod sigs;
@@ -100,6 +101,9 @@ pub struct Annotations {
     /// Library function names recognised by user-applied signature files.
     #[serde(default)]
     pub library: BTreeMap<u64, String>,
+    /// Variable types set in pseudocode (IDA's `Y`), by function address then variable name.
+    #[serde(default)]
+    pub var_types: BTreeMap<u64, BTreeMap<String, String>>,
 }
 
 #[derive(Default)]
@@ -118,6 +122,9 @@ pub struct Binary {
     seeds: Vec<Seed>,
     /// Address → source line from DWARF.
     source: SourceLines,
+    /// Struct / union / enum definitions carried by DWARF, merged into the annotations
+    /// once analysis starts (user-defined types with the same name win).
+    dwarf_types: TypeLibrary,
     import_slots: HashMap<u64, usize>,
     /// Names from symbols and exports, by address.
     static_names: HashMap<u64, String>,
@@ -141,6 +148,13 @@ pub struct Binary {
     /// Annotation snapshots for undo / redo.
     undo_stack: Vec<Annotations>,
     redo_stack: Vec<Annotations>,
+    /// Cross-call argument types harvested while rendering pseudocode:
+    /// caller address → callee address → argument types by position (None = unknown).
+    /// Runtime cache, derived from `var_types`; not persisted and not undone.
+    call_args: HashMap<u64, HashMap<u64, Vec<Option<String>>>>,
+    /// Result types harvested when a caller stores a known-typed variable from a call
+    /// (callee address → C type). Same runtime-cache rules as `call_args`.
+    ret_types: HashMap<u64, String>,
 }
 
 impl Binary {
@@ -208,10 +222,11 @@ impl Binary {
             }
         }
 
-        // DWARF: names, function bounds and source lines (symbols and exports take precedence).
+        // DWARF: names, function bounds, source lines and local types (symbols and exports take precedence).
         let mut info = info;
         let mut seeds = loaded.seeds;
         let mut source = SourceLines::default();
+        let mut dwarf_types = TypeLibrary::default();
         if let Some(d) = dwarf::load(data, &info.sections, info.endian == Endian::Big) {
             let executable = |va: u64| ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
             let known: HashSet<u64> = seeds.iter().map(|s| s.address).collect();
@@ -241,6 +256,7 @@ impl Binary {
                 ),
             });
             source = SourceLines { files: d.files, lines: d.lines };
+            dwarf_types = d.types;
         }
 
         Ok(Binary {
@@ -251,6 +267,7 @@ impl Binary {
             symbols: loaded.symbols,
             seeds,
             source,
+            dwarf_types,
             import_slots,
             static_names,
             analysis: None,
@@ -266,6 +283,8 @@ impl Binary {
             lib_names: HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            call_args: HashMap::new(),
+            ret_types: HashMap::new(),
         })
     }
 
@@ -383,14 +402,29 @@ impl Binary {
         }
 
         let a = self.analysis.as_ref().unwrap();
-        AnalysisStats {
+        let stats = AnalysisStats {
             functions: a.functions.len(),
             instructions: a.instruction_count,
             blocks: a.block_count,
             strings: self.strings.len(),
             xrefs: a.xrefs.values().map(Vec::len).sum(),
             millis: self.analysis_millis,
+        };
+        self.merge_dwarf_types();
+        stats
+    }
+
+    /// Adds DWARF-derived local types the annotations do not have yet. Idempotent;
+    /// user-declared types always win, so this is safe to call after every load and edit.
+    fn merge_dwarf_types(&mut self) {
+        let types = std::mem::take(&mut self.dwarf_types);
+        for (name, def) in &types.structs {
+            self.annotations.types.structs.entry(name.clone()).or_insert_with(|| def.clone());
         }
+        for (name, def) in &types.enums {
+            self.annotations.types.enums.entry(name.clone()).or_insert_with(|| def.clone());
+        }
+        self.dwarf_types = types;
     }
 
     fn build_strings(&mut self, min_len: usize) {
@@ -782,7 +816,11 @@ impl Binary {
     pub fn set_annotations(&mut self, a: Annotations) {
         let had_functions = !a.functions.is_empty();
         self.revert_patches();
+        self.call_args.clear();
+        self.ret_types.clear();
         self.annotations = a;
+        // Workspace annotations replace the defaults: re-add the DWARF types they lack.
+        self.merge_dwarf_types();
         self.apply_saved_patches();
         if had_functions && self.analysis.is_some() {
             self.reanalyze();
@@ -805,6 +843,18 @@ impl Binary {
             self.annotations.comments.remove(&va);
         } else {
             self.annotations.comments.insert(va, text.to_string());
+        }
+    }
+
+    /// Types a pseudocode variable of the function at `va` (`a1`, `v3`, `var_8`).
+    /// `ty` is a C declaration as the user writes it (`MY_STRUCT *`); empty removes it.
+    pub fn set_var_type(&mut self, va: u64, var: &str, ty: &str) {
+        let ty = ty.trim();
+        let vars = self.annotations.var_types.entry(va).or_default();
+        if ty.is_empty() {
+            vars.remove(var);
+        } else {
+            vars.insert(var.to_string(), ty.to_string());
         }
     }
 }
