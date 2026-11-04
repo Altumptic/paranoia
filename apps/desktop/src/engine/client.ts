@@ -3,7 +3,7 @@
 //  * Native — the `paranoia-engine` process driven by the desktop shell, workspace store in redb.
 //  * WASM   — the same engine compiled to WebAssembly in a Web Worker (browser build).
 
-import type { AddressInfo, AnalysisStats, Annotations, BinaryInfo, CallGraph, Callee, Frame, FunctionGraph, FunctionSummary, Hit, InsnPatch, Instruction, ItemKind, NameEntry, PdbReport, Pseudocode, SearchHit, SearchKind, SigReport, StringEntry, Symbol, TypeLibrary, Xref } from "./types";
+import type { AddressInfo, AnalysisStats, Annotations, BinaryInfo, CallGraph, Callee, Frame, FunctionGraph, FunctionSummary, Hit, InsnPatch, Instruction, ItemKind, NameEntry, PdbReport, Pseudocode, SearchHit, SearchKind, SigReport, StringEntry, StructDef, Symbol, TypeHit, TypeLibrary, Xref } from "./types";
 import type { WorkerRequest, WorkerResponse } from "./wasm.worker";
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
@@ -273,6 +273,11 @@ export class Session {
   redo = () => this.c<boolean | null>("redo");
   history = () => this.c<[number, number]>("history");
   types = () => this.c<TypeLibrary>("types");
+  /** Searches Local Types and debug-info (DWARF / PDB) types by name. */
+  findTypes = (query: string, limit = 40) => this.c<TypeHit[]>("findTypes", { query, limit });
+  structDef = (name: string) => this.c<StructDef | null>("structDef", { name });
+  /** [structs, enums] recovered from debug info. */
+  debugTypeCounts = () => this.c<[number, number]>("debugTypeCounts");
   setTypes = (text: string) => this.c<number>("setTypes", { text });
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
   /** Types a pseudocode variable (IDA's `Y`): `va` is the function address, `ty` like `MY_STRUCT *` (empty resets). */

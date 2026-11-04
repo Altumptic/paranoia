@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::model::{Token, TokenKind};
 use crate::pseudo::PseudoLine;
 use crate::pseudo_opt::{assignment, call_at, merge, parse_c_number};
-use crate::types::{StructDef, TypeLibrary};
+use crate::types::{StructDef, TypeSource};
 
 /// One rendered path segment.
 enum Part {
@@ -38,11 +38,11 @@ fn cast_size(kw: &str) -> Option<u64> {
 }
 
 /// `MY_STRUCT *` / `struct MY_STRUCT *` → `MY_STRUCT`, only when declared.
-fn struct_ptr(ty: &str, lib: &TypeLibrary) -> Option<String> {
+fn struct_ptr(ty: &str, lib: &dyn TypeSource) -> Option<String> {
     let t = ty.trim().trim_start_matches("const ").trim();
     let t = t.strip_suffix('*')?.trim();
     let t = t.trim_start_matches("struct ").trim();
-    lib.structs.contains_key(t).then(|| t.to_string())
+    lib.struct_def(t).is_some().then(|| t.to_string())
 }
 
 /// An address expression: (base, displacement, scaled index).
@@ -95,7 +95,7 @@ fn address(toks: &[Token]) -> Option<Addr> {
 
 /// Resolves an access to (offset, size, scaled index) inside `s` into field path parts.
 /// A `size` of 0 matches any field (taking an address with `&`).
-fn resolve(s: &StructDef, off: i128, size: u64, idx: &Option<(String, i128)>, lib: &TypeLibrary) -> Option<Vec<Part>> {
+fn resolve(s: &StructDef, off: i128, size: u64, idx: &Option<(String, i128)>, lib: &dyn TypeSource) -> Option<Vec<Part>> {
     if off < 0 {
         return None;
     }
@@ -106,7 +106,7 @@ fn resolve(s: &StructDef, off: i128, size: u64, idx: &Option<(String, i128)>, li
             if let Some((reg, scale)) = idx.as_ref() {
                 if f.count > 1 && f.elem_size as i128 == *scale {
                     if let Some(mut sub) =
-                        f.nested.as_deref().and_then(|n| lib.structs.get(n)).and_then(|ns| resolve(ns, 0, size, &None, lib))
+                        f.nested.as_deref().and_then(|n| lib.struct_def(n)).and_then(|ns| resolve(ns, 0, size, &None, lib))
                     {
                         let mut out = vec![Part::Field(f.name.clone()), Part::IndexVar(Token { t: reg.clone(), k: TokenKind::Register })];
                         out.append(&mut sub);
@@ -131,7 +131,7 @@ fn resolve(s: &StructDef, off: i128, size: u64, idx: &Option<(String, i128)>, li
             }
         }
         // A member of a nested struct (or an element of an array of structs).
-        if let Some(ns) = f.nested.as_deref().and_then(|n| lib.structs.get(n)) {
+        if let Some(ns) = f.nested.as_deref().and_then(|n| lib.struct_def(n)) {
             let elem = ns.size.max(1);
             let (base_off, index) = match idx.as_ref() {
                 // `ctx->arr[i].x`: the index walks the array, the displacement picks the member.
@@ -215,7 +215,7 @@ fn close_of(toks: &[Token], open: usize) -> Option<usize> {
 
 /// Rewrites one deref cast (`*(uint32_t *)(a1 + 0x1c)`) starting at token `p` (the cast keyword).
 /// Returns the replacement tokens and the index just past the consumed group.
-fn rewrite_deref(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &TypeLibrary) -> Option<(Vec<Token>, usize)> {
+fn rewrite_deref(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<(Vec<Token>, usize)> {
     let size = cast_size(&toks[p].t)?;
     let (inner, end): (&[Token], usize) = match toks.get(p + 1) {
         // `*(uint32_t *)a1` — offset zero, no parentheses.
@@ -228,7 +228,7 @@ fn rewrite_deref(toks: &[Token], p: usize, types: &HashMap<String, String>, lib:
     };
     let (base, disp, idx) = address(inner)?;
     let name = types.get(&base)?;
-    let s = lib.structs.get(struct_ptr(name, lib)?.as_str())?;
+    let s = lib.struct_def(struct_ptr(name, lib)?.as_str())?;
     let parts = resolve(s, disp, size, &idx, lib)?;
     let mut out = vec![Token { t: base, k: TokenKind::Register }];
     out.extend(parts_tokens(&parts));
@@ -236,7 +236,7 @@ fn rewrite_deref(toks: &[Token], p: usize, types: &HashMap<String, String>, lib:
 }
 
 /// Rewrites a bare `base + off` (a lea result) into `&base->field`.
-fn rewrite_lea(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &TypeLibrary) -> Option<(Vec<Token>, usize)> {
+fn rewrite_lea(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<(Vec<Token>, usize)> {
     let base = &toks[p];
     let add = toks.get(p + 1)?;
     if !(add.k == TokenKind::Punct && add.t == " + ") {
@@ -248,7 +248,7 @@ fn rewrite_lea(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &
     }
     let off = parse_c_number(&num.t)? as i128;
     let name = types.get(&base.t)?;
-    let s = lib.structs.get(struct_ptr(name, lib)?.as_str())?;
+    let s = lib.struct_def(struct_ptr(name, lib)?.as_str())?;
     let parts = resolve(s, off, 0, &None, lib)?;
     let mut out = vec![Token { t: "&".into(), k: TokenKind::Punct }, base.clone()];
     out.extend(parts_tokens(&parts));
@@ -284,19 +284,19 @@ fn rewrite_decls(lines: &mut [PseudoLine], types: &HashMap<String, String>) {
 
 /// The resolved variable types of a function: user-typed (`Y`) struct pointers plus
 /// The pointed-to struct of a pointer field (`struct PKT *next` → `("PKT", "PKT *")`).
-fn ptr_field(s: &StructDef, off: i128, size: u64, lib: &TypeLibrary) -> Option<String> {
+fn ptr_field(s: &StructDef, off: i128, size: u64, lib: &dyn TypeSource) -> Option<String> {
     if off < 0 {
         return None;
     }
     let off = off as u64;
     let f = s.fields.iter().find(|f| f.offset == off && f.pointer && f.elem_size == size)?;
     let name = f.ty.trim_end_matches('*').trim();
-    lib.structs.contains_key(name).then(|| format!("{name} *"))
+    lib.struct_def(name).is_some().then(|| format!("{name} *"))
 }
 
 /// `v = *(uint64_t *)(base + off)` where `base` is a typed struct pointer and `off` is
 /// a pointer field of a declared struct: the loaded value has the field's pointer type.
-fn loaded_ptr_type(expr: &[Token], types: &HashMap<String, String>, lib: &TypeLibrary) -> Option<String> {
+fn loaded_ptr_type(expr: &[Token], types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<String> {
     let size = cast_size(&expr.first()?.t)?;
     if !matches!(size, 4 | 8) {
         return None;
@@ -315,14 +315,14 @@ fn loaded_ptr_type(expr: &[Token], types: &HashMap<String, String>, lib: &TypeLi
     if idx.is_some() {
         return None;
     }
-    let s = lib.structs.get(struct_ptr(types.get(&base)?, lib)?.as_str())?;
+    let s = lib.struct_def(struct_ptr(types.get(&base)?, lib)?.as_str())?;
     ptr_field(s, disp, size, lib)
 }
 
 /// The resolved variable types of a function: user-typed (`Y`) struct pointers plus
 /// everything inherited through single-assignment copies (`v3 = a1;`) and through
 /// struct pointer fields (`v4 = *(uint64_t *)(a1 + 0x28)` with `PKT *next` declared).
-pub(crate) fn resolved_var_types(lines: &[PseudoLine], lib: &TypeLibrary, user: &BTreeMap<String, String>) -> HashMap<String, String> {
+pub(crate) fn resolved_var_types(lines: &[PseudoLine], lib: &dyn TypeSource, user: &BTreeMap<String, String>) -> HashMap<String, String> {
     let mut types: HashMap<String, String> =
         user.iter().filter(|(_, ty)| struct_ptr(ty, lib).is_some()).map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut writes: HashMap<String, usize> = HashMap::new();
@@ -353,9 +353,113 @@ pub(crate) fn resolved_var_types(lines: &[PseudoLine], lib: &TypeLibrary, user: 
     types
 }
 
+/// A decimal / hex number token the way the decompiler prints constants.
+fn num_token(v: i128) -> Token {
+    let t = if v < 0 {
+        if -v < 10 {
+            format!("-{}", -v)
+        } else {
+            format!("-0x{:x}", -v)
+        }
+    } else if v < 10 {
+        v.to_string()
+    } else {
+        format!("0x{v:x}")
+    };
+    Token { t, k: TokenKind::Number }
+}
+
+/// `sizeof` of the struct a typed pointer variable points to, with the pointer type as written.
+fn pointee_size(var: &str, types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<(i128, String)> {
+    let ty = types.get(var)?;
+    let name = struct_ptr(ty, lib)?;
+    let size = lib.struct_def(&name)?.size as i128;
+    (size > 0).then(|| (size, ty.trim().to_string()))
+}
+
+/// Byte arithmetic on a typed pointer. C scales `p + n` by `sizeof(*p)`, but the machine code
+/// added bytes, so a plain `p += 8` on a `T *` would be wrong. When the byte count is a multiple
+/// of the struct size it becomes an element count (`p += 2`); otherwise the byte cast is explicit.
+fn step_line(toks: &[Token], types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<Vec<Token>> {
+    let v = toks.first().filter(|t| t.k == TokenKind::Register)?;
+    let (size, ty) = pointee_size(&v.t, types, lib)?;
+    let (sign, bytes) = match toks {
+        [_, op, num, end] if end.t == ";" && num.k == TokenKind::Number && (op.t == " += " || op.t == " -= ") => {
+            (if op.t == " += " { 1 } else { -1 }, parse_c_number(&num.t)? as i128)
+        }
+        [_, end] if end.t == "++;" => (1, 1),
+        [_, end] if end.t == "--;" => (-1, 1),
+        _ => return None,
+    };
+    let reg = Token { t: v.t.clone(), k: TokenKind::Register };
+    let punct = |t: &str| Token { t: t.into(), k: TokenKind::Punct };
+    if bytes % size == 0 {
+        let k = bytes / size;
+        return Some(match (sign, k) {
+            (1, 1) => vec![reg, punct("++;")],
+            (_, 1) => vec![reg, punct("--;")],
+            (1, _) => vec![reg, punct(" += "), num_token(k), punct(";")],
+            _ => vec![reg, punct(" -= "), num_token(k), punct(";")],
+        });
+    }
+    Some(vec![
+        reg.clone(),
+        punct(" = "),
+        Token { t: format!("({ty})"), k: TokenKind::Keyword },
+        punct("("),
+        Token { t: "(uint8_t *)".into(), k: TokenKind::Keyword },
+        reg,
+        punct(if sign > 0 { " + " } else { " - " }),
+        num_token(bytes),
+        punct(");"),
+    ])
+}
+
+/// `p + n` / `p - n` inside an expression, for a typed pointer `p`. Inside a raw dereference the
+/// byte meaning is kept (`*(uint32_t *)((uint8_t *)p + 0x40)`); elsewhere it follows the same
+/// element-or-explicit-cast rule as [`step_line`].
+fn rewrite_ptr_arith(
+    toks: &[Token],
+    p: usize,
+    out: &[Token],
+    types: &HashMap<String, String>,
+    lib: &dyn TypeSource,
+) -> Option<(Vec<Token>, usize)> {
+    let v = toks.get(p)?;
+    let (size, ty) = pointee_size(&v.t, types, lib)?;
+    let op = toks.get(p + 1).filter(|t| t.k == TokenKind::Punct && (t.t == " + " || t.t == " - "))?;
+    let num = toks.get(p + 2).filter(|t| t.k == TokenKind::Number)?;
+    let bytes = parse_c_number(&num.t)? as i128;
+    // `p + n + i * 8` is a larger expression: leave it alone.
+    if toks
+        .get(p + 3)
+        .is_some_and(|t| t.k == TokenKind::Punct && (t.t.starts_with(" + ") || t.t.starts_with(" - ") || t.t.starts_with(" * ")))
+    {
+        return None;
+    }
+    let reg = Token { t: v.t.clone(), k: TokenKind::Register };
+    let in_deref = out.len() >= 2
+        && out[out.len() - 1].k == TokenKind::Punct
+        && out[out.len() - 1].t.ends_with('(')
+        && out[out.len() - 2].k == TokenKind::Keyword
+        && out[out.len() - 2].t.starts_with("*(");
+    let bytes_cast = Token { t: "(uint8_t *)".into(), k: TokenKind::Keyword };
+    if in_deref {
+        return Some((vec![bytes_cast, reg, op.clone(), num.clone()], p + 3));
+    }
+    if bytes % size == 0 {
+        return Some((vec![reg, op.clone(), num_token(bytes / size)], p + 3));
+    }
+    let punct = |t: &str| Token { t: t.into(), k: TokenKind::Punct };
+    Some((
+        vec![Token { t: format!("({ty})"), k: TokenKind::Keyword }, punct("("), bytes_cast, reg, op.clone(), num.clone(), punct(")")],
+        p + 3,
+    ))
+}
+
 /// Applies struct member access to a function's pseudocode lines.
-pub(crate) fn member_access(lines: &mut [PseudoLine], lib: &TypeLibrary, user: &BTreeMap<String, String>) {
-    if lib.structs.is_empty() {
+pub(crate) fn member_access(lines: &mut [PseudoLine], lib: &dyn TypeSource, user: &BTreeMap<String, String>) {
+    if !lib.has_structs() {
         return;
     }
     let types = resolved_var_types(lines, lib, user);
@@ -365,6 +469,10 @@ pub(crate) fn member_access(lines: &mut [PseudoLine], lib: &TypeLibrary, user: &
 
     // Rewrite deref casts and lea results.
     for l in lines.iter_mut() {
+        if let Some(t) = step_line(&l.tokens, &types, lib) {
+            l.tokens = merge(t);
+            continue;
+        }
         let is_call = call_at(l).is_some();
         let mut out: Vec<Token> = Vec::with_capacity(l.tokens.len());
         let mut p = 0;
@@ -399,6 +507,11 @@ pub(crate) fn member_access(lines: &mut [PseudoLine], lib: &TypeLibrary, user: &
                         p = end;
                         continue;
                     }
+                }
+                if let Some((repl, end)) = rewrite_ptr_arith(&l.tokens, p, &out, &types, lib) {
+                    out.extend(repl);
+                    p = end;
+                    continue;
                 }
             }
             out.push(t);
@@ -442,7 +555,7 @@ mod tests {
         v.push((")".into(), TokenKind::Punct));
         v
     }
-    fn lib() -> TypeLibrary {
+    fn lib() -> crate::types::TypeLibrary {
         crate::types::parse(
             "typedef struct _POINT { LONG x; LONG y; } POINT;
              struct PKT { BYTE kind; DWORD crc; char *name; POINT where; DWORD ids[4]; struct PKT *next; };",
@@ -457,6 +570,40 @@ mod tests {
         let mut v = lines;
         member_access(&mut v, &lib(), &user());
         v.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect()
+    }
+
+    #[test]
+    fn pointer_steps_follow_c_semantics() {
+        // sizeof(PKT) = 48 on 64-bit
+        let size = lib().structs["PKT"].size;
+        assert_eq!(size, 48);
+        let step = |op: &str, n: &str| {
+            let toks =
+                vec![tok("a1", TokenKind::Register), tok(op, TokenKind::Punct), tok(n, TokenKind::Number), tok(";", TokenKind::Punct)];
+            let mut v = vec![line(1, toks)];
+            member_access(&mut v, &lib(), &user());
+            v[0].tokens.iter().map(|t| t.t.as_str()).collect::<String>()
+        };
+        assert_eq!(step(" += ", "0x30"), "a1++;");
+        assert_eq!(step(" += ", "0x60"), "a1 += 2;");
+        assert_eq!(step(" -= ", "0x30"), "a1--;");
+        assert_eq!(step(" += ", "8"), "a1 = (PKT *)((uint8_t *)a1 + 8);");
+        assert_eq!(step(" -= ", "0x14"), "a1 = (PKT *)((uint8_t *)a1 - 0x14);");
+        // x86 `inc` moves one byte
+        let mut v = vec![line(1, vec![tok("a1", TokenKind::Register), tok("++;", TokenKind::Punct)])];
+        member_access(&mut v, &lib(), &user());
+        assert_eq!(v[0].tokens.iter().map(|t| t.t.as_str()).collect::<String>(), "a1 = (PKT *)((uint8_t *)a1 + 1);");
+    }
+
+    #[test]
+    fn pointer_sums_in_expressions() {
+        let sum = |n: &str| {
+            vec![("a1".to_string(), TokenKind::Register), (" + ".to_string(), TokenKind::Punct), (n.to_string(), TokenKind::Number)]
+        };
+        assert_eq!(apply(vec![assign("v1", sum("0x60"))])[0], "v1 = a1 + 2;");
+        assert_eq!(apply(vec![assign("v1", sum("0x50"))])[0], "v1 = (PKT *)((uint8_t *)a1 + 0x50);");
+        // a raw dereference of an unknown offset keeps its byte meaning
+        assert_eq!(apply(vec![assign("v1", deref("uint32_t", "a1", "0x50", None))])[0], "v1 = *(uint32_t *)((uint8_t *)a1 + 0x50);");
     }
 
     #[test]
@@ -581,9 +728,10 @@ mod tests {
         member_access(&mut v, &lib(), &BTreeMap::new());
         let t: String = v[0].tokens.iter().map(|x| x.t.as_str()).collect();
         assert_eq!(t, "v1 = *(uint32_t *)(a1 + 0x4);");
-        // Wrong access size for the field.
+        // Wrong access size for the field: no member, and on a typed pointer the byte offset is explicit
+        // (a bare `a1 + 0x4` would read as four elements in C).
         let v = apply(vec![assign("v1", deref("uint16_t", "a1", "0x4", None))]);
-        assert_eq!(v[0], "v1 = *(uint16_t *)(a1 + 0x4);");
+        assert_eq!(v[0], "v1 = *(uint16_t *)((uint8_t *)a1 + 0x4);");
         // A negative displacement is never a member.
         let neg = vec![
             ("*(uint32_t *)".to_string(), TokenKind::Keyword),
@@ -594,10 +742,10 @@ mod tests {
             (")".to_string(), TokenKind::Punct),
         ];
         let v = apply(vec![assign("v1", neg)]);
-        assert_eq!(v[0], "v1 = *(uint32_t *)(a1 - 0x4);");
-        // Unknown offsets stay as they are.
+        assert_eq!(v[0], "v1 = *(uint32_t *)((uint8_t *)a1 - 0x4);");
+        // Unknown offsets stay raw byte accesses.
         let v = apply(vec![assign("v1", deref("uint32_t", "a1", "0x99", None))]);
-        assert_eq!(v[0], "v1 = *(uint32_t *)(a1 + 0x99);");
+        assert_eq!(v[0], "v1 = *(uint32_t *)((uint8_t *)a1 + 0x99);");
     }
 
     #[test]

@@ -76,6 +76,17 @@ struct ValueArg {
 }
 
 #[derive(Deserialize)]
+struct NameArg {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct FindTypes {
+    query: String,
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
 struct StructArgs {
     va: u64,
     name: String,
@@ -290,6 +301,15 @@ impl Session {
                 to(b.load_pdb(bytes, a.force.unwrap_or(false))?)
             }
             "types" => to(&b.annotations().types),
+            "findTypes" => {
+                let a: FindTypes = args(args_v)?;
+                to(b.type_view().search(&a.query, a.limit.unwrap_or(40).min(500)))
+            }
+            "structDef" => {
+                let a: NameArg = args(args_v)?;
+                to(crate::types::TypeSource::struct_def(&b.type_view(), &a.name).cloned())
+            }
+            "debugTypeCounts" => to((b.debug_types().structs.len(), b.debug_types().enums.len())),
             "setTypes" => {
                 let a: TextArg = args(args_v)?;
                 b.checkpoint();

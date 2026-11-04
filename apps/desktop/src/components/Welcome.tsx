@@ -3,16 +3,17 @@ import { ArrowUpRight, Binary, Cpu, FileCode2, FolderOpen, GitBranch, Lock, Netw
 import { getBackend, isDesktop } from "../engine/client";
 import { pickFile } from "../files";
 import { archLabel, fmtSize, formatLabel, useStore } from "../store";
-import { AppIcon, Whale } from "./Logo";
+import { AppIcon, Mark } from "./Logo";
+import { MenuBar } from "./MenuBar";
 import { ThemeToggle } from "./ThemeToggle";
 
 const FEATURES = [
   { icon: FileCode2, title: "Every major format", text: "PE, ELF and Mach-O — including universal binaries, forwarders and chained fixups." },
-  { icon: Cpu, title: "x86, x86-64, AArch64", text: "Symbol-aware disassembly with IDA-style labels, thunks and string annotations." },
-  { icon: GitBranch, title: "Graphs & pseudocode", text: "Recursive-descent analysis, control-flow graphs and a readable C-like view." },
+  { icon: Cpu, title: "From x86 to RISC-V", text: "x86, x86-64, AArch64, ARM32, Thumb-2, RISC-V and MIPS with IDA-style labels, thunks and string annotations." },
+  { icon: GitBranch, title: "Graphs & decompiler", text: "Control-flow graphs and a typed C-like view of x86 / x64 code: struct fields, switch and loops." },
   { icon: Network, title: "Cross references", text: "Calls, jumps and data references, both directions, one keystroke away." },
   { icon: Lock, title: "Private by design", text: "No accounts and no telemetry. Files are analyzed on this machine only." },
-  { icon: Zap, title: "Native Rust engine", text: "Fast, memory-safe and hardened against malformed and hostile inputs." },
+  { icon: Zap, title: "Native Rust engine", text: "Written in Rust and tested against thousands of corrupted PE, ELF and Mach-O files." },
 ];
 
 const SHORTCUTS: [string, string][] = [
@@ -56,12 +57,13 @@ export function Welcome() {
     <div className="welcome">
       <div className="titlebar-drag" />
       <header className="welcome-top">
-        <div className="brand">
-          <Whale size={34} />
-          <span className="wordmark">Paranoia</span>
+        <div className="welcome-top-left">
+          <span className="mark-btn static" aria-hidden="true">
+            <Mark size={20} />
+          </span>
+          <MenuBar only={["file", "view", "help"]} />
         </div>
         <div className="welcome-top-right">
-          <span className="badge">Community Edition</span>
           <ThemeToggle />
         </div>
       </header>
@@ -86,7 +88,7 @@ export function Welcome() {
             </div>
             <div>
               <div className="composer-title">Drop an executable, library or object file</div>
-              <div className="composer-sub">or click to browse — PE · ELF · Mach-O · x86 · x86-64 · AArch64</div>
+              <div className="composer-sub">or click to browse — PE · ELF · Mach-O · x86 · ARM · RISC-V · MIPS</div>
             </div>
           </div>
           <div className="composer-foot">

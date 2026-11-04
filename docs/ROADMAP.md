@@ -30,14 +30,15 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Hex view & patching, save patched file | ✅ | |
 | Instruction patches (NOP, invert, force jump) | ✅ | x86/x64 and AArch64 |
 | Assemble arbitrary instructions | ⏳ | |
-| Pseudocode | 🟡 | x86/x64: typed variables (`a1…`, `v1…` split at independent overwrites, types from API prototypes), expression propagation, `switch`, `while`/`for`/`do-while` with `break`/`continue`, symbolic API constants, struct member access (`Y` types a variable; fields, nesting, arrays render as `ctx->name`), argument/return types that flow across internal calls, and pointer fields that chain (`p = ctx->next` is typed `PKT *`, so lists and trees keep rendering as `p->…`). Not yet: SSA-based variable recovery, pointer arithmetic on typed pointers (`p += 8` on a `T *` still prints a byte offset), other architectures |
+| Pseudocode | 🟡 | x86/x64: typed variables (`a1…`, `v1…` split at independent overwrites, types from API prototypes), expression propagation, `switch`, `while`/`for`/`do-while` with `break`/`continue`, symbolic API constants, struct member access (`Y` types a variable; fields, nesting, arrays render as `ctx->name`), argument/return types that flow across internal calls, and pointer fields that chain (`p = ctx->next` is typed `PKT *`, so lists and trees keep rendering as `p->…`). Not yet: SSA-based variable recovery, typed-pointer arithmetic follows C (`p += 0x60` on a 48-byte `T *` prints `p += 2`; other byte counts keep an explicit `(uint8_t *)` cast), other architectures |
 | Operand representation (`H`, `R`, `B`, `M`) | ✅ | Hex / decimal, character, binary, symbolic constant; built-in Windows / POSIX enums applied to API arguments automatically |
 | Types, structures, enums, local types | ✅ | C declarations (struct / union / enum / typedef, arrays, pointers, natural alignment); apply a struct to data (`Alt+Q`) |
 | Stack frame / local variable view | ✅ | Offsets, sizes, read/write counts; same names as pseudocode |
 | Argument labels from API prototypes | ✅ | ~250 WinAPI / libc prototypes (`; lpFileName`) |
 | FLIRT-style library signatures | ✅ | Reads IDA FLAIR `.pat` files, writes them from any binary with symbols (`sigmake`), built-in MSVC x64 runtime library; IDA's binary `.sig` format is not read yet |
 | PDB debug info | ✅ | Publics, procedures and globals; GUID check; the PDB next to the binary is picked up automatically |
-| DWARF debug info | ✅ | Function names and bounds, globals and source lines (ELF, Mach-O, MinGW / Rust-gnu PE); struct, union and enum definitions imported into Local Types for `Y` and the decompiler |
+| DWARF debug info | ✅ | Function names and bounds, globals and source lines (ELF, Mach-O, MinGW / Rust-gnu PE); struct, union and enum definitions kept as debug-info types (a runtime layer under Local Types, never saved) for `Y` and the decompiler |
+| PDB types | ✅ | Struct, union and enum definitions from the PDB type stream (C-like names only; templates and namespaced C++ types are skipped) join the same debug-info layer; searchable in the Types panel and offered by `Y` |
 | Call graph / proximity view | ✅ | Callers / callees to configurable depth |
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
@@ -50,7 +51,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 ## Next milestones
 
 1. **Decompiler v3** — SSA-based variable recovery; type propagation through arithmetic and arrays of structures.
-2. **Signatures & types** — IDA `.sig` reading, more built-in libraries; PDB types into Local Types.
+2. **Signatures & types** — IDA `.sig` reading, more built-in libraries; ~~PDB types~~ (done).
 3. **Plugins** — a plugin manifest on top of the Python and JavaScript APIs.
 4. **AI assistant** — optional, local-first (Ollama / LM Studio) or user-supplied API keys: explain function, suggest names, flag suspicious patterns. Nothing leaves the machine unless the user opts in.
 5. **More architectures** — PowerPC; mixed ARM/Thumb images; pseudocode beyond x86.

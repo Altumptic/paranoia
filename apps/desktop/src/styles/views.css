@@ -1590,3 +1590,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.types-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 8px 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.types-list > .input {
+  margin: 0 8px 6px;
+  width: calc(100% - 16px);
+}

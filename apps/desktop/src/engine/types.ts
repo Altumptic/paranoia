@@ -271,6 +271,8 @@ export interface Callee {
 export interface PdbReport {
   functions: number;
   names: number;
+  /** Struct / union / enum definitions imported from the PDB's type stream. */
+  types: number;
   guid: string;
   matched: boolean;
 }
@@ -296,6 +298,14 @@ export interface TypeLibrary {
   source: string;
   structs: Record<string, StructDef>;
   enums: Record<string, { name: string; members: [string, number][] }>;
+}
+
+/** A type-name match: Local Types ("user") layered over DWARF / PDB types ("debug"). */
+export interface TypeHit {
+  name: string;
+  kind: "struct" | "enum";
+  size: number;
+  origin: "user" | "debug";
 }
 
 export type SearchKind = "bytes" | "text" | "immediate";

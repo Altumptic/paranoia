@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Flow, Instruction, StringEncoding, Token, TokenKind, XrefKind};
+use crate::types::TypeSource;
 use crate::Binary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -454,7 +455,7 @@ impl Binary {
                     continue;
                 }
             } else if let Some(DataItem { kind: ItemKind::Struct, ty: Some(ty), count }) = self.annotations.items.get(&cur).cloned() {
-                let size = self.annotations.types.structs.get(&ty).map(|s| s.size.max(1)).unwrap_or(1);
+                let size = self.type_view().struct_def(&ty).map(|s| s.size.max(1)).unwrap_or(1);
                 let base = self.auto_data_name(cur).unwrap_or_default();
                 for i in 0..count.max(1) as u64 {
                     let start = out.len();
@@ -499,20 +500,23 @@ impl Binary {
         Ok(())
     }
 
-    /// Replaces the local type library with `source` (C declarations).
-    /// Types recovered from DWARF come back afterwards (user declarations win on a clash).
+    /// Replaces the local type library with `source` (C declarations). Types recovered from
+    /// debug info are a separate layer and stay available underneath.
     pub fn set_types(&mut self, source: &str) -> Result<usize, String> {
         let lib = crate::types::parse(source, self.ptr_size())?;
         let n = lib.structs.len() + lib.enums.len();
         self.annotations.types = lib;
-        self.merge_dwarf_types();
         Ok(n)
     }
 
     /// Applies a struct type to `va` (IDA's Alt+Q), optionally as an array.
     pub fn apply_struct(&mut self, va: u64, name: &str, count: u32) -> Result<(), String> {
-        let sd = self.annotations.types.structs.get(name).ok_or_else(|| format!("no struct named `{name}` — declare it in Local Types"))?;
-        let size = sd.size.max(1) * count.max(1) as u64;
+        let sd_size = self
+            .type_view()
+            .struct_def(name)
+            .map(|s| s.size)
+            .ok_or_else(|| format!("no struct named `{name}` — declare it in Local Types or load debug info"))?;
+        let size = sd_size.max(1) * count.max(1) as u64;
         if self.range_of(va).is_none() {
             return Err(format!("{va:#x} is not mapped"));
         }
@@ -523,7 +527,7 @@ impl Binary {
 
     /// One listing line per field (arrays of scalars on one line), nested structs flattened.
     fn struct_lines(&self, va: u64, ty: &str, path: &str, depth: u32, out: &mut Vec<Instruction>) {
-        let Some(sd) = self.annotations.types.structs.get(ty).cloned() else { return };
+        let Some(sd) = self.type_view().struct_def(ty).cloned() else { return };
         for f in &sd.fields {
             let at = va + f.offset;
             let fpath = format!("{path}.{}", f.name);

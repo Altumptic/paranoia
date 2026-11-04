@@ -349,7 +349,7 @@ fn as_chars(v: i64) -> Option<String> {
 
 impl Binary {
     fn enum_members(&self, name: &str) -> Option<(Vec<Member>, bool)> {
-        if let Some(e) = self.annotations.types.enums.get(name) {
+        if let Some(e) = crate::types::TypeSource::enum_def(&self.type_view(), name) {
             // User enums count as bit flags when every non-zero member is a single bit.
             let flags = e.members.len() > 1 && e.members.iter().all(|m| m.1 == 0 || (m.1 as u64).is_power_of_two());
             return Some((e.members.iter().map(|(n, v)| (n.clone(), *v, 0)).collect(), flags));
@@ -366,7 +366,7 @@ impl Binary {
     /// All enums (user + built-in) that can express `v`, for the `M` dialog.
     /// `param` (an argument name such as `dwShareMode`) puts its usual enum first.
     pub fn enum_candidates(&self, v: i64, param: Option<&str>) -> Vec<(String, String)> {
-        let mut names: Vec<String> = self.annotations.types.enums.keys().cloned().collect();
+        let mut names: Vec<String> = self.annotations.types.enums.keys().chain(self.debug_types.enums.keys()).cloned().collect();
         names.extend(BUILTIN.iter().map(|b| b.0.to_string()));
         if let Some(pref) = param.and_then(|p| param_enum("", p)) {
             if let Some(i) = names.iter().position(|n| n == pref) {

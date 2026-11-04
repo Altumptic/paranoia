@@ -45,6 +45,89 @@ pub struct TypeLibrary {
     pub enums: BTreeMap<String, EnumDef>,
 }
 
+/// Read-only access to struct / enum definitions, whichever layers they come from.
+pub trait TypeSource {
+    fn struct_def(&self, name: &str) -> Option<&StructDef>;
+    fn enum_def(&self, name: &str) -> Option<&EnumDef>;
+    fn has_structs(&self) -> bool;
+}
+
+impl TypeSource for TypeLibrary {
+    fn struct_def(&self, name: &str) -> Option<&StructDef> {
+        self.structs.get(name)
+    }
+    fn enum_def(&self, name: &str) -> Option<&EnumDef> {
+        self.enums.get(name)
+    }
+    fn has_structs(&self) -> bool {
+        !self.structs.is_empty()
+    }
+}
+
+/// The user's Local Types layered over the types recovered from debug info (DWARF / PDB):
+/// a user definition wins over a debug-info one with the same name. Debug-info types are
+/// runtime data — thousands of them — and are never saved with the annotations.
+#[derive(Clone, Copy)]
+pub struct TypeView<'a> {
+    pub user: &'a TypeLibrary,
+    pub debug: &'a TypeLibrary,
+}
+
+impl TypeSource for TypeView<'_> {
+    fn struct_def(&self, name: &str) -> Option<&StructDef> {
+        self.user.structs.get(name).or_else(|| self.debug.structs.get(name))
+    }
+    fn enum_def(&self, name: &str) -> Option<&EnumDef> {
+        self.user.enums.get(name).or_else(|| self.debug.enums.get(name))
+    }
+    fn has_structs(&self) -> bool {
+        !self.user.structs.is_empty() || !self.debug.structs.is_empty()
+    }
+}
+
+/// One match of a type-name search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeHit {
+    pub name: String,
+    /// `struct` or `enum`.
+    pub kind: String,
+    pub size: u64,
+    /// Where it came from: `user` or `debug`.
+    pub origin: String,
+}
+
+impl TypeView<'_> {
+    /// Names matching `query` (prefix matches first, then substring), user types before debug ones.
+    pub fn search(&self, query: &str, limit: usize) -> Vec<TypeHit> {
+        let q = query.trim().to_ascii_lowercase();
+        let mut hits: Vec<(u8, TypeHit)> = Vec::new();
+        for (lib, origin) in [(self.user, "user"), (self.debug, "debug")] {
+            let structs = lib.structs.iter().map(|(n, s)| (n, "struct", s.size));
+            let enums = lib.enums.keys().map(|n| (n, "enum", 0));
+            for (name, kind, size) in structs.chain(enums) {
+                let low = name.to_ascii_lowercase();
+                let rank = if q.is_empty() || low.starts_with(&q) {
+                    0
+                } else if low.contains(&q) {
+                    1
+                } else {
+                    continue;
+                };
+                // A user type hides a debug type of the same name.
+                if origin == "debug" && (self.user.structs.contains_key(name) || self.user.enums.contains_key(name)) {
+                    continue;
+                }
+                hits.push((
+                    rank + u8::from(origin == "debug") * 2,
+                    TypeHit { name: name.clone(), kind: kind.into(), size, origin: origin.into() },
+                ));
+            }
+        }
+        hits.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.len().cmp(&b.1.name.len())).then_with(|| a.1.name.cmp(&b.1.name)));
+        hits.into_iter().take(limit).map(|h| h.1).collect()
+    }
+}
+
 fn scalar(ty: &str, ptr: u64) -> Option<u64> {
     let t = ty
         .trim()
@@ -244,6 +327,24 @@ pub fn parse(source: &str, ptr_size: u64) -> Result<TypeLibrary, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_types_shadow_debug_types() {
+        let user = parse("struct Packet { DWORD a; DWORD b; };", 8).unwrap();
+        let mut debug = parse("struct Packet { BYTE a; }; struct Packet2 { QWORD q; }; enum Mode { A, B };", 8).unwrap();
+        debug.source.clear();
+        let v = TypeView { user: &user, debug: &debug };
+        // The user's definition wins, and the debug one with the same name is not listed.
+        assert_eq!(v.struct_def("Packet").unwrap().size, 8);
+        assert!(v.struct_def("Packet2").is_some() && v.enum_def("Mode").is_some());
+        assert!(v.struct_def("Nope").is_none() && v.has_structs());
+        let hits = v.search("packet", 10);
+        let names: Vec<_> = hits.iter().map(|h| (h.name.as_str(), h.origin.as_str())).collect();
+        assert_eq!(names, [("Packet", "user"), ("Packet2", "debug")]);
+        // Substring matches come after prefix matches; the limit applies.
+        assert_eq!(v.search("ode", 10)[0].name, "Mode");
+        assert_eq!(v.search("", 1).len(), 1);
+    }
 
     #[test]
     fn layout() {
