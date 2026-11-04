@@ -347,3 +347,62 @@ fn assemble_over_code() {
     assert!(l[0].bytes.starts_with("b844332211"), "{:?}", l[0].bytes);
     assert!(bin.assemble_at(va, "bogus eax", true).is_err());
 }
+
+/// Reaching-definition variables only ever split more than the older top-level splitting, never less,
+/// and the output keeps its shape: declared variables are all used, none is declared twice.
+#[test]
+fn ssa_variables_refine_the_old_splitting() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/node_modules/electron-winstaller/vendor");
+    let mut inputs: Vec<(String, Vec<u8>)> = vec![];
+    if let Ok(b) = std::fs::read(dir.join("Setup.exe")) {
+        inputs.push(("Setup.exe".into(), b));
+    }
+    if let Ok(b) = std::env::current_exe().and_then(std::fs::read) {
+        inputs.push(("self".into(), b));
+    }
+    let decls = |lines: &[paranoia_core::PseudoLine]| -> Vec<String> {
+        lines
+            .iter()
+            .skip(1)
+            .take_while(|l| l.address.is_none())
+            .filter_map(|l| {
+                let t: String = l.tokens.iter().map(|t| t.t.as_str()).collect();
+                let name = t.split("; //").next()?.rsplit(' ').next()?.trim_end_matches(';').to_string();
+                (t.contains("; //") && name.starts_with('v')).then_some(name)
+            })
+            .collect()
+    };
+    let (mut checked, mut old_total, mut new_total, mut grew) = (0usize, 0usize, 0usize, 0usize);
+    for (name, bytes) in inputs {
+        let Ok(mut bin) = Binary::load(&name, bytes) else { continue };
+        bin.analyze();
+        let funcs: Vec<u64> =
+            bin.functions().iter().filter(|f| f.instructions > 6 && f.instructions < 500).map(|f| f.address).take(20).collect();
+        for va in funcs {
+            bin.set_ssa_variables(false);
+            let old = bin.pseudocode(va);
+            bin.set_ssa_variables(true);
+            let new = bin.pseudocode(va);
+            let (Some(old), Some(new)) = (old, new) else { continue };
+            let (o, n) = (decls(&old.lines), decls(&new.lines));
+            assert!(n.len() >= o.len(), "{name} {va:#x}: {} variables became {}", o.len(), n.len());
+            let mut uniq = n.clone();
+            uniq.sort();
+            uniq.dedup();
+            assert_eq!(uniq.len(), n.len(), "{name} {va:#x}: a variable is declared twice");
+            let body: String =
+                new.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n");
+            for v in &n {
+                assert!(body.matches(v.as_str()).count() >= 2, "{name} {va:#x}: {v} is declared but never used");
+            }
+            checked += 1;
+            old_total += o.len();
+            new_total += n.len();
+            grew += usize::from(n.len() > o.len());
+        }
+    }
+    eprintln!("ssa variables: {checked} functions, {old_total} -> {new_total} variables, {grew} functions got finer");
+    if checked > 0 {
+        assert!(new_total >= old_total);
+    }
+}

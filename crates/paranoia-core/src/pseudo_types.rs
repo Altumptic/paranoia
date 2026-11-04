@@ -378,15 +378,50 @@ fn split_points(lines: &[PseudoLine]) -> HashMap<String, Vec<usize>> {
     out
 }
 
+/// How register occurrences are grouped into variables.
+enum Seg {
+    /// Reaching definitions over the structured code (`pseudo_ssa`).
+    Webs(crate::pseudo_ssa::Webs),
+    /// Top-level overwrites with no jump across them (used when the structure cannot be read).
+    Old(HashMap<String, Vec<usize>>),
+}
+
+impl Seg {
+    fn new(lines: &[PseudoLine], webs: bool) -> Seg {
+        if webs {
+            if let Some(w) = crate::pseudo_ssa::recover(lines) {
+                return Seg::Webs(w);
+            }
+        }
+        Seg::Old(split_points(lines))
+    }
+
+    /// Variable key of the register `f` at token `tok` of `line`: family + segment.
+    fn key(&self, f: &str, line: usize, tok: usize) -> String {
+        match self {
+            Seg::Webs(w) => w.key(f, line, tok),
+            Seg::Old(splits) => {
+                let seg = splits.get(f).map(|v| v.iter().filter(|&&k| k <= line).count()).unwrap_or(0);
+                format!("{f}#{seg}")
+            }
+        }
+    }
+
+    /// Whether this occurrence is the plain overwrite that starts a fresh value.
+    fn starts(&self, f: &str, line: usize, tok: usize) -> bool {
+        match self {
+            Seg::Webs(w) => tok == 0 && w.is_def(f, line),
+            Seg::Old(splits) => splits.get(f).is_some_and(|v| v.contains(&line)),
+        }
+    }
+}
+
 /// Renames registers to `a1…`/`v1…`, infers types and writes declarations + signature.
-pub(crate) fn type_variables(lines: &mut Vec<PseudoLine>, sig: &Signature) {
-    let splits = split_points(lines);
-    // Variable key of a register occurrence: family + segment.
-    let reg_key = |f: &str, line: usize| -> String {
-        let seg = splits.get(f).map(|v| v.iter().filter(|&&k| k <= line).count()).unwrap_or(0);
-        format!("{f}#{seg}")
-    };
-    let starts_segment = |f: &str, line: usize| splits.get(f).is_some_and(|v| v.contains(&line));
+/// `webs` selects reaching-definition variables over the older conservative splitting.
+pub(crate) fn type_variables_with(lines: &mut Vec<PseudoLine>, sig: &Signature, webs: bool) {
+    let seg = Seg::new(lines, webs);
+    let reg_key = |f: &str, line: usize, tok: usize| seg.key(f, line, tok);
+    let starts_segment = |f: &str, line: usize, tok: usize| seg.starts(f, line, tok);
 
     // 1. Variables and their widths, in order of appearance.
     let mut order: Vec<(String, String)> = Vec::new(); // (key, family)
@@ -395,7 +430,7 @@ pub(crate) fn type_variables(lines: &mut Vec<PseudoLine>, sig: &Signature) {
     let mut stack_vars: Vec<String> = Vec::new();
     let mut stack_args: Vec<String> = Vec::new();
     for (i, l) in lines.iter().enumerate().skip(1) {
-        for t in &l.tokens {
+        for (ti, t) in l.tokens.iter().enumerate() {
             if t.k != TokenKind::Register {
                 continue;
             }
@@ -415,7 +450,7 @@ pub(crate) fn type_variables(lines: &mut Vec<PseudoLine>, sig: &Signature) {
             if matches!(f.as_str(), "rsp" | "rip") {
                 continue;
             }
-            let k = reg_key(&f, i);
+            let k = reg_key(&f, i, ti);
             if !first_line.contains_key(&k) {
                 first_line.insert(k.clone(), i);
                 order.push((k.clone(), f.clone()));
@@ -442,22 +477,22 @@ pub(crate) fn type_variables(lines: &mut Vec<PseudoLine>, sig: &Signature) {
     // 3. Type hints from prototyped calls. Scratch registers only take a type when the
     //    variable is born from that call's result.
     let mut hints: HashMap<String, String> = HashMap::new();
-    let key_at = |t: &Token, line: usize| -> Option<(String, Option<String>)> {
+    let key_at = |t: &Token, line: usize, ti: usize| -> Option<(String, Option<String>)> {
         if t.k != TokenKind::Register {
             return None;
         }
         if t.t.starts_with("var_") || t.t.starts_with("arg_") {
             return Some((t.t.clone(), None));
         }
-        family(&t.t).map(|f| (reg_key(&f.0, line), Some(f.0)))
+        family(&t.t).map(|f| (reg_key(&f.0, line, ti), Some(f.0)))
     };
     for (i, l) in lines.iter().enumerate() {
         let Some(c) = call_at(l) else { continue };
         let Some(proto) = crate::protos::lookup(&l.tokens[c].t) else { continue };
         if c == 2 && l.tokens[1].t == " = " && proto.ret != "void" {
-            if let Some((k, f)) = key_at(&l.tokens[0], i) {
+            if let Some((k, f)) = key_at(&l.tokens[0], i, 0) {
                 let fresh =
-                    f.as_deref().is_none_or(|f| !sig.volatile.contains(&f) || starts_segment(f, i) || first_line.get(&k) == Some(&i));
+                    f.as_deref().is_none_or(|f| !sig.volatile.contains(&f) || starts_segment(f, i, 0) || first_line.get(&k) == Some(&i));
                 if fresh {
                     hints.entry(k).or_insert_with(|| proto.ret.to_string());
                 }
@@ -487,7 +522,7 @@ pub(crate) fn type_variables(lines: &mut Vec<PseudoLine>, sig: &Signature) {
             if depth != 1 || !(after.starts_with(',') || after.starts_with(')')) {
                 continue;
             }
-            let Some((name, f)) = key_at(t, i) else { continue };
+            let Some((name, f)) = key_at(t, i, k) else { continue };
             // Arguments only type stable variables (params, non-volatile registers, stack slots).
             if f.as_deref().is_some_and(|f| sig.volatile.contains(&f)) && !param_keys.contains(&name) {
                 continue;
@@ -506,12 +541,12 @@ pub(crate) fn type_variables(lines: &mut Vec<PseudoLine>, sig: &Signature) {
     // 4. Rewrite register tokens.
     for (i, l) in lines.iter_mut().enumerate().skip(1) {
         let mut out = Vec::with_capacity(l.tokens.len());
-        for t in std::mem::take(&mut l.tokens) {
+        for (ti, t) in std::mem::take(&mut l.tokens).into_iter().enumerate() {
             let renamed = (t.k == TokenKind::Register && !t.t.starts_with("var_") && !t.t.starts_with("arg_"))
                 .then(|| family(&t.t))
                 .flatten()
                 .and_then(|(f, w)| {
-                    let k = reg_key(&f, i);
+                    let k = reg_key(&f, i, ti);
                     names.get(&k).map(|n| (n.clone(), w, k))
                 });
             match renamed {
