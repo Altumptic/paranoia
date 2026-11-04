@@ -33,6 +33,7 @@ test("messages name the task, carry the code and clip huge functions", () => {
   assert.match(big[1].content, /500 more characters omitted/);
   assert.ok(big[1].content.length < A.MAX_CODE_CHARS + 400);
   assert.throws(() => A.buildMessages("nope", {}), /unknown assistant task/);
+  for (const t of ["constructor", "__proto__", "toString", 1, null]) assert.throws(() => A.buildMessages(t, {}), /unknown assistant task/);
 });
 
 test("chat posts to /chat/completions with the key and returns the answer", async () => {

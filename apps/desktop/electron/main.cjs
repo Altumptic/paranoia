@@ -242,6 +242,19 @@ handle("ai:set", async (_e, input) => {
   if (raw) {
     const ep = ai.parseEndpoint(raw);
     next.endpoint = ep.url;
+    if (ep.local && ep.url !== cur.endpoint) {
+      const r = await dialog.showMessageBox(win, {
+        type: "question",
+        title: "AI assistant",
+        message: `Use the model server at ${ep.url}?`,
+        detail: "This address is on this computer. The assistant sends it the decompiled text of a function only when you choose an Assistant command.",
+        buttons: ["Cancel", "Use it"],
+        defaultId: 1,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (r.response !== 1) throw new Error("Endpoint not changed");
+    }
     if (!ep.local && cur.approvedHost !== ep.host) {
       const r = await dialog.showMessageBox(win, {
         type: "warning",
