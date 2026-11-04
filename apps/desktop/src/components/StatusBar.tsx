@@ -48,8 +48,8 @@ export function StatusBar({ native }: { native: boolean }) {
       <span className="sb-item" title={native ? "Native Rust engine" : "Rust engine compiled to WebAssembly"}>
         <Cpu size={12} /> {native ? "Native" : "WASM"}
       </span>
-      <span className="sb-item sb-private" title="No telemetry, no network access">
-        <EyeOff size={12} /> Offline · no telemetry
+      <span className="sb-item sb-private" title="No telemetry, no update checks. The only network use is the optional AI assistant, and only to the server you set.">
+        <EyeOff size={12} /> No telemetry
       </span>
     </footer>
   );

@@ -220,6 +220,21 @@ function useMenus(): Menu[] {
             },
           ]
         : []),
+      ...(desktop
+        ? [
+            {
+              id: "assistant",
+              label: "Assistant",
+              items: [
+                { label: "Explain this function", disabled: noCursor, run: () => st().askAssistant("explain") },
+                { label: "Suggest a name", disabled: noCursor, run: () => st().askAssistant("name") },
+                { label: "Flag suspicious behaviour", disabled: noCursor, run: () => st().askAssistant("suspicious") },
+                sep,
+                { label: "Settings…", run: () => st().set("aiSettingsOpen", true) },
+              ] as Item[],
+            },
+          ]
+        : []),
       {
         id: "help",
         label: "Help",

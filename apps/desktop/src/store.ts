@@ -43,6 +43,8 @@ interface State {
   search: SearchKind | null;
   menuOpen: boolean;
   aboutOpen: boolean;
+  aiSettingsOpen: boolean;
+  assistant: null | { title: string; fn: string; va: number | null; state: "busy" | "done" | "error"; text: string; name: { name: string; reason: string } | null; host: string; local: boolean };
   plugins: { dir: string; list: PluginInfo[]; errors: { id: string; error: string }[] };
   /** Token text highlighted across views (IDA's yellow highlight). */
   highlight: string | null;
@@ -84,6 +86,7 @@ interface State {
   redo(): Promise<void>;
   /** Refreshes derived state after an engine-side edit. */
   afterEdit(reanalyzed: boolean): Promise<void>;
+  askAssistant(task: "explain" | "name" | "suspicious"): Promise<void>;
   loadPlugins(): Promise<void>;
   runPlugin(id: string, commandId: string): Promise<void>;
   print(text: string, kind?: "info" | "error" | "out"): void;
@@ -117,6 +120,8 @@ export const useStore = create<State>((set, get) => ({
   search: null,
   menuOpen: false,
   aboutOpen: false,
+  aiSettingsOpen: false,
+  assistant: null,
   plugins: { dir: "", list: [], errors: [] },
   highlight: null,
   xrefsFor: null,
@@ -297,6 +302,34 @@ export const useStore = create<State>((set, get) => ({
     const [annotations, undoDepth] = await Promise.all([persist(session, info), session.history()]);
     const extra = reanalyzed ? { functions: await session.functions(), stats: await session.stats() } : {};
     set({ annotations, undoDepth, revision: get().revision + 1, ...extra });
+  },
+
+  async askAssistant(task) {
+    const { session, cursor, info } = get();
+    if (!desktop || !session || cursor == null) return;
+    const titles = { explain: "Explain function", name: "Suggest a name", suspicious: "Flag suspicious behaviour" } as const;
+    const title = titles[task];
+    try {
+      const f = await session.functionAt(cursor);
+      if (!f) return get().toast("Put the cursor inside a function first", "error");
+      const s = await desktop.ai.get();
+      if (!s.endpoint) {
+        get().toast("The assistant is off — set it up first", "info");
+        set({ aiSettingsOpen: true });
+        return;
+      }
+      set({ assistant: { title, fn: f.name, va: f.address, state: "busy", text: "", name: null, host: s.host, local: s.local } });
+      const pc = await session.pseudocode(f.address);
+      if (!pc || pc.lines.length === 0) throw new Error("There is no pseudocode for this function (x86 / x64 only)");
+      const code = pc.lines.map((l) => "  ".repeat(l.indent) + l.tokens.map((t) => t.t).join("")).join("\n");
+      const r = await desktop.ai.ask({ task, name: f.name, address: `0x${f.address.toString(16)}`, arch: info?.arch ?? "unknown", format: info?.format ?? "unknown", code });
+      if (get().assistant?.va !== f.address) return; // closed or replaced while waiting
+      set({ assistant: { title, fn: f.name, va: f.address, state: "done", text: r.text, name: r.name, host: r.host, local: r.local } });
+    } catch (e) {
+      const msg = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+      if (/^Cancelled$/i.test(msg)) return set({ assistant: null });
+      set({ assistant: { title, fn: "", va: null, state: "error", text: msg, name: null, host: "", local: true } });
+    }
   },
 
   async loadPlugins() {

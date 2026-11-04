@@ -30,7 +30,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 
 ## Why Paranoia
 
-- **Private by design.** No accounts, no telemetry, no network access. Files are analysed on your machine and never uploaded.
+- **Private by design.** No accounts, no telemetry, no update checks. Files are analysed on your machine and never uploaded. The one optional exception is the AI assistant, which stays off until you point it at a model server (a local Ollama / LM Studio keeps everything on your computer).
 - **Fast.** The native Rust engine analyses `shell32.dll` (24 449 functions, 1.47 M instructions) in about two seconds on a mid-range laptop.
 - **Built for hostile input.** The engine parses files in its own process, every CI run feeds it 1 500 corrupted PE / ELF / Mach-O files, and a crash never takes the UI down.
 - **Verifiable.** Releases come with signed checksums, build-provenance attestations and an SBOM ([how to verify](docs/VERIFY.md)).
@@ -89,7 +89,7 @@ Step by step: [docs/VERIFY.md](docs/VERIFY.md).
 
 ## Security and privacy
 
-- **No network.** The app makes no connections: no telemetry, no update checks, no remote fonts or scripts. Updates are manual.
+- **No network by default.** The app makes no connections: no telemetry, no update checks, no remote fonts or scripts. Updates are manual. Only if you configure the AI assistant does the desktop app contact the server you chose — the page itself still has no network access.
 - **Your data stays local.** Annotations and the recent-files list live in `%APPDATA%\Paranoia`; nothing else is stored ([data inventory](docs/SECURITY-DESIGN.md#data-inventory)).
 - **Hardened desktop shell.** Sandboxed renderer with a CSP that forbids `eval`; the JavaScript console runs in an isolated worker; the engine opens only files you chose; starting the debugger or a Python script needs a native confirmation; Electron fuses lock the binary down.
 - **Honest scope.** The debugger runs the program you analyse — use a VM for malware. Your Python scripts are ordinary programs. No independent audit has been done yet.

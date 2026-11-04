@@ -126,6 +126,23 @@ class WasmBackend implements Backend {
 // ------------------------------------------------------------------------------------------------
 
 /** Bridge exposed by electron/preload.cjs. */
+export interface AiSettings {
+  endpoint: string;
+  model: string;
+  hasKey: boolean;
+  local: boolean;
+  host: string;
+  /** Whether the OS can encrypt the API key for storage. */
+  encryption: boolean;
+}
+
+export interface AiAnswer {
+  text: string;
+  name: { name: string; reason: string } | null;
+  host: string;
+  local: boolean;
+}
+
 export interface PluginInfo {
   id: string;
   name: string;
@@ -150,6 +167,13 @@ export interface DesktopBridge {
   pathForFile(file: File): string | null;
   onOpenPath(cb: (path: string) => void): () => void;
   onEngineRestarted(cb: (reason: string) => void): () => void;
+  ai: {
+    get(): Promise<AiSettings>;
+    /** `key`: undefined keeps the stored key, "" clears it. A remote host asks the user in a native dialog. */
+    set(s: { endpoint: string; model: string; key?: string }): Promise<AiSettings>;
+    ask(req: { task: "explain" | "name" | "suspicious"; name: string; address: string; arch: string; format: string; code: string }): Promise<AiAnswer>;
+    cancel(): Promise<void>;
+  };
   plugins: {
     list(): Promise<{ dir: string; plugins: PluginInfo[]; errors: { id: string; error: string }[] }>;
     folder(): Promise<void>;

@@ -2,13 +2,14 @@
 // privileged (files, the native engine) goes through the narrow bridge in
 // preload.cjs.
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell, session } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, shell, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 
 const { EngineProcess } = require("./engine.cjs");
 const { PythonRunner } = require("./python.cjs");
 const plugins = require("./plugins.cjs");
+const ai = require("./ai.cjs");
 
 const isDev = !app.isPackaged && process.env.PARANOIA_DEV_URL;
 const ROOT = path.resolve(__dirname, "..");
@@ -205,6 +206,110 @@ handle("python:run", async (_e, code, session, cursor) => {
   return python.run(code, session, Number(cursor) || 0);
 });
 handle("python:stop", () => python.stop());
+
+// AI assistant: off until configured. The page never sees the key and has no network access;
+// this process makes the request, and a remote (non-loopback) host needs the user's explicit consent.
+const aiFile = () => path.join(app.getPath("userData"), "ai-settings.json");
+/** The API key kept in memory when the OS cannot encrypt it for storage. */
+let aiSessionKey = null;
+let aiRemoteConfirmed = null;
+let aiCancel = null;
+function aiRead() {
+  try {
+    const j = JSON.parse(fs.readFileSync(aiFile(), "utf8"));
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+const aiWrite = (s) => fs.writeFileSync(aiFile(), JSON.stringify(s), "utf8");
+function aiKey(s) {
+  if (aiSessionKey) return aiSessionKey;
+  if (!s.keyEnc || !safeStorage.isEncryptionAvailable()) return "";
+  try {
+    return safeStorage.decryptString(Buffer.from(s.keyEnc, "base64"));
+  } catch {
+    return "";
+  }
+}
+const aiPublic = (s) => ({ ...ai.publicSettings({ ...s, keyEnc: s.keyEnc || (aiSessionKey ? "session" : "") }), encryption: safeStorage.isEncryptionAvailable() });
+handle("ai:get", () => aiPublic(aiRead()));
+handle("ai:set", async (_e, input) => {
+  if (!input || typeof input !== "object") throw new Error("invalid settings");
+  const cur = aiRead();
+  const next = { model: String(input.model ?? "").trim().slice(0, 120) };
+  const raw = String(input.endpoint ?? "").trim();
+  if (raw) {
+    const ep = ai.parseEndpoint(raw);
+    next.endpoint = ep.url;
+    if (!ep.local && cur.approvedHost !== ep.host) {
+      const r = await dialog.showMessageBox(win, {
+        type: "warning",
+        title: "Use a remote AI service",
+        message: `Send function code to ${ep.host}?`,
+        detail:
+          `The assistant sends the decompiled text of the function you ask about (up to ${ai.MAX_CODE_CHARS} characters per request) to ${ep.host}. ` +
+          `That service may log it. Nothing is sent until you choose an assistant command, and nothing else from the file is sent.\n\nFor a binary you must keep private, use a local model (Ollama, LM Studio) instead.`,
+        buttons: ["Cancel", "Allow this host"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (r.response !== 1) throw new Error("Remote endpoint not allowed");
+      next.approvedHost = ep.host;
+    } else if (!ep.local) {
+      next.approvedHost = cur.approvedHost;
+    }
+  }
+  // Key: undefined keeps it, null / "" clears it, a string replaces it (encrypted with the OS keystore when possible).
+  if (input.key === undefined) {
+    if (cur.keyEnc) next.keyEnc = cur.keyEnc;
+  } else if (typeof input.key === "string" && input.key) {
+    if (safeStorage.isEncryptionAvailable()) {
+      next.keyEnc = safeStorage.encryptString(input.key).toString("base64");
+      aiSessionKey = null;
+    } else {
+      aiSessionKey = input.key; // memory only; never written in clear text
+    }
+  } else {
+    aiSessionKey = null;
+  }
+  aiRemoteConfirmed = null;
+  aiWrite(next);
+  return aiPublic(next);
+});
+handle("ai:cancel", () => aiCancel?.abort());
+handle("ai:ask", async (_e, req) => {
+  if (!req || typeof req !== "object" || typeof req.task !== "string" || typeof req.code !== "string") throw new Error("invalid assistant request");
+  if (req.code.length > 400000) throw new Error("The function is too large to send");
+  const s = aiRead();
+  if (!s.endpoint) throw new Error("The assistant is off — choose Assistant → Settings… and point it at a model server");
+  const ep = ai.parseEndpoint(s.endpoint);
+  const messages = ai.buildMessages(req.task, req);
+  if (!ep.local && aiRemoteConfirmed !== ep.host) {
+    const r = await dialog.showMessageBox(win, {
+      type: "question",
+      title: ai.TASKS[req.task].title,
+      message: `Send this function to ${ep.host}?`,
+      detail: `${Math.min(req.code.length, ai.MAX_CODE_CHARS)} characters of decompiled code for “${String(req.name ?? "").slice(0, 80)}” will leave this computer. Paranoia asks once per session for each host.`,
+      buttons: ["Cancel", "Send"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (r.response !== 1) throw new Error("Cancelled");
+    aiRemoteConfirmed = ep.host;
+  }
+  aiCancel?.abort();
+  const ctl = new AbortController();
+  aiCancel = ctl;
+  try {
+    const text = await ai.chat({ endpoint: s.endpoint, key: aiKey(s), model: s.model, messages, signal: ctl.signal });
+    return { text, name: req.task === "name" ? ai.parseName(text) : null, host: ep.host, local: ep.local };
+  } finally {
+    if (aiCancel === ctl) aiCancel = null;
+  }
+});
 
 // Plugins: folders under %APPDATA%\Paranoia\plugins. The renderer only learns names and commands;
 // the script text is read fresh from disk here, after the user has agreed to run exactly that version.

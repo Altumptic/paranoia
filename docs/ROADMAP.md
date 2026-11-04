@@ -43,6 +43,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
 | Scripting | ✅ | Python (your CPython, IDAPython-style `idc` / `idautils` names) and JavaScript consoles; headless `paranoia script` batch mode |
+| AI assistant | ✅ | Optional; off until you set an OpenAI-compatible endpoint (Ollama / LM Studio / hosted). **Assistant** menu: explain the function under the cursor, suggest a name (applied only on click), flag suspicious behaviour. Requests come from the main process, carry one function's decompiled text, and a non-loopback host needs native consent. Not yet: streaming, chat, batch renaming |
 | Plugins | ✅ | Folder + `plugin.json` manifest + one `.js` / `.py` script; commands in the **Plugins** menu; native confirmation per version (SHA-256 of manifest + script). See [PLUGINS.md](PLUGINS.md). Not yet: plugin panels, hotkeys, event hooks |
 | Debugger | 🟡 | Local Windows x64 and 32-bit (WOW64) programs: breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. Linux and remote planned |
 | Export: IDC script | ✅ | Names, comments, user functions |
@@ -54,7 +55,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 1. **Decompiler v3** — SSA-based variable recovery; type propagation through arithmetic and arrays of structures.
 2. **Signatures & types** — IDA `.sig` reading, more built-in libraries; ~~PDB types~~ (done).
 3. ~~**Plugins**~~ — done (commands); next: panels, hotkeys and event hooks.
-4. **AI assistant** — optional, local-first (Ollama / LM Studio) or user-supplied API keys: explain function, suggest names, flag suspicious patterns. Nothing leaves the machine unless the user opts in.
+4. ~~**AI assistant**~~ — done (explain, suggest a name, flag suspicious behaviour); next: batch naming of `sub_` functions, chat about a selection, streaming.
 5. **More architectures** — PowerPC; mixed ARM/Thumb images; pseudocode beyond x86.
 6. **Debugger** — ~~32-bit Windows targets~~ (done), Linux (ptrace / gdbserver) and remote backends.
 
