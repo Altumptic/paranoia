@@ -21,6 +21,7 @@ export function App() {
 
   useEffect(() => {
     useStore.getState().loadRecent();
+    useStore.getState().loadPlugins();
     if (!desktop) return;
     const offOpen = desktop.onOpenPath((path) => useStore.getState().open({ kind: "path", path }));
     const offRestart = desktop.onEngineRestarted(() => {

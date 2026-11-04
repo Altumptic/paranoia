@@ -1,0 +1,9 @@
+{
+  "id": "unnamed-functions",
+  "name": "Unnamed functions",
+  "version": "1.0.0",
+  "description": "Counts functions that still carry an automatic sub_ name (IDAPython style).",
+  "language": "py",
+  "entry": "main.py",
+  "commands": [{ "id": "count", "title": "Count unnamed functions", "run": "count_unnamed" }]
+}

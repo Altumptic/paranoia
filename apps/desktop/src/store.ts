@@ -1,7 +1,8 @@
 import { create } from "zustand";
 
 import type { DebugSnapshot } from "./debug";
-import { getBackend, Session, type OpenSource, type RecentFile } from "./engine/client";
+import { desktop, getBackend, Session, type OpenSource, type PluginInfo, type RecentFile } from "./engine/client";
+import { runScript } from "./scripting";
 import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, InsnPatch, Instruction, SearchKind } from "./engine/types";
 
 export type SidebarTab = "functions" | "names" | "imports" | "exports" | "strings" | "sections" | "symbols" | "types" | "bookmarks";
@@ -42,6 +43,7 @@ interface State {
   search: SearchKind | null;
   menuOpen: boolean;
   aboutOpen: boolean;
+  plugins: { dir: string; list: PluginInfo[]; errors: { id: string; error: string }[] };
   /** Token text highlighted across views (IDA's yellow highlight). */
   highlight: string | null;
   /** Address whose cross references are shown in the X dialog. */
@@ -82,6 +84,8 @@ interface State {
   redo(): Promise<void>;
   /** Refreshes derived state after an engine-side edit. */
   afterEdit(reanalyzed: boolean): Promise<void>;
+  loadPlugins(): Promise<void>;
+  runPlugin(id: string, commandId: string): Promise<void>;
   print(text: string, kind?: "info" | "error" | "out"): void;
   set<K extends keyof State>(key: K, value: State[K]): void;
   toast(text: string, kind?: Toast["kind"]): void;
@@ -113,6 +117,7 @@ export const useStore = create<State>((set, get) => ({
   search: null,
   menuOpen: false,
   aboutOpen: false,
+  plugins: { dir: "", list: [], errors: [] },
   highlight: null,
   xrefsFor: null,
   contextMenu: null,
@@ -292,6 +297,41 @@ export const useStore = create<State>((set, get) => ({
     const [annotations, undoDepth] = await Promise.all([persist(session, info), session.history()]);
     const extra = reanalyzed ? { functions: await session.functions(), stats: await session.stats() } : {};
     set({ annotations, undoDepth, revision: get().revision + 1, ...extra });
+  },
+
+  async loadPlugins() {
+    if (!desktop) return;
+    try {
+      const r = await desktop.plugins.list();
+      set({ plugins: { dir: r.dir, list: r.plugins, errors: r.errors } });
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async runPlugin(id, commandId) {
+    const { session, plugins } = get();
+    const p = plugins.list.find((x) => x.id === id);
+    const title = p?.commands.find((c) => c.id === commandId)?.title ?? commandId;
+    if (!desktop || !session) return;
+    try {
+      // The native dialog (first run of this version) and the fresh read of the script happen in the main process.
+      const r = await desktop.plugins.run(id, commandId);
+      set({ consoleOpen: true });
+      get().print(`› ${r.name}: ${title}`, "info");
+      const t0 = performance.now();
+      if (r.language === "py") {
+        await desktop.python.run(r.code, session.handle, get().cursor ?? 0);
+        return;
+      }
+      const out = await runScript(r.code, (...a: unknown[]) => get().print(a.map((v) => (typeof v === "string" ? v : JSON.stringify(v))).join(" ")));
+      if (out !== undefined) get().print(typeof out === "string" ? out : JSON.stringify(out));
+      get().print(`done in ${Math.round(performance.now() - t0)} ms`, "info");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/cancelled/i.test(msg)) get().print(`${title}: ${msg}`, "error");
+      get().toast(msg, /cancelled/i.test(msg) ? undefined : "error");
+    }
   },
 
   print(text, kind = "out") {

@@ -8,6 +8,7 @@ const fs = require("node:fs");
 
 const { EngineProcess } = require("./engine.cjs");
 const { PythonRunner } = require("./python.cjs");
+const plugins = require("./plugins.cjs");
 
 const isDev = !app.isPackaged && process.env.PARANOIA_DEV_URL;
 const ROOT = path.resolve(__dirname, "..");
@@ -204,6 +205,50 @@ handle("python:run", async (_e, code, session, cursor) => {
   return python.run(code, session, Number(cursor) || 0);
 });
 handle("python:stop", () => python.stop());
+
+// Plugins: folders under %APPDATA%\Paranoia\plugins. The renderer only learns names and commands;
+// the script text is read fresh from disk here, after the user has agreed to run exactly that version.
+const pluginsDir = () => path.join(app.getPath("userData"), "plugins");
+const pluginTrustFile = () => path.join(app.getPath("userData"), "plugins-trust.json");
+handle("plugins:list", () => {
+  fs.mkdirSync(pluginsDir(), { recursive: true });
+  const r = plugins.scan(pluginsDir());
+  const trusted = plugins.readTrust(pluginTrustFile());
+  return { dir: pluginsDir(), plugins: r.plugins.map((p) => ({ ...p, trusted: trusted.has(p.hash) })), errors: r.errors };
+});
+handle("plugins:folder", async () => {
+  fs.mkdirSync(pluginsDir(), { recursive: true });
+  await shell.openPath(pluginsDir());
+});
+handle("plugins:run", async (_e, id, commandId) => {
+  if (typeof id !== "string" || typeof commandId !== "string") throw new Error("invalid plugin request");
+  const { plugin, code, hash } = plugins.load(pluginsDir(), id);
+  const script = plugins.invocation(plugin, commandId, code);
+  const trust = plugins.readTrust(pluginTrustFile());
+  if (!trust.has(hash)) {
+    const r = await dialog.showMessageBox(win, {
+      type: "question",
+      title: "Run plugin",
+      message: `Run “${plugin.name}” ${plugin.version}?`,
+      detail:
+        `A plugin is a script written by someone else. ` +
+        (plugin.language === "py"
+          ? "This one is Python: it runs with your user's permissions and can read files and use the network.\n\n"
+          : "This one is JavaScript: it can read and change this analysis through the pn API, but cannot touch your files or the network.\n\n") +
+        `Folder: ${path.join(pluginsDir(), id)}\nScript: ${plugin.entry} (${code.length} bytes)\nFingerprint: ${hash.slice(0, 16)}…\n\nChanging the plugin asks again.`,
+      buttons: ["Cancel", "Run once", "Always run this version"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (r.response === 0) throw new Error("Plugin cancelled");
+    if (r.response === 2) {
+      trust.add(hash);
+      plugins.writeTrust(pluginTrustFile(), trust);
+    }
+  }
+  return { language: plugin.language, name: plugin.name, code: script };
+});
 
 handle("dialog:open", async () => {
   const r = await dialog.showOpenDialog(win, {

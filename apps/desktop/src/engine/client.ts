@@ -126,6 +126,18 @@ class WasmBackend implements Backend {
 // ------------------------------------------------------------------------------------------------
 
 /** Bridge exposed by electron/preload.cjs. */
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  language: "js" | "py";
+  entry: string;
+  commands: { id: string; title: string; run: string | null }[];
+  hash: string;
+  trusted: boolean;
+}
+
 export interface DesktopBridge {
   engine(req: Record<string, unknown>): Promise<unknown>;
   openDialog(): Promise<string | null>;
@@ -138,6 +150,12 @@ export interface DesktopBridge {
   pathForFile(file: File): string | null;
   onOpenPath(cb: (path: string) => void): () => void;
   onEngineRestarted(cb: (reason: string) => void): () => void;
+  plugins: {
+    list(): Promise<{ dir: string; plugins: PluginInfo[]; errors: { id: string; error: string }[] }>;
+    folder(): Promise<void>;
+    /** Asks the user (native dialog) and returns the script to execute. */
+    run(id: string, commandId: string): Promise<{ language: "js" | "py"; name: string; code: string }>;
+  };
   python: {
     status(): Promise<{ available: boolean; version?: string; exe?: string }>;
     run(code: string, handle: number, cursor: number): Promise<{ started: boolean; version: string }>;

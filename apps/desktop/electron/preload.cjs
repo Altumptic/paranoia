@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld("paranoia", {
       return () => hs.forEach(([ch, h]) => ipcRenderer.removeListener(ch, h));
     },
   },
+  plugins: {
+    list: () => ipcRenderer.invoke("plugins:list"),
+    folder: () => ipcRenderer.invoke("plugins:folder"),
+    run: (id, commandId) => ipcRenderer.invoke("plugins:run", id, commandId),
+  },
   onEngineRestarted: (cb) => {
     const h = (_e, r) => cb(r);
     ipcRenderer.on("engine:restarted", h);

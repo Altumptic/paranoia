@@ -40,6 +40,7 @@ function useMenus(): Menu[] {
   const showBytes = useStore((s) => s.showBytes);
   const centerTab = useStore((s) => s.centerTab);
   const dbg = useStore((s) => s.debug);
+  const plugins = useStore((s) => s.plugins);
   const history = useStore((s) => s.history);
   const historyIndex = useStore((s) => s.historyIndex);
   const [theme, setTheme] = useTheme();
@@ -194,6 +195,27 @@ function useMenus(): Menu[] {
                 { label: "Run to cursor", keys: "F4", disabled: !paused || noCursor, run: () => debug.runTo(at()) },
                 sep,
                 { label: "Toggle breakpoint", keys: "F2", disabled: noCursor, run: () => debug.toggleBreakpoint(at()) },
+              ] as Item[],
+            },
+          ]
+        : []),
+      ...(desktop
+        ? [
+            {
+              id: "plugins",
+              label: "Plugins",
+              items: [
+                ...(plugins.list.length === 0
+                  ? [{ label: "No plugins installed", disabled: true, run: () => {} } as Item]
+                  : plugins.list.flatMap((p, i) => [
+                      ...(i > 0 ? [sep] : []),
+                      { label: `${p.name} ${p.version}${p.language === "py" ? " · Python" : ""}`, disabled: true, run: () => {} } as Item,
+                      ...p.commands.map((c) => ({ label: c.title, disabled: noFile, run: () => st().runPlugin(p.id, c.id) }) as Item),
+                    ])),
+                ...plugins.errors.flatMap((e) => [{ label: `⚠ ${e.id}: ${e.error}`.slice(0, 90), disabled: true, run: () => {} } as Item]),
+                sep,
+                { label: "Reload plugins", run: () => st().loadPlugins() },
+                { label: "Open plugins folder…", run: () => void desktop?.plugins.folder() },
               ] as Item[],
             },
           ]

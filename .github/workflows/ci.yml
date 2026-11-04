@@ -57,6 +57,7 @@ jobs:
         run: |
           npm ci
           npx tsc -b --noEmit
+          npm test
           npm run wasm
           npm run build
 
