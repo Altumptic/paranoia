@@ -77,9 +77,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      # Any advisory fails the build, except those listed with a reason and an expiry date in
+      # scripts/npm-audit-gate.mjs (and docs/PSB.md); an expired entry fails again.
       - name: npm advisories
         working-directory: apps/desktop
-        run: npm audit --audit-level=moderate
+        run: node ../../scripts/npm-audit-gate.mjs
 
   release:
     name: Windows release

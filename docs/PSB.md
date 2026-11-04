@@ -68,7 +68,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | --- | --- | --- |
 | Threat model | ✅ | [SECURITY-DESIGN.md](SECURITY-DESIGN.md) (not required for class C, provided anyway) |
 | Pinned dependencies | ✅ | `Cargo.lock`, `package-lock.json`; GitHub Actions pinned to commit SHAs |
-| Audit in CI, critical CVEs block release | ✅ | `audit` job (`cargo audit`, `npm audit --audit-level=moderate`); the release job depends on it |
+| Audit in CI, critical CVEs block release | ✅ | `audit` job: `cargo audit`, and `npm audit` through `scripts/npm-audit-gate.mjs` (any advisory fails; accepted ones carry an expiry date, see PSB-EX-4); the release job depends on it |
 | CI secrets short-lived | ✅ | Signing and attestations use OIDC; release job has the only write permissions |
 | Second pair of eyes on security diffs | ⚠️ | Single-maintainer project: security-relevant changes are recorded in commit messages and release notes (founder sign-off) |
 | Negative tests for untrusted input | ✅ | Noise and mutation tests in `paranoia-core` (decoders, loaders, type and `.pat` parsers) |
@@ -88,6 +88,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | PSB-EX-1 | Windows executables are not Authenticode-signed | No code-signing certificate yet ([SIGNING.md](SIGNING.md)) | `SHA256SUMS` + Sigstore signature + GitHub attestations; stated on the README and in every release | 2027-04-30 |
 | PSB-EX-2 | CSP allows `'wasm-unsafe-eval'` | The browser build runs the engine as WebAssembly; the directive allows compiling WebAssembly only, not JavaScript `eval` | No `'unsafe-eval'`, no inline script; the desktop app uses the native engine | 2027-04-30 (review: split desktop and web CSP) |
 | PSB-EX-3 | Electron fuse `grantFileProtocolExtraPrivileges` left on | The app is loaded from `file://` and starts workers from it | Navigation blocked, no remote content, CSP; plan: move to a custom `app://` protocol | 2027-04-30 |
+| PSB-EX-4 | `npm audit` accepts GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through glob amplification) | Only electron-builder's packaging tools (`@electron/asar`, `@electron/universal`, `dir-compare`, `filelist`) use it, with fixed glob patterns from our own `package.json`; upstream pins minimatch 3 / 5 / 9, which have no fix. The app has no runtime dependencies and `app.asar` contains no `node_modules` (checked: 34 own files) | The gate script fails on every other advisory and on this one after the expiry date; Dependabot proposes electron-builder updates | 2027-01-31 |
 
 An exception without an expiry date is a violation of the baseline; these are reviewed before every release.
 

@@ -74,7 +74,7 @@ npm run typecheck     # tsc -b --noEmit
 npm run dist          # installer + portable .exe into apps/desktop/out/
 ```
 
-CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, mutation tests on 3 OSes, frontend typecheck + build, `cargo audit` + `npm audit` (known advisories **block** the build).
+CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, mutation tests on 3 OSes, frontend typecheck + build, `cargo audit` + `npm audit` via `scripts/npm-audit-gate.mjs` (known advisories **block** the build; the few accepted ones are listed with an expiry date in that script and in `docs/PSB.md`).
 
 ## Invariants — breaking any of these is a bug
 
