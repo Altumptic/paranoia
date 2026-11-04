@@ -4,6 +4,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { EditDialog } from "./components/EditDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { AboutDialog } from "./components/AboutDialog";
+import { AiSettingsDialog, AssistantDialog } from "./components/AssistantDialog";
 import { ContextMenu } from "./components/ContextMenu";
 import { XrefsDialog } from "./components/XrefsDialog";
 import { Toasts } from "./components/Toasts";
@@ -179,6 +180,8 @@ export function App() {
       <XrefsDialog />
       <ContextMenu />
       <AboutDialog />
+      <AssistantDialog />
+      <AiSettingsDialog />
       <Toasts />
     </>
   );

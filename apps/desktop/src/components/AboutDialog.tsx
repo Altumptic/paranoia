@@ -39,7 +39,7 @@ export function AboutDialog() {
             </>
           )}
           <dt>Network</dt>
-          <dd>none — no telemetry, no update checks</dd>
+          <dd>none — no telemetry, no update checks; the optional AI assistant contacts only the server you set</dd>
           <dt>Licence</dt>
           <dd>Apache-2.0</dd>
           <dt>Source</dt>

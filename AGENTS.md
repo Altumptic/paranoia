@@ -29,7 +29,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | `crates/paranoia-db/src/` | redb store: annotations + recent files, keyed by file SHA-256 |
 | `crates/paranoia-wasm/src/` | The engine for the browser, plain C ABI (no wasm-bindgen) |
 | `apps/desktop/src/` | React + TS UI. Key files: `engine/client.ts` (typed `Session` mirror), `engine/types.ts`, `store.ts` (app state), `components/views/` (Overview, DisassemblyView, Graph, Pseudocode, Hex, Calls), `components/` (dialogs: Xrefs, Search, Edit, CommandPalette, Console) |
-| `apps/desktop/electron/` | `main.cjs` (IPC, security boundary), `preload.cjs` (bridge), `engine.cjs` (engine process), `python.cjs` + `paranoia.py` (Python scripts in the user's CPython), `plugins.cjs` (plugin manifests: read + validate + fingerprint, never runs code; tests in `plugins.test.cjs`, run with `npm test`) |
+| `apps/desktop/electron/` | `main.cjs` (IPC, security boundary), `preload.cjs` (bridge), `engine.cjs` (engine process), `python.cjs` + `paranoia.py` (Python scripts in the user's CPython), `ai.cjs` (optional AI assistant: endpoint rules, prompts, chat call, name parser; network only from the main process, tests in `ai.test.cjs`), `plugins.cjs` (plugin manifests: read + validate + fingerprint, never runs code; tests in `plugins.test.cjs`, run with `npm test`) |
 | `scripts/` | `build-wasm.mjs`, `dev-desktop.mjs` (Vite + Electron dev loop), `brand.mjs` |
 | `docs/` | All product/security/process docs — see index below |
 | `assets/brand/` | Logo and app icon sources |

@@ -75,7 +75,16 @@ Paranoia does not encrypt anything and has no accounts, keys or secrets.
 
 ## Network
 
-The app and the engine make **no network connections**: no telemetry, no update checks, no crash reports, no fonts or scripts from CDNs. The page CSP restricts connections to the app itself (`connect-src 'self'`). The only programs that can reach the network are your own Python scripts and, in the JavaScript console, your own code inside the script worker.
+By default the app and the engine make **no network connections**: no telemetry, no update checks, no crash reports, no fonts or scripts from CDNs. The page CSP restricts connections to the app itself (`connect-src 'self'`). The only programs that can reach the network are your own Python scripts, your own code inside the script worker, and — **only after you configure it** — the AI assistant (below).
+
+### AI assistant (optional)
+
+`Assistant → Settings…` takes an OpenAI-compatible endpoint, a model and an optional API key. Until an endpoint is set nothing is ever sent. Requests are made by the **main process** (the renderer keeps `connect-src 'self'`); they carry only the decompiled text of the one function you asked about (clipped to 12,000 characters) and no file bytes, hashes or names of other functions.
+
+* A loopback endpoint (`127.0.0.1`, `localhost`, `::1`) never leaves the machine. Anything else must be `https://`, is confirmed in a native dialog when you save it, and again once per session before the first request.
+* Redirects are refused, the reply is capped at 256 KB, and a request times out after 120 s or when you close the dialog.
+* The API key is encrypted with the OS keystore (Electron `safeStorage`) and never returned to the page; if the OS cannot encrypt, it is kept in memory only.
+* Answers are shown as text; a suggested name is applied only when you click *Apply name*, and must be a plain C identifier.
 
 Updates are manual: download a new release and verify it ([VERIFY.md](VERIFY.md)). There is no auto-updater.
 
@@ -87,6 +96,7 @@ Everything stays on your machine.
 | --- | --- | --- | --- |
 | Annotations (names, comments, types, bookmarks, patches) per file | `%APPDATA%\Paranoia\workspace.redb` (desktop) · browser `localStorage` (web build) | so your work survives a restart | you delete the file / clear site data |
 | Plugins you installed (`plugins\<id>\plugin.json` + script) and the list of plugin versions you chose to always run (`plugins-trust.json`, SHA-256 fingerprints only) | `%APPDATA%\Paranoia\plugins` | so your commands survive a restart and a changed plugin asks again | you delete the folder / file |
+| AI assistant settings: endpoint, model, API key encrypted by the OS keystore (`ai-settings.json`) | `%APPDATA%\Paranoiai-settings.json` | so the assistant works after a restart | you clear the fields / delete the file |
 | Recent files: name, **full path**, SHA-256, format, size, time | same database | the start screen list | removed from the list, or the database deleted |
 | UI preferences, console scripts | Electron / browser `localStorage` | convenience | cleared with the app data |
 | Python run files (`paranoia.py`, `script.py`) | a fresh `%TEMP%\paranoia-py-*` folder | to run the script | deleted when the script ends |
