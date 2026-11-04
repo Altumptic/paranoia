@@ -88,6 +88,14 @@ export function EditDialog() {
         return;
       }
       await setOperand(dialog.ins, "enum", c[0]);
+    } else if (dialog.kind === "assemble") {
+      try {
+        const bytes = await st.session!.assemble(dialog.va, value, true);
+        await st.afterEdit(false);
+        st.toast(`Assembled ${bytes.length / 2} byte${bytes.length === 2 ? "" : "s"}: ${bytes.replace(/(..)/g, "$1 ").trim()}`, "success");
+      } catch (e) {
+        st.toast(e instanceof Error ? e.message : String(e), "error");
+      }
     } else if (dialog.kind === "bookmark") {
       await st.bookmark(dialog.va, value.trim() ? value.trim() : null);
       st.toast(value.trim() ? "Bookmark saved" : "Bookmark removed", "success");
@@ -107,6 +115,7 @@ export function EditDialog() {
             bookmark: "Bookmark",
             comment: "Comment",
             struct: "Apply struct",
+            assemble: "Assemble",
             enum: "Symbolic constant",
             vartype: "Type variable",
           }[dialog.kind]}{" "}
@@ -130,6 +139,8 @@ export function EditDialog() {
                 ? structNames.length
                   ? `Pointer type, e.g. ${structNames[0]} * — empty to reset`
                   : "Declare the struct in Local Types first"
+                : dialog.kind === "assemble"
+                ? "e.g. mov eax, 1  ·  jz 0x401020  ·  nop  ·  db 0x90, 0xcc"
                 : dialog.kind === "bookmark"
                   ? "Describe this location — leave empty to remove"
                   : "Leave empty to restore the automatic name"

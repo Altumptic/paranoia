@@ -76,6 +76,14 @@ struct ValueArg {
 }
 
 #[derive(Deserialize)]
+struct AssembleArgs {
+    va: u64,
+    text: String,
+    #[serde(default)]
+    apply: bool,
+}
+
+#[derive(Deserialize)]
 struct NameArg {
     name: String,
 }
@@ -290,6 +298,13 @@ impl Session {
                 b.checkpoint();
                 b.patch_instruction(a.va, a.op)?;
                 Ok(Value::Null)
+            }
+            "assemble" => {
+                let a: AssembleArgs = args(args_v)?;
+                if a.apply {
+                    b.checkpoint();
+                }
+                to(hex::encode(b.assemble_at(a.va, &a.text, a.apply)?))
             }
             "undo" => to(b.undo()),
             "redo" => to(b.redo()),

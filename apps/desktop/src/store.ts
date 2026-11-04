@@ -37,7 +37,7 @@ interface State {
   /** Bumped after edits so views refetch. */
   revision: number;
   toasts: Toast[];
-  dialog: null | { kind: "rename" | "comment" | "bookmark" | "struct" | "enum" | "vartype"; va: number; initial: string; value?: number; ins?: Instruction; varName?: string };
+  dialog: null | { kind: "rename" | "comment" | "bookmark" | "struct" | "enum" | "vartype" | "assemble"; va: number; initial: string; value?: number; ins?: Instruction; varName?: string };
   annotations: Annotations;
   search: SearchKind | null;
   menuOpen: boolean;

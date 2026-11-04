@@ -17,6 +17,7 @@
 
 mod analysis;
 pub mod api;
+mod asm_x86;
 mod demangle;
 pub mod disasm;
 mod dwarf;

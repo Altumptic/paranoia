@@ -57,11 +57,12 @@ export function DebugPanel() {
           <div className="regs mono">
             {(d?.regs ?? []).map(([n, v]) => {
               const sva = inImage(v);
+              const narrow = n.startsWith("e");
               return (
                 <div key={n} className="reg">
                   <span className="reg-n">{n}</span>
                   <button className={`reg-v ${sva != null ? "link-tok" : ""}`} onClick={() => sva != null && st().goto(sva)} title={sva != null ? `Go to ${fmtAddr(sva, info)}` : undefined}>
-                    {hex(v, 16)}
+                    {hex(v, narrow ? 8 : 16)}
                   </button>
                 </div>
               );
@@ -74,11 +75,12 @@ export function DebugPanel() {
           <div className="mono stack">
             {(d?.stack ?? []).map(([a, v], i) => {
               const sva = inImage(v);
+              const word = d?.regs?.some(([n]) => n === "esp") ? 4 : 8;
               return (
                 <div key={a} className="reg">
-                  <span className="reg-n">{i === 0 ? "rsp" : `+${(i * 8).toString(16)}`}</span>
+                  <span className="reg-n">{i === 0 ? (word === 4 ? "esp" : "rsp") : `+${(i * word).toString(16)}`}</span>
                   <button className={`reg-v ${sva != null ? "link-tok" : ""}`} onClick={() => sva != null && st().goto(sva)}>
-                    {hex(v, 16)}
+                    {hex(v, word * 2)}
                   </button>
                 </div>
               );

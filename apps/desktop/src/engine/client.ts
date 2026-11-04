@@ -273,6 +273,8 @@ export class Session {
   redo = () => this.c<boolean | null>("redo");
   history = () => this.c<[number, number]>("history");
   types = () => this.c<TypeLibrary>("types");
+  /** Assembles x86 / x64 text at `va`; with `apply` it overwrites the code there. Returns the bytes as hex. */
+  assemble = (va: number, text: string, apply = false) => this.c<string>("assemble", { va, text, apply });
   /** Searches Local Types and debug-info (DWARF / PDB) types by name. */
   findTypes = (query: string, limit = 40) => this.c<TypeHit[]>("findTypes", { query, limit });
   structDef = (name: string) => this.c<StructDef | null>("structDef", { name });

@@ -109,6 +109,7 @@ function useMenus(): Menu[] {
             disabled: noCursor,
             run: () => st().set("dialog", { kind: "bookmark", va: at(), initial: st().annotations.bookmarks?.[String(at())] ?? "" }),
           },
+          { label: "Assemble…", disabled: noCursor || !["x86", "x86_64"].includes(st().info?.arch ?? ""), run: () => st().set("dialog", { kind: "assemble", va: at(), initial: "" }) },
           sep,
           { label: "Code", keys: "C", disabled: noCursor, run: () => st().item("code", at()) },
           { label: "Data (cycle size)", keys: "D", disabled: noCursor, run: () => st().item("data", at()) },

@@ -53,7 +53,7 @@ function stopPolling() {
 }
 
 export const debug = {
-  available: () => desktop != null && useStore.getState().info?.format === "pe" && useStore.getState().info?.arch === "x86_64",
+  available: () => desktop != null && useStore.getState().info?.format === "pe" && ["x86_64", "x86"].includes(useStore.getState().info?.arch ?? ""),
 
   async start() {
     const st = useStore.getState();

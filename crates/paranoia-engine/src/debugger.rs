@@ -1,4 +1,4 @@
-//! A small Windows user-mode debugger for x64 programs (IDA's local debugger).
+//! A small Windows user-mode debugger for x64 and 32-bit (WOW64) programs (IDA's local debugger).
 //!
 //! The Win32 debug API requires `WaitForDebugEvent` to be called from the thread
 //! that created the debuggee, so the whole session lives on one worker thread
@@ -17,14 +17,95 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::System::Diagnostics::Debug::{
     ContinueDebugEvent, DebugBreakProcess, FlushInstructionCache, GetThreadContext, ReadProcessMemory, SetThreadContext, WaitForDebugEvent,
-    WriteProcessMemory, CONTEXT, CONTEXT_ALL_AMD64, CREATE_PROCESS_DEBUG_EVENT, CREATE_THREAD_DEBUG_EVENT, DEBUG_EVENT,
-    EXCEPTION_DEBUG_EVENT, EXIT_PROCESS_DEBUG_EVENT, EXIT_THREAD_DEBUG_EVENT, LOAD_DLL_DEBUG_EVENT, OUTPUT_DEBUG_STRING_EVENT,
+    Wow64GetThreadContext, Wow64SetThreadContext, WriteProcessMemory, CONTEXT, CONTEXT_ALL_AMD64, CREATE_PROCESS_DEBUG_EVENT,
+    CREATE_THREAD_DEBUG_EVENT, DEBUG_EVENT, EXCEPTION_DEBUG_EVENT, EXIT_PROCESS_DEBUG_EVENT, EXIT_THREAD_DEBUG_EVENT, LOAD_DLL_DEBUG_EVENT,
+    OUTPUT_DEBUG_STRING_EVENT, WOW64_CONTEXT, WOW64_CONTEXT_ALL,
 };
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, TerminateProcess, CREATE_NEW_CONSOLE, DEBUG_ONLY_THIS_PROCESS, PROCESS_INFORMATION, STARTUPINFOW,
 };
 
 const TRAP_FLAG: u32 = 0x100;
+/// Exception codes a 32-bit (WOW64) debuggee raises for `int3` and the trap flag.
+const WX86_BREAKPOINT: NTSTATUS = 0x4000_001F;
+const WX86_SINGLE_STEP: NTSTATUS = 0x4000_001E;
+
+/// A thread's registers, native x64 or the 32-bit view of a WOW64 process.
+enum Regs {
+    X64(Box<CONTEXT>),
+    X86(Box<WOW64_CONTEXT>),
+}
+
+impl Regs {
+    fn pc(&self) -> u64 {
+        match self {
+            Regs::X64(c) => c.Rip,
+            Regs::X86(c) => u64::from(c.Eip),
+        }
+    }
+    fn sp(&self) -> u64 {
+        match self {
+            Regs::X64(c) => c.Rsp,
+            Regs::X86(c) => u64::from(c.Esp),
+        }
+    }
+    fn set_pc(&mut self, pc: u64) {
+        match self {
+            Regs::X64(c) => c.Rip = pc,
+            Regs::X86(c) => c.Eip = pc as u32,
+        }
+    }
+    fn set_trap_flag(&mut self) {
+        match self {
+            Regs::X64(c) => c.EFlags |= TRAP_FLAG,
+            Regs::X86(c) => c.EFlags |= TRAP_FLAG,
+        }
+    }
+    /// Pointer size in bytes.
+    fn word(&self) -> usize {
+        match self {
+            Regs::X64(_) => 8,
+            Regs::X86(_) => 4,
+        }
+    }
+    fn list(&self) -> Vec<(String, u64)> {
+        let named = |v: &[(&str, u64)]| v.iter().map(|(n, x)| (n.to_string(), *x)).collect();
+        match self {
+            Regs::X64(c) => named(&[
+                ("rax", c.Rax),
+                ("rbx", c.Rbx),
+                ("rcx", c.Rcx),
+                ("rdx", c.Rdx),
+                ("rsi", c.Rsi),
+                ("rdi", c.Rdi),
+                ("rbp", c.Rbp),
+                ("rsp", c.Rsp),
+                ("r8", c.R8),
+                ("r9", c.R9),
+                ("r10", c.R10),
+                ("r11", c.R11),
+                ("r12", c.R12),
+                ("r13", c.R13),
+                ("r14", c.R14),
+                ("r15", c.R15),
+                ("rip", c.Rip),
+                ("rflags", c.EFlags as u64),
+            ]),
+            Regs::X86(c) => named(&[
+                ("eax", c.Eax.into()),
+                ("ebx", c.Ebx.into()),
+                ("ecx", c.Ecx.into()),
+                ("edx", c.Edx.into()),
+                ("esi", c.Esi.into()),
+                ("edi", c.Edi.into()),
+                ("ebp", c.Ebp.into()),
+                ("esp", c.Esp.into()),
+                ("eip", c.Eip.into()),
+                ("eflags", c.EFlags.into()),
+            ]),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Snapshot {
@@ -68,6 +149,8 @@ pub struct StartArgs {
     pub breakpoints: Vec<u64>,
     pub break_on_entry: bool,
     pub image_size: u64,
+    /// A 32-bit program (runs under WOW64 on 64-bit Windows).
+    pub wow64: bool,
 }
 
 impl Debugger {
@@ -156,6 +239,9 @@ struct Worker {
     rearm: Option<u64>,
     stepping: bool,
     seen_system_bp: bool,
+    /// A WOW64 process raises a second loader breakpoint from its 32-bit side.
+    seen_wx86_bp: bool,
+    wow64: bool,
     /// Where the debuggee is stopped: (thread, continue status).
     stopped: Option<(u32, NTSTATUS)>,
 }
@@ -206,6 +292,8 @@ impl Worker {
             rearm: None,
             stepping: false,
             seen_system_bp: false,
+            seen_wx86_bp: false,
+            wow64: args.wow64,
             stopped: None,
         })
     }
@@ -265,15 +353,24 @@ impl Worker {
         }
     }
 
-    fn context(&self, tid: u32) -> Option<Box<CONTEXT>> {
+    fn context(&self, tid: u32) -> Option<Regs> {
         let h = *self.threads.get(&tid)?;
+        if self.wow64 {
+            let mut ctx: Box<WOW64_CONTEXT> = Box::new(unsafe { std::mem::zeroed() });
+            ctx.ContextFlags = WOW64_CONTEXT_ALL;
+            return (unsafe { Wow64GetThreadContext(h, &mut *ctx) } != 0).then_some(Regs::X86(ctx));
+        }
         let mut ctx: Box<CONTEXT> = Box::new(unsafe { std::mem::zeroed() });
         ctx.ContextFlags = CONTEXT_ALL_AMD64;
-        (unsafe { GetThreadContext(h, &mut *ctx) } != 0).then_some(ctx)
+        (unsafe { GetThreadContext(h, &mut *ctx) } != 0).then_some(Regs::X64(ctx))
     }
 
-    fn set_context(&self, tid: u32, ctx: &CONTEXT) -> bool {
-        self.threads.get(&tid).is_some_and(|h| unsafe { SetThreadContext(*h, ctx) } != 0)
+    fn set_context(&self, tid: u32, regs: &Regs) -> bool {
+        let Some(h) = self.threads.get(&tid) else { return false };
+        match regs {
+            Regs::X64(c) => unsafe { SetThreadContext(*h, &**c) != 0 },
+            Regs::X86(c) => unsafe { Wow64SetThreadContext(*h, &**c) != 0 },
+        }
     }
 
     fn pause(&mut self, tid: u32, reason: String, status: NTSTATUS) {
@@ -283,32 +380,17 @@ impl Worker {
         let mut stack = Vec::new();
         let mut pc_rt = 0;
         if let Some(c) = &ctx {
-            pc_rt = c.Rip;
-            for (n, v) in [
-                ("rax", c.Rax),
-                ("rbx", c.Rbx),
-                ("rcx", c.Rcx),
-                ("rdx", c.Rdx),
-                ("rsi", c.Rsi),
-                ("rdi", c.Rdi),
-                ("rbp", c.Rbp),
-                ("rsp", c.Rsp),
-                ("r8", c.R8),
-                ("r9", c.R9),
-                ("r10", c.R10),
-                ("r11", c.R11),
-                ("r12", c.R12),
-                ("r13", c.R13),
-                ("r14", c.R14),
-                ("r15", c.R15),
-                ("rip", c.Rip),
-                ("rflags", c.EFlags as u64),
-            ] {
-                sh_regs.push((n.to_string(), v));
-            }
-            if let Some(mem) = self.read_mem(c.Rsp, 16 * 8) {
-                for (i, ch) in mem.chunks_exact(8).enumerate() {
-                    stack.push((c.Rsp + i as u64 * 8, u64::from_le_bytes(ch.try_into().unwrap())));
+            pc_rt = c.pc();
+            sh_regs = c.list();
+            let w = c.word();
+            if let Some(mem) = self.read_mem(c.sp(), 16 * w) {
+                for (i, ch) in mem.chunks_exact(w).enumerate() {
+                    let v = if w == 8 {
+                        u64::from_le_bytes(ch.try_into().unwrap())
+                    } else {
+                        u64::from(u32::from_le_bytes(ch.try_into().unwrap()))
+                    };
+                    stack.push((c.sp() + (i * w) as u64, v));
                 }
             }
         }
@@ -328,7 +410,7 @@ impl Worker {
         let need_tf = step || self.rearm.is_some();
         if need_tf {
             if let Some(mut c) = self.context(tid) {
-                c.EFlags |= TRAP_FLAG;
+                c.set_trap_flag();
                 self.set_context(tid, &c);
             }
         }
@@ -382,10 +464,10 @@ impl Worker {
             }
             Cmd::StepOver => {
                 // Over a call: one-shot breakpoint after it; otherwise a single step.
-                let pc = self.stopped.and_then(|(t, _)| self.context(t)).map(|c| c.Rip);
+                let pc = self.stopped.and_then(|(t, _)| self.context(t)).map(|c| c.pc());
                 let call_next = pc.and_then(|pc| {
                     let bytes = self.read_mem(pc, 16)?;
-                    let mut d = iced_x86::Decoder::with_ip(64, &bytes, pc, iced_x86::DecoderOptions::NONE);
+                    let mut d = iced_x86::Decoder::with_ip(if self.wow64 { 32 } else { 64 }, &bytes, pc, iced_x86::DecoderOptions::NONE);
                     let i = d.decode();
                     matches!(i.flow_control(), iced_x86::FlowControl::Call | iced_x86::FlowControl::IndirectCall)
                         .then(|| pc + i.len() as u64)
@@ -476,7 +558,7 @@ impl Worker {
                     let code = info.ExceptionRecord.ExceptionCode;
                     let addr = info.ExceptionRecord.ExceptionAddress as u64;
                     let first = info.dwFirstChance != 0;
-                    if code == EXCEPTION_BREAKPOINT {
+                    if code == EXCEPTION_BREAKPOINT || code == WX86_BREAKPOINT {
                         let sva = (addr as i64 - self.delta) as u64;
                         let temp = self.temp_bps.remove(&sva);
                         let user = self.user_bps.get(&sva).copied().flatten();
@@ -484,7 +566,7 @@ impl Worker {
                             // Our int3: put the byte back and re-execute the instruction.
                             self.write_byte(addr, orig);
                             if let Some(mut c) = self.context(tid) {
-                                c.Rip = addr;
+                                c.set_pc(addr);
                                 self.set_context(tid, &c);
                             }
                             if user.is_some() {
@@ -504,15 +586,18 @@ impl Worker {
                             self.pause(tid, why.into(), DBG_CONTINUE);
                             continue;
                         }
-                        if !self.seen_system_bp {
+                        if !self.seen_system_bp && code == EXCEPTION_BREAKPOINT {
                             // The loader's initial breakpoint: keep going to the entry point.
                             self.seen_system_bp = true;
+                        } else if self.wow64 && !self.seen_wx86_bp && code == WX86_BREAKPOINT {
+                            // ... and the one the 32-bit loader raises inside the WOW64 process.
+                            self.seen_wx86_bp = true;
                         } else {
                             let t = if self.threads.contains_key(&self.main_tid) { self.main_tid } else { tid };
                             self.pause(t, "Paused".into(), DBG_CONTINUE);
                             continue;
                         }
-                    } else if code == EXCEPTION_SINGLE_STEP {
+                    } else if code == EXCEPTION_SINGLE_STEP || code == WX86_SINGLE_STEP {
                         if let Some(va) = self.rearm.take() {
                             if self.user_bps.contains_key(&va) {
                                 if let Some(b) = self.arm(va) {
@@ -558,5 +643,63 @@ impl Worker {
             }
             unsafe { ContinueDebugEvent(self.pid, tid, status) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wait_paused(d: &Debugger) -> Snapshot {
+        for _ in 0..200 {
+            let s = d.snapshot();
+            if s.state == "paused" || s.state == "exited" {
+                return s;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!("the debuggee did not stop");
+    }
+
+    /// Starts a system 32-bit console program, stops at its entry point, steps once and kills it.
+    #[test]
+    fn debugs_a_32_bit_program() {
+        let path = r"C:\Windows\SysWOW64\ping.exe";
+        let Ok(bytes) = std::fs::read(path) else { return };
+        let bin = paranoia_core::Binary::load("ping.exe", bytes).unwrap();
+        let info = bin.info();
+        assert_eq!(info.arch, paranoia_core::Arch::X86);
+        let size = info.sections.iter().map(|x| x.vaddr + x.vsize).max().unwrap_or(0).saturating_sub(info.image_base);
+        let d = Debugger::start(StartArgs {
+            path: path.into(),
+            cmdline: "-n 1 127.0.0.1".into(),
+            image_base: info.image_base,
+            entry: info.entry,
+            breakpoints: vec![],
+            break_on_entry: true,
+            image_size: size,
+            wow64: true,
+        })
+        .unwrap();
+        let s = wait_paused(&d);
+        assert_eq!(s.state, "paused", "{s:?}");
+        assert_eq!(s.pc, Some(info.entry), "stopped at {:#x}, entry {:#x}", s.pc_runtime, info.entry);
+        let names: Vec<&str> = s.regs.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"eip") && names.contains(&"esp") && !names.contains(&"rip"), "{names:?}");
+        assert_eq!(s.stack.len(), 16);
+        assert_eq!(s.stack[1].0 - s.stack[0].0, 4, "32-bit stack slots are 4 bytes apart");
+        assert_eq!(d.read(info.entry, 4).unwrap().len(), 4);
+        d.command("step_into", None).unwrap();
+        let s2 = wait_paused(&d);
+        assert_eq!(s2.reason, "Step", "{s2:?}");
+        assert_ne!(s2.pc_runtime, s.pc_runtime);
+        d.command("stop", None).unwrap();
+        for _ in 0..100 {
+            if d.snapshot().state == "exited" {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!("the debuggee did not exit");
     }
 }

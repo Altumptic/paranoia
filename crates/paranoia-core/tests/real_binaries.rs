@@ -319,3 +319,31 @@ fn pdb_types_become_debug_types() {
     // The type search and a Local Types declaration of the same name layer as documented.
     assert!(bin.type_view().search("IMAGE_DOS", 5).iter().any(|h| h.name == "_IMAGE_DOS_HEADER" && h.origin == "debug"));
 }
+
+/// Assembling over code: longer encodings replace whole following instructions, the rest is NOP-padded,
+/// and a dry run changes nothing.
+#[test]
+fn assemble_over_code() {
+    let Ok(bytes) = std::fs::read(std::env::current_exe().unwrap()) else { return };
+    let Ok(mut bin) = Binary::load("self", bytes) else { return };
+    if !matches!(bin.info().arch, paranoia_core::Arch::X86 | paranoia_core::Arch::X86_64) {
+        return;
+    }
+    let va = bin.info().entry;
+    let before = bin.listing(va, 4).unwrap();
+    let first_len = before[0].size as usize;
+    // Dry run: bytes come back, nothing changes.
+    let bytes = bin.assemble_at(va, "int3", false).unwrap();
+    assert_eq!(bytes, [0xcc]);
+    assert_eq!(bin.listing(va, 1).unwrap()[0].bytes, before[0].bytes);
+    // Apply: a short encoding over a longer instruction pads with NOPs.
+    bin.assemble_at(va, "int3", true).unwrap();
+    let after = bin.listing(va, 2).unwrap();
+    assert_eq!(after[0].bytes, "cc");
+    assert!(first_len == 1 || after[1].bytes.starts_with("90"), "padding is not a NOP: {:?}", after[1].bytes);
+    // A long encoding takes over the instructions it overlaps.
+    bin.assemble_at(va, "mov eax, 0x11223344", true).unwrap();
+    let l = bin.listing(va, 1).unwrap();
+    assert!(l[0].bytes.starts_with("b844332211"), "{:?}", l[0].bytes);
+    assert!(bin.assemble_at(va, "bogus eax", true).is_err());
+}
