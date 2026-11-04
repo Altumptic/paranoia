@@ -1,6 +1,6 @@
 # Contributing to Paranoia
 
-Thanks for helping! A few guidelines keep things smooth.
+Thanks for helping! A few guidelines keep things smooth. (AI assistants: [AGENTS.md](AGENTS.md) is the complete onboarding — repo map, commands, invariants, pitfalls.)
 
 ## Getting set up
 

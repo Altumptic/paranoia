@@ -28,3 +28,6 @@ apps/desktop/out/
 
 # Original design drops (copies live in assets/brand)
 /src/
+
+# Rendered promo video and review frames (rebuild with assets/video/render.mjs)
+/assets/video/out/
