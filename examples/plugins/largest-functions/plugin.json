@@ -1,0 +1,12 @@
+{
+  "id": "largest-functions",
+  "name": "Largest functions",
+  "version": "1.0.0",
+  "description": "Lists the biggest functions of the open file — a first place to look.",
+  "language": "js",
+  "entry": "main.js",
+  "commands": [
+    { "id": "top10", "title": "Show the 10 largest functions", "run": "top10" },
+    { "id": "top50", "title": "Show the 50 largest functions", "run": "top50" }
+  ]
+}

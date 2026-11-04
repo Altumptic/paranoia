@@ -86,6 +86,7 @@ Everything stays on your machine.
 | Data | Where | Why | Kept until |
 | --- | --- | --- | --- |
 | Annotations (names, comments, types, bookmarks, patches) per file | `%APPDATA%\Paranoia\workspace.redb` (desktop) · browser `localStorage` (web build) | so your work survives a restart | you delete the file / clear site data |
+| Plugins you installed (`plugins\<id>\plugin.json` + script) and the list of plugin versions you chose to always run (`plugins-trust.json`, SHA-256 fingerprints only) | `%APPDATA%\Paranoia\plugins` | so your commands survive a restart and a changed plugin asks again | you delete the folder / file |
 | Recent files: name, **full path**, SHA-256, format, size, time | same database | the start screen list | removed from the list, or the database deleted |
 | UI preferences, console scripts | Electron / browser `localStorage` | convenience | cleared with the app data |
 | Python run files (`paranoia.py`, `script.py`) | a fresh `%TEMP%\paranoia-py-*` folder | to run the script | deleted when the script ends |
