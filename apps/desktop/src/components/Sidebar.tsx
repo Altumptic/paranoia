@@ -551,7 +551,7 @@ function TypesPanel() {
                 <button className="type-head" onClick={() => (h.kind === "struct" ? openDebug(h.name) : undefined)}>
                   {h.kind === "struct" ? open === h.name ? <ChevronDown size={13} /> : <ChevronRight size={13} /> : <span style={{ width: 13 }} />}
                   <span className="mono type-name">{h.name}</span>
-                  <span className="muted small">{h.kind === "enum" ? "enum" : `${h.size.toString(16).toUpperCase()}h bytes`}</span>
+                  <span className="muted small" title={h.kind === "enum" ? undefined : `${h.size} bytes`}>{h.kind === "enum" ? "enum" : `${h.size.toString(16).toUpperCase()}h`}</span>
                   <span className="side-head-spacer" />
                   {h.kind === "struct" && (
                     <span
