@@ -50,7 +50,7 @@ flowchart LR
 | Electron or Node.js used as a launcher for other code | Electron fuses: `RunAsNode`, `NODE_OPTIONS` and `--inspect` disabled; the app loads only from its asar archive, whose integrity is checked | `build.electronFuses` in `apps/desktop/package.json` |
 | Python picks up planted modules | Each run uses a fresh private temporary directory; the interpreter runs with `-E` (ignores `PYTHONPATH`, `PYTHONSTARTUP`, …) and starts in that empty directory, so a stray `python.exe` or module in the current folder is not used | `electron/python.cjs`, `crates/paranoia-cli/src/script.rs` |
 | A tampered download | Every release ships `SHA256SUMS`, its Sigstore signature, GitHub build-provenance attestations and an SBOM | [VERIFY.md](VERIFY.md) |
-| A vulnerable dependency | `cargo audit` and `npm audit` run in CI and block releases; actions are pinned to commit SHAs; Dependabot proposes updates | `.github/workflows/ci.yml` |
+| A vulnerable dependency | `cargo audit` and `npm audit` run in CI and block releases (one packaging-tool advisory is accepted until 2027-01-31, [PSB.md](PSB.md) PSB-EX-4); actions are pinned to commit SHAs; Dependabot proposes updates | `.github/workflows/ci.yml` |
 
 ## Non-goals
 
