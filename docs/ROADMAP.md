@@ -35,7 +35,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Types, structures, enums, local types | ✅ | C declarations (struct / union / enum / typedef, arrays, pointers, natural alignment); apply a struct to data (`Alt+Q`) |
 | Stack frame / local variable view | ✅ | Offsets, sizes, read/write counts; same names as pseudocode |
 | Argument labels from API prototypes | ✅ | ~250 WinAPI / libc prototypes (`; lpFileName`) |
-| FLIRT-style library signatures | ✅ | Reads IDA FLAIR `.pat` files, writes them from any binary with symbols (`sigmake`), built-in MSVC x64 runtime library; IDA's binary `.sig` format is not read yet |
+| FLIRT-style library signatures | ✅ | Reads IDA's binary `.sig` files (versions 5–10, compressed or not, tail bytes checked) and FLAIR `.pat` files, writes `.pat` from any binary with symbols (`sigmake`), built-in MSVC x64 runtime library. Referenced-function checks in `.sig` modules are not used yet |
 | PDB debug info | ✅ | Publics, procedures and globals; GUID check; the PDB next to the binary is picked up automatically |
 | DWARF debug info | ✅ | Function names and bounds, globals and source lines (ELF, Mach-O, MinGW / Rust-gnu PE); struct, union and enum definitions kept as debug-info types (a runtime layer under Local Types, never saved) for `Y` and the decompiler |
 | PDB types | ✅ | Struct, union and enum definitions from the PDB type stream (C-like names only; templates and namespaced C++ types are skipped) join the same debug-info layer; searchable in the Types panel and offered by `Y` |
@@ -53,7 +53,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 ## Next milestones
 
 1. **Decompiler v3** — ~~SSA-style variable recovery~~ (reaching definitions, done); next: a real SSA IR (phi nodes, cross-block expression propagation), type propagation through arithmetic and arrays of structures.
-2. **Signatures & types** — IDA `.sig` reading, more built-in libraries; ~~PDB types~~ (done).
+2. **Signatures & types** — ~~IDA `.sig` reading~~ and ~~PDB types~~ (done); next: referenced-function checks, more built-in libraries.
 3. ~~**Plugins**~~ — done (commands); next: panels, hotkeys and event hooks.
 4. ~~**AI assistant**~~ — done (explain, suggest a name, flag suspicious behaviour); next: batch naming of `sub_` functions, chat about a selection, streaming.
 5. **More architectures** — PowerPC; mixed ARM/Thumb images; pseudocode beyond x86.

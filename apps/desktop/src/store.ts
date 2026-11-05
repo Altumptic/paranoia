@@ -467,18 +467,18 @@ export const useStore = create<State>((set, get) => ({
   async applySignatures() {
     const { session } = get();
     if (!session) return;
-    const text = await new Promise<string | undefined>((resolve) => {
+    const file = await new Promise<File | undefined>((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = ".pat,.txt";
-      input.onchange = async () => resolve(input.files?.[0] ? await input.files[0].text() : undefined);
+      input.accept = ".sig,.pat,.txt";
+      input.onchange = () => resolve(input.files?.[0]);
       input.click();
     });
-    if (!text) return;
+    if (!file) return;
     try {
-      const r = await session.applyPat(text);
+      const r = /\.sig$/i.test(file.name) ? await session.applySig(await file.arrayBuffer()) : await session.applyPat(await file.text());
       await get().afterEdit(false);
-      get().print(`Signatures: ${r.matched} of ${r.signatures} matched${r.names.length ? " — " + r.names.slice(0, 12).map((n) => n[1]).join(", ") + (r.names.length > 12 ? ", …" : "") : ""}`, "info");
+      get().print(`Signatures${r.library ? ` (${r.library})` : ""}: ${r.matched} of ${r.signatures} matched${r.names.length ? " — " + r.names.slice(0, 12).map((n) => n[1]).join(", ") + (r.names.length > 12 ? ", …" : "") : ""}`, "info");
       get().toast(r.matched ? `Recognised ${r.matched} library function${r.matched === 1 ? "" : "s"}` : "No function matched these signatures", r.matched ? "success" : "info");
     } catch (e) {
       get().toast(e instanceof Error ? e.message : String(e), "error");

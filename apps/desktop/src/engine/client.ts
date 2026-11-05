@@ -328,6 +328,11 @@ export class Session {
   setVarType = (va: number, variable: string, ty: string) => this.c<null>("setVarType", { va, var: variable, ty });
   /** Applies an IDA-format `.pat` signature file. */
   applyPat = (text: string) => this.c<SigReport>("applyPat", { text });
+  /** IDA binary signatures (`.sig`). */
+  applySig = (bytes: ArrayBuffer) => {
+    const hex = Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+    return this.c<SigReport>("applySig", { hex });
+  };
   /** `.pat` text for the named functions (only runtime ones with `library`). */
   makePat = (library = false) => this.c<string>("makePat", { library });
   /** IDA's H / R / B / M; `n` is the number operand's index (null = all of them). */

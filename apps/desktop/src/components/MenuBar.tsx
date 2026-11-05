@@ -86,7 +86,7 @@ function useMenus(): Menu[] {
           { label: patches ? `Save patched file (${patches} byte${patches === 1 ? "" : "s"})…` : "Save a copy of the file…", disabled: noFile, run: () => st().savePatched() },
           { label: "Export names & comments as IDC…", disabled: noFile, run: () => st().exportIdc() },
           sep,
-          { label: "Apply signature file (.pat)…", disabled: noFile, run: () => st().applySignatures() },
+          { label: "Apply signature file (.sig / .pat)…", disabled: noFile, run: () => st().applySignatures() },
           { label: "Create signature file (.pat)…", disabled: noFile, run: () => st().makeSignatures() },
         ],
       },

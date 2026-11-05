@@ -406,3 +406,27 @@ fn ssa_variables_refine_the_old_splitting() {
         assert!(new_total >= old_total);
     }
 }
+
+/// A real IDA `.sig` (angr's test pair: `libc_ubuntu_2004.sig` and the stripped static-libc ELF from
+/// github.com/angr/binaries, `tests/x86_64/`). Not vendored; set `PARANOIA_FLIRT_DIR` to the folder
+/// holding both files to run it.
+#[test]
+fn real_flirt_sig_names_static_libc() {
+    let Ok(dir) = std::env::var("PARANOIA_FLIRT_DIR") else { return };
+    let dir = std::path::Path::new(&dir);
+    let elf = std::fs::read(dir.join("elf_with_static_libc_ubuntu_2004_stripped")).expect("ELF");
+    let sig = std::fs::read(dir.join("libc_ubuntu_2004.sig")).expect(".sig");
+    let mut bin = Binary::load("libc-static", elf).unwrap();
+    bin.analyze();
+    let r = bin.apply_sig(&sig).unwrap();
+    assert!(r.signatures > 1000, "{} signatures", r.signatures);
+    assert!(r.matched >= 50, "only {} matched", r.matched);
+    let at = |va: u64| r.names.iter().find(|(a, _)| *a == va).map(|(_, n)| n.as_str());
+    // Ground truth from angr's own FLIRT tests.
+    assert_eq!(at(0x4139c0), Some("__vasprintf_internal"));
+    assert!(r.names.iter().all(|(_, n)| !n.is_empty() && n.chars().all(|c| c.is_ascii_graphic())), "odd names");
+    // A .sig for another processor is refused with a reason.
+    let mut other = sig.clone();
+    other[7] = 15; // PowerPC
+    assert!(bin.apply_sig(&other).unwrap_err().contains("PowerPC"));
+}

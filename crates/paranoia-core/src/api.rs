@@ -76,6 +76,11 @@ struct ValueArg {
 }
 
 #[derive(Deserialize)]
+struct HexArg {
+    hex: String,
+}
+
+#[derive(Deserialize)]
 struct AssembleArgs {
     va: u64,
     text: String,
@@ -340,6 +345,12 @@ impl Session {
                 let a: TextArg = args(args_v)?;
                 b.checkpoint();
                 to(b.apply_pat(&a.text)?)
+            }
+            "applySig" => {
+                let a: HexArg = args(args_v)?;
+                let bytes = hex::decode(a.hex.trim()).map_err(|_| "the .sig data is not hex".to_string())?;
+                b.checkpoint();
+                to(b.apply_sig(&bytes)?)
             }
             "makePat" => {
                 let library = args_v.get("library").and_then(Value::as_bool).unwrap_or(false);
