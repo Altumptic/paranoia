@@ -114,6 +114,26 @@ impl Expr {
 
 // ------------------------------------------------------------------------------------------------
 
+/// Registers that can carry arguments into a call. 32-bit code passes most on the stack, but
+/// `thiscall` puts `this` in ecx and `fastcall` uses ecx / edx, so those count as read by calls.
+fn ssa_args(bits: u32, format: Format) -> &'static [Register] {
+    use Register as R;
+    match (bits, format) {
+        (64, Format::Pe) => &[R::RCX, R::RDX, R::R8, R::R9],
+        (64, _) => &[R::RDI, R::RSI, R::RDX, R::RCX, R::R8, R::R9],
+        _ => &[R::ECX, R::EDX],
+    }
+}
+
+fn ssa_volatile(bits: u32, format: Format) -> &'static [Register] {
+    use Register as R;
+    match (bits, format) {
+        (32, _) => &[R::EAX, R::ECX, R::EDX],
+        (_, Format::Pe) => &[R::RAX, R::RCX, R::RDX, R::R8, R::R9, R::R10, R::R11],
+        _ => &[R::RAX, R::RCX, R::RDX, R::RSI, R::RDI, R::R8, R::R9, R::R10, R::R11],
+    }
+}
+
 /// Token kinds for an SSA text line (values, numbers, keywords, block labels).
 fn ssa_tokens(text: &str, dead: bool) -> Vec<Token> {
     let mut out: Vec<Token> = Vec::new();
@@ -454,7 +474,7 @@ impl Binary {
             (_, Format::Pe) => &[R::RAX, R::RCX, R::RDX, R::R8, R::R9, R::R10, R::R11],
             _ => &[R::RAX, R::RCX, R::RDX, R::RSI, R::RDI, R::R8, R::R9, R::R10, R::R11],
         };
-        let s = crate::ssa::build(f.address, &blocks, bits, volatile);
+        let s = crate::ssa::build(f.address, &blocks, bits, volatile, ssa_args(bits, self.info.format));
         let st = &s.stats;
         let note = format!(
             "SSA: {} blocks, {} phi nodes, {} values, {} constants, {} copies, {} dead definitions",
@@ -624,6 +644,20 @@ impl Binary {
         let mut emitted = BTreeSet::new();
         emit_range(&mut ctx, &blocks, &order, 0, order.len(), 1, &mut out, &mut emitted);
         out.push(PseudoLine { address: None, indent: 0, tokens: vec![Token { t: "}".into(), k: TokenKind::Punct }] });
+        // The SSA IR's facts: assignments it proves dead go, and values it proves constant (through
+        // joins too) are remembered to be noted on their lines at the end.
+        let facts = self.ssa_facts.then(|| {
+            crate::ssa::build(f_addr, &blocks, bits, ssa_volatile(bits, self.info.format), ssa_args(bits, self.info.format)).facts()
+        });
+        let mut const_notes: HashMap<u64, i64> = HashMap::new();
+        if let Some(facts) = &facts {
+            out.retain(|l| {
+                let Some(a) = l.address else { return true };
+                let Some((lhs, _)) = crate::pseudo_opt::assignment(l) else { return true };
+                let Some((fam, w)) = crate::pseudo_opt::family(&lhs.t).filter(|_| lhs.k == TokenKind::Register) else { return true };
+                !(w >= 32 && crate::pseudo_opt::call_at(l).is_none() && facts.dead.contains(&(a, fam.as_str())))
+            });
+        }
         crate::pseudo_opt::optimize(self, &mut out, self.info.format != Format::Pe, bits);
         crate::pseudo_types::recover_goto_loops(&mut out);
         crate::pseudo_types::recover_loops(&mut out);
@@ -640,6 +674,22 @@ impl Binary {
                 _ => &["rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"],
             },
         };
+        if let Some(facts) = &facts {
+            for l in &out {
+                let Some(a) = l.address else { continue };
+                let Some((lhs, expr)) = crate::pseudo_opt::assignment(l) else { continue };
+                let Some((fam, _)) = crate::pseudo_opt::family(&lhs.t).filter(|_| lhs.k == TokenKind::Register) else { continue };
+                // Only computed values earn a note: a literal, a string or a symbol already says what it is.
+                if !expr.iter().any(|t| t.k == TokenKind::Register)
+                    || expr.iter().any(|t| matches!(t.k, TokenKind::Symbol | TokenKind::Text) && t.t.contains('"'))
+                {
+                    continue;
+                }
+                if let Some(c) = facts.consts.get(&(a, fam.as_str())) {
+                    const_notes.insert(a, *c);
+                }
+            }
+        }
         crate::pseudo_types::type_variables_with(&mut out, &sig, self.ssa_vars);
         // Struct member access (IDA's `->field`): types set with `Y` in this function,
         // plus types inherited from callers (argument types) and callees (return types).
@@ -719,6 +769,29 @@ impl Binary {
             let is_label = l.tokens.len() == 2 && l.tokens[1].t == ":" && l.tokens[0].k == TokenKind::Symbol;
             !is_label || used.contains(&l.tokens[0].t)
         });
+        // Values the SSA IR proves constant, noted on their (now renamed) assignment lines.
+        if !const_notes.is_empty() {
+            let mut per_addr: HashMap<u64, usize> = HashMap::new();
+            for l in &out {
+                if let (Some(a), Some(_)) = (l.address, crate::pseudo_opt::assignment(l)) {
+                    *per_addr.entry(a).or_default() += 1;
+                }
+            }
+            for l in out.iter_mut() {
+                let Some(a) = l.address else { continue };
+                let Some(c) = const_notes.get(&a) else { continue };
+                if per_addr.get(&a) == Some(&1) && crate::pseudo_opt::assignment(l).is_some() {
+                    let v = if (-9..=9).contains(c) {
+                        c.to_string()
+                    } else if *c < 0 {
+                        format!("-{:#x}", c.unsigned_abs())
+                    } else {
+                        format!("{c:#x}")
+                    };
+                    l.tokens.push(Token { t: format!("  // = {v}"), k: TokenKind::Text });
+                }
+            }
+        }
         Some(Pseudocode { address: f_addr, name, lines: out, note: None })
     }
 }

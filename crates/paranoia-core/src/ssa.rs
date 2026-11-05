@@ -69,9 +69,11 @@ enum Kind {
         ret: Option<(Var, u32)>,
         clobbers: Vec<(Var, u32)>,
     },
+    /// `target`: a direct jump's destination (a jump out of the function is a tail call).
     Branch {
         cond: Option<String>,
         uses: Vec<Expr>,
+        target: Option<u64>,
     },
     Return {
         val: Option<Expr>,
@@ -120,12 +122,24 @@ pub struct SsaStats {
     pub dead: usize,
 }
 
+/// What the SSA form proves about single instructions, for the C view.
+#[derive(Debug, Default)]
+pub struct SsaFacts {
+    /// (address, register family) of plain register assignments whose value is never read.
+    pub dead: HashSet<(u64, &'static str)>,
+    /// (address, register family) → the value the assignment there always produces.
+    pub consts: HashMap<(u64, &'static str), i64>,
+}
+
 /// A function in SSA form.
 pub struct SsaFunction {
     blocks: Vec<Block>,
     bits: u32,
     /// Known constant value of each SSA value (family, version).
     consts: HashMap<(Var, u32), i64>,
+    /// Addresses of definitions that are dead in the IR as lifted (before folding), for the C view.
+    unused: HashSet<u64>,
+    unused_defs: HashSet<(u64, Var)>,
     /// Copy aliases: value → the value it copies.
     copies: HashMap<(Var, u32), (Var, u32)>,
     pub stats: SsaStats,
@@ -137,6 +151,8 @@ pub struct SsaFunction {
 struct Lifter {
     bits: u32,
     volatile: Vec<Var>,
+    /// Registers that carry arguments (read by calls and tail jumps).
+    args: Vec<Var>,
 }
 
 impl Lifter {
@@ -235,6 +251,7 @@ impl Lifter {
                 if matches!(i.op_kind(0), OpKind::Register | OpKind::Memory) {
                     args.push(self.operand(i, 0));
                 }
+                args.extend(self.args.iter().map(|v| Expr::Use(*v, 0)));
                 return vec![Kind::Call {
                     target,
                     args,
@@ -248,8 +265,15 @@ impl Lifter {
             FlowControl::ConditionalBranch | FlowControl::UnconditionalBranch | FlowControl::IndirectBranch => {
                 let cond =
                     (i.flow_control() == FlowControl::ConditionalBranch).then(|| format!("{:?}", i.condition_code()).to_ascii_lowercase());
-                let uses = if i.flow_control() == FlowControl::IndirectBranch { vec![self.operand(i, 0)] } else { Vec::new() };
-                return vec![Kind::Branch { cond, uses }];
+                let target = matches!(i.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64)
+                    .then(|| i.near_branch_target());
+                let mut uses = Vec::new();
+                if i.flow_control() == FlowControl::IndirectBranch {
+                    uses.push(self.operand(i, 0));
+                    // A jump through a register or table may be a tail call: it passes the arguments on.
+                    uses.extend(self.args.iter().chain(std::iter::once(&0)).map(|v| Expr::Use(*v, 0)));
+                }
+                return vec![Kind::Branch { cond, uses, target }];
             }
             _ => {}
         }
@@ -512,8 +536,18 @@ impl Kind {
 
 /// Builds the SSA form of a function from its decoded blocks (`start → (instructions, edges)`).
 /// `volatile` lists the registers a call clobbers.
-pub(crate) fn build(entry: u64, blocks: &BTreeMap<u64, (Vec<Ins>, Vec<Edge>)>, bits: u32, volatile: &[Register]) -> SsaFunction {
-    let lifter = Lifter { bits, volatile: volatile.iter().filter_map(|r| var_of(*r)).collect() };
+pub(crate) fn build(
+    entry: u64,
+    blocks: &BTreeMap<u64, (Vec<Ins>, Vec<Edge>)>,
+    bits: u32,
+    volatile: &[Register],
+    args: &[Register],
+) -> SsaFunction {
+    let lifter = Lifter {
+        bits,
+        volatile: volatile.iter().filter_map(|r| var_of(*r)).collect(),
+        args: args.iter().filter_map(|r| var_of(*r)).collect(),
+    };
     let mut info = InstructionInfoFactory::new();
     let starts: Vec<u64> = blocks.keys().copied().collect();
     let index: HashMap<u64, usize> = starts.iter().enumerate().map(|(i, s)| (*s, i)).collect();
@@ -523,7 +557,13 @@ pub(crate) fn build(entry: u64, blocks: &BTreeMap<u64, (Vec<Ins>, Vec<Edge>)>, b
             let (insns, succs) = &blocks[s];
             let mut stmts = Vec::new();
             for i in insns {
-                for k in lifter.lift(i, &mut info) {
+                for mut k in lifter.lift(i, &mut info) {
+                    // A direct jump out of the function is a tail call: it reads the arguments and rax.
+                    if let Kind::Branch { target: Some(t), uses, .. } = &mut k {
+                        if !blocks.contains_key(t) {
+                            uses.extend(lifter.args.iter().chain(std::iter::once(&0)).map(|v| Expr::Use(*v, 0)));
+                        }
+                    }
                     stmts.push(Stmt { address: i.ip(), kind: k, dead: false });
                 }
             }
@@ -541,7 +581,15 @@ pub(crate) fn build(entry: u64, blocks: &BTreeMap<u64, (Vec<Ins>, Vec<Edge>)>, b
     }
     let n = bl.len();
     let Some(&e) = index.get(&entry) else {
-        return SsaFunction { blocks: bl, bits, consts: HashMap::new(), copies: HashMap::new(), stats: SsaStats::default() };
+        return SsaFunction {
+            blocks: bl,
+            bits,
+            consts: HashMap::new(),
+            unused: HashSet::new(),
+            unused_defs: HashSet::new(),
+            copies: HashMap::new(),
+            stats: SsaStats::default(),
+        };
     };
 
     // Reverse postorder from the entry; unreachable blocks keep no dominator.
@@ -656,7 +704,15 @@ pub(crate) fn build(entry: u64, blocks: &BTreeMap<u64, (Vec<Ins>, Vec<Edge>)>, b
     let mut stacks: Vec<Vec<u32>> = vec![vec![0]; 16]; // version 0 = value on entry
     rename(e, &mut bl, &children, &index, &mut counter, &mut stacks);
 
-    let mut f = SsaFunction { blocks: bl, bits, consts: HashMap::new(), copies: HashMap::new(), stats: SsaStats::default() };
+    let mut f = SsaFunction {
+        blocks: bl,
+        bits,
+        consts: HashMap::new(),
+        unused: HashSet::new(),
+        unused_defs: HashSet::new(),
+        copies: HashMap::new(),
+        stats: SsaStats::default(),
+    };
     f.blocks.retain(|b| b.start == entry || !b.preds.is_empty() || !b.stmts.is_empty());
     f.optimize();
     f
@@ -754,6 +810,20 @@ impl SsaFunction {
                 }
             }
         }
+        // Liveness for the C view is decided on the IR as lifted: a value folded into its uses
+        // below (a constant argument, a copy) is still needed by code that was not folded.
+        self.mark_dead();
+        self.unused = self.blocks.iter().flat_map(|b| b.stmts.iter().filter(|s| s.dead).map(|s| s.address)).collect();
+        self.unused_defs = self
+            .blocks
+            .iter()
+            .flat_map(|b| b.stmts.iter().filter(|s| s.dead))
+            .filter_map(|s| if let Kind::Assign { def, .. } = &s.kind { Some((s.address, *def)) } else { None })
+            .collect();
+        for b in &mut self.blocks {
+            b.phis.iter_mut().for_each(|p| p.dead = false);
+            b.stmts.iter_mut().for_each(|s| s.dead = false);
+        }
         // Propagate into the statements: known constants become literals, copies their source.
         let resolve = |k: (Var, u32), copies: &HashMap<(Var, u32), (Var, u32)>| {
             let mut t = k;
@@ -770,7 +840,24 @@ impl SsaFunction {
                 s.kind.exprs_mut(&mut |e| propagate(e, consts, copies, &resolve));
             }
         }
-        // Dead code: pure definitions without uses, iterated (a dead use frees its inputs).
+        self.mark_dead();
+        let mut st = SsaStats { blocks: self.blocks.len(), ..Default::default() };
+        for b in &self.blocks {
+            st.phis += b.phis.iter().filter(|p| !p.dead).count();
+            st.values += b.phis.len();
+            for s in &b.stmts {
+                let mut c = s.kind.clone();
+                c.defs_mut(&mut |_, _| st.values += 1);
+                st.dead += usize::from(s.dead);
+            }
+        }
+        st.constants = self.consts.len();
+        st.copies = self.copies.len();
+        self.stats = st;
+    }
+
+    /// Dead code: pure definitions without uses, iterated (a dead use frees its inputs).
+    fn mark_dead(&mut self) {
         loop {
             let mut used: HashSet<(Var, u32)> = HashSet::new();
             for b in &self.blocks {
@@ -805,19 +892,6 @@ impl SsaFunction {
                 break;
             }
         }
-        let mut st = SsaStats { blocks: self.blocks.len(), ..Default::default() };
-        for b in &self.blocks {
-            st.phis += b.phis.iter().filter(|p| !p.dead).count();
-            st.values += b.phis.len();
-            for s in &b.stmts {
-                let mut c = s.kind.clone();
-                c.defs_mut(&mut |_, _| st.values += 1);
-                st.dead += usize::from(s.dead);
-            }
-        }
-        st.constants = self.consts.len();
-        st.copies = self.copies.len();
-        self.stats = st;
     }
 
     fn name(&self, v: Var, n: u32) -> String {
@@ -870,6 +944,33 @@ impl SsaFunction {
         sub
     }
 
+    fn unused_def(&self, address: u64, var: Var) -> bool {
+        self.unused_defs.contains(&(address, var))
+    }
+
+    /// Facts for the C view, keyed by (instruction address, register family name):
+    /// definitions nothing reads, and definitions whose value is a known constant.
+    pub fn facts(&self) -> SsaFacts {
+        let mut f = SsaFacts::default();
+        for b in &self.blocks {
+            for s in &b.stmts {
+                if let Kind::Assign { def, ver, .. } = &s.kind {
+                    if *def == RSP {
+                        continue;
+                    }
+                    let name = NAMES64[*def as usize];
+                    if self.unused.contains(&s.address) && self.unused_def(s.address, *def) {
+                        f.dead.insert((s.address, name));
+                    }
+                    if let Some(c) = self.consts.get(&(*def, *ver)) {
+                        f.consts.insert((s.address, name), *c);
+                    }
+                }
+            }
+        }
+        f
+    }
+
     /// One text line per block header, phi and statement: `(indent, text, address, dead)`.
     pub fn lines(&self) -> Vec<(u8, String, Option<u64>, bool)> {
         let sub = self.substitutions();
@@ -903,14 +1004,13 @@ impl SsaFunction {
                     }
                     Kind::Store { size, addr, val } => format!("*(u{} *)({}) = {}", *size as u32 * 8, t(addr), t(val)),
                     Kind::Call { target, args, ret, .. } => {
-                        let a = args.iter().map(&t).collect::<Vec<_>>().join(", ");
-                        let call = if a.is_empty() { format!("call {target}") } else { format!("call {target} via {a}") };
+                        let call = format!("call {target}({})", args.iter().map(&t).collect::<Vec<_>>().join(", "));
                         match ret {
                             Some((v, n)) => format!("{} = {call}", self.name(*v, *n)),
                             None => call,
                         }
                     }
-                    Kind::Branch { cond, uses } => {
+                    Kind::Branch { cond, uses, .. } => {
                         let u = uses.iter().map(&t).collect::<Vec<_>>().join(", ");
                         match cond {
                             Some(c) => format!("branch if {c}"),
@@ -973,6 +1073,7 @@ mod tests {
     }
 
     const VOL: [Register; 7] = [Register::RAX, Register::RCX, Register::RDX, Register::R8, Register::R9, Register::R10, Register::R11];
+    const ARGS: [Register; 4] = [Register::RCX, Register::RDX, Register::R8, Register::R9];
 
     #[test]
     fn diamond_gets_a_phi() {
@@ -982,7 +1083,7 @@ mod tests {
             (0x150, &["mov eax, 2"], &[0x200]),
             (0x200, &["add eax, 3", "ret"], &[]),
         ]);
-        let s = build(0x100, &f, 64, &VOL);
+        let s = build(0x100, &f, 64, &VOL, &ARGS);
         let t = text(&s);
         assert!(t.contains("rax_3 = phi(1 [0x100], 2 [0x150])"), "{t}");
         assert!(t.contains("rax_4 = rax_3 + 3"), "{t}");
@@ -998,7 +1099,7 @@ mod tests {
             (0x200, &["mov eax, 5"], &[0x210]),
             (0x210, &["add eax, 3", "ret"], &[]),
         ]);
-        let s = build(0x100, &f, 64, &VOL);
+        let s = build(0x100, &f, 64, &VOL, &ARGS);
         let t = text(&s);
         assert!(t.contains("= phi(5 [0x150], 5 [0x200])  // = 5"), "{t}");
         assert!(t.contains("return 8"), "the sum is known after the join: {t}");
@@ -1012,7 +1113,7 @@ mod tests {
             (0x110, &["add eax, 2", "dec ecx", "jnz 0x110"], &[0x110, 0x120]),
             (0x120, &["ret"], &[]),
         ]);
-        let s = build(0x100, &f, 64, &VOL);
+        let s = build(0x100, &f, 64, &VOL, &ARGS);
         let t = text(&s);
         assert!(t.contains("rax_2 = phi(0 [0x100], rax_3 [0x110])"), "{t}");
         assert!(t.contains("rcx_1 = phi(rcx_0 [0x100], rcx_2 [0x110])") || t.contains("rcx_1 = phi(rcx [0x100], rcx_2 [0x110])"), "{t}");
@@ -1022,7 +1123,7 @@ mod tests {
     #[test]
     fn dead_definitions_and_copies() {
         let f = func(&[(0x100, &["mov edx, 7", "mov rax, rcx", "add rax, 1", "ret"], &[])]);
-        let s = build(0x100, &f, 64, &VOL);
+        let s = build(0x100, &f, 64, &VOL, &ARGS);
         let t = text(&s);
         assert!(t.contains("(dead) rdx_1 = 7"), "unused: {t}");
         assert!(t.contains("rax_2 = rcx_0 + 1") || t.contains("rax_2 = rcx + 1"), "the copy is propagated: {t}");
@@ -1032,17 +1133,33 @@ mod tests {
     #[test]
     fn calls_clobber_volatile_registers() {
         let f = func(&[(0x100, &["mov ecx, 3", "mov ebx, 4", "call 0x500", "add ecx, ebx", "ret"], &[])]);
-        let s = build(0x100, &f, 64, &VOL);
+        let s = build(0x100, &f, 64, &VOL, &ARGS);
         let t = text(&s);
         // rbx survives the call (constant 4), rcx does not.
         assert!(t.contains("rcx_3 = rcx_2 + 4"), "{t}");
-        assert!(t.contains("rax_1 = call sub_500"), "{t}");
+        assert!(
+            t.contains("rax_1 = call sub_500(3, rdx_0, r8_0, r9_0)") || t.contains("rax_1 = call sub_500(3, rdx, r8, r9)"),
+            "the call reads the argument registers: {t}"
+        );
+    }
+
+    #[test]
+    fn argument_setup_before_a_call_or_tail_jump_is_live() {
+        // mov ecx, 5 feeds the call: not dead. mov edx, 6 before a jump out of the function feeds it too.
+        let f = func(&[(0x100, &["mov ecx, 5", "call 0x500", "mov edx, 6", "mov r10d, 7", "jmp 0x900"], &[])]);
+        let s = build(0x100, &f, 64, &VOL, &ARGS);
+        let facts = s.facts();
+        let t = text(&s);
+        assert!(!facts.dead.iter().any(|(_, r)| *r == "rcx"), "{t}");
+        assert!(!facts.dead.iter().any(|(_, r)| *r == "rdx"), "{t}");
+        assert!(facts.dead.iter().any(|(_, r)| *r == "r10"), "r10 is no argument register: {t}");
+        assert_eq!(facts.consts.values().copied().filter(|v| *v == 5).count(), 1);
     }
 
     #[test]
     fn stack_and_memory() {
         let f = func(&[(0x100, &["push rbx", "mov rbx, [rcx+8]", "mov [rsp+0x10], rbx", "pop rbx", "ret"], &[])]);
-        let t = text(&build(0x100, &f, 64, &VOL));
+        let t = text(&build(0x100, &f, 64, &VOL, &ARGS));
         assert!(t.contains("rsp_1 = rsp_0 - 8") || t.contains("rsp_1 = rsp - 8"), "{t}");
         assert!(t.contains("*(u64 *)") && t.contains("rbx_1 = *(u64 *)(rcx"), "{t}");
     }
@@ -1050,9 +1167,9 @@ mod tests {
     #[test]
     fn unreachable_blocks_and_odd_inputs_do_not_panic() {
         let f = func(&[(0x100, &["ret"], &[]), (0x200, &["mov eax, 1", "jmp 0x100"], &[0x100])]);
-        let _ = build(0x100, &f, 64, &VOL).lines();
-        let _ = build(0x999, &f, 64, &VOL).lines();
+        let _ = build(0x100, &f, 64, &VOL, &ARGS).lines();
+        let _ = build(0x999, &f, 64, &VOL, &ARGS).lines();
         let empty = BTreeMap::new();
-        let _ = build(0x100, &empty, 64, &VOL).lines();
+        let _ = build(0x100, &empty, 64, &VOL, &ARGS).lines();
     }
 }
