@@ -159,6 +159,8 @@ pub struct Binary {
     /// Runtime cache, derived from `var_types`; not persisted and not undone.
     /// Reaching-definition variables in the decompiler (on); off keeps the older, coarser splitting.
     ssa_vars: bool,
+    /// The C view uses SSA facts: dead register assignments dropped, constants noted.
+    ssa_facts: bool,
     /// 32-bit ARM: where ARM / Thumb code starts (`true` = Thumb); see `loader::fix_arm_thumb`.
     arm_modes: BTreeMap<u64, bool>,
     call_args: HashMap<u64, HashMap<u64, Vec<Option<String>>>>,
@@ -295,6 +297,7 @@ impl Binary {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             ssa_vars: true,
+            ssa_facts: true,
             arm_modes,
             call_args: HashMap::new(),
             ret_types: HashMap::new(),
@@ -436,6 +439,12 @@ impl Binary {
     /// splitting that only separates top-level overwrites. Mainly for comparing the two.
     pub fn set_ssa_variables(&mut self, on: bool) {
         self.ssa_vars = on;
+    }
+
+    /// Whether the C view uses the SSA IR's facts (default on): assignments SSA proves dead are
+    /// left out, and values it proves constant are noted (`// = 0x10`).
+    pub fn set_ssa_facts(&mut self, on: bool) {
+        self.ssa_facts = on;
     }
 
     /// Renders code at `va`, following ARM / Thumb switches in mixed 32-bit ARM images.

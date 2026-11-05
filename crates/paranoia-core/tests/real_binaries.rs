@@ -561,3 +561,56 @@ fn mixed_arm_and_thumb_code() {
         assert!(bin.symbols().iter().all(|s| !s.name.starts_with('$')), "{how}");
     }
 }
+
+/// The C view with SSA facts (dead register assignments left out, constants noted) keeps every call
+/// and return, stays balanced, and never grows.
+#[test]
+fn ssa_facts_in_the_c_view_are_safe() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/node_modules/electron-winstaller/vendor");
+    let mut inputs: Vec<(String, Vec<u8>)> = vec![];
+    if let Ok(b) = std::fs::read(dir.join("Setup.exe")) {
+        inputs.push(("Setup.exe".into(), b));
+    }
+    if let Ok(b) = std::env::current_exe().and_then(std::fs::read) {
+        inputs.push(("self".into(), b));
+    }
+    let text = |p: &paranoia_core::Pseudocode| -> Vec<String> {
+        p.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect()
+    };
+    let calls = |lines: &[String]| -> Vec<String> {
+        let mut v: Vec<String> = lines
+            .iter()
+            .flat_map(|l| {
+                l.match_indices('(')
+                    .filter_map(move |(i, _)| l[..i].rsplit(|c: char| !(c.is_alphanumeric() || c == '_')).next().map(str::to_string))
+            })
+            .filter(|n| n.starts_with("sub_") || n.chars().next().is_some_and(|c| c.is_ascii_uppercase()))
+            .collect();
+        v.sort();
+        v
+    };
+    let (mut checked, mut removed, mut notes) = (0usize, 0usize, 0usize);
+    for (name, bytes) in inputs {
+        let Ok(mut bin) = Binary::load(&name, bytes) else { continue };
+        bin.analyze();
+        let funcs: Vec<u64> =
+            bin.functions().iter().filter(|f| f.instructions > 6 && f.instructions < 500).map(|f| f.address).take(20).collect();
+        for va in funcs {
+            bin.set_ssa_facts(false);
+            let Some(off) = bin.pseudocode(va) else { continue };
+            bin.set_ssa_facts(true);
+            let on = bin.pseudocode(va).unwrap();
+            let (a, b) = (text(&off), text(&on));
+            assert!(b.len() <= a.len(), "{name} {va:#x}: {} lines became {}", a.len(), b.len());
+            assert_eq!(calls(&a), calls(&b), "{name} {va:#x}: calls changed\n{}\n----\n{}", a.join("\n"), b.join("\n"));
+            let rets = |v: &[String]| v.iter().filter(|l| l.trim_start().starts_with("return")).count();
+            assert_eq!(rets(&a), rets(&b), "{name} {va:#x}: returns changed");
+            let depth: i64 = b.iter().map(|l| l.matches('{').count() as i64 - l.matches('}').count() as i64).sum();
+            assert_eq!(depth, 0, "{name} {va:#x}: unbalanced braces");
+            removed += a.len() - b.len();
+            notes += b.iter().filter(|l| l.contains("  // = ")).count();
+            checked += 1;
+        }
+    }
+    eprintln!("ssa facts: {checked} functions, {removed} lines dropped, {notes} constants noted");
+}
