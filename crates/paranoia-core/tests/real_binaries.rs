@@ -455,3 +455,109 @@ fn real_powerpc_binaries_decode() {
         assert!(m.contains(&"mflr") && m.contains(&"blr") && m.contains(&"bl"), "{file}: {m:?}");
     }
 }
+
+/// A minimal ARM ELF that mixes instruction sets: `main` (ARM) calls `thumb_fn` with `blx`,
+/// and `arm2` (ARM) follows the Thumb code. `symbols` picks how the modes are announced.
+fn mixed_arm_elf(symbols: &str) -> Vec<u8> {
+    let mut code: Vec<u8> = Vec::new();
+    for w in [0xe52d_e004u32, 0xfa00_0001, 0xe49d_f004, 0xe1a0_0000] {
+        code.extend(w.to_le_bytes()); // 0x8000 main: push {lr}; blx 0x8010; pop {pc}; nop
+    }
+    for h in [0x202au16, 0x4770, 0xbf00, 0xbf00] {
+        code.extend(h.to_le_bytes()); // 0x8010 thumb_fn: movs r0, #42; bx lr; nop; nop
+    }
+    for w in [0xe3a0_0001u32, 0xe12f_ff1e] {
+        code.extend(w.to_le_bytes()); // 0x8018 arm2: mov r0, #1; bx lr
+    }
+    // (name, value, type) — type 2 = STT_FUNC, 0 = STT_NOTYPE
+    let syms: Vec<(&str, u32, u8)> = match symbols {
+        "functions" => vec![("main", 0x8000, 2), ("thumb_fn", 0x8011, 2), ("arm2", 0x8018, 2)],
+        "mapping" => vec![("$a", 0x8000, 0), ("$t", 0x8010, 0), ("$a.1", 0x8018, 0)],
+        _ => vec![],
+    };
+    let mut strtab = vec![0u8];
+    let mut symtab = vec![0u8; 16];
+    for (name, value, ty) in &syms {
+        let off = strtab.len() as u32;
+        strtab.extend(name.as_bytes());
+        strtab.push(0);
+        symtab.extend(off.to_le_bytes());
+        symtab.extend(value.to_le_bytes());
+        symtab.extend(0u32.to_le_bytes());
+        symtab.push(*ty); // STB_LOCAL
+        symtab.push(0);
+        symtab.extend(1u16.to_le_bytes()); // .text
+    }
+    let shstr = b"\0.text\0.symtab\0.strtab\0.shstrtab\0".to_vec();
+    let text_off = 0x100usize;
+    let sym_off = text_off + code.len();
+    let str_off = sym_off + symtab.len();
+    let shs_off = str_off + strtab.len();
+    let sh_off = (shs_off + shstr.len() + 3) & !3;
+    let mut f = vec![0u8; sh_off];
+    let h: Vec<u8> = [
+        &[0x7f, b'E', b'L', b'F', 1, 1, 1, 0][..],
+        &[0; 8],
+        &2u16.to_le_bytes(),
+        &40u16.to_le_bytes(),
+        &1u32.to_le_bytes(),
+        &0x8000u32.to_le_bytes(),
+        &52u32.to_le_bytes(),
+        &(sh_off as u32).to_le_bytes(),
+        &0x0500_0000u32.to_le_bytes(),
+        &52u16.to_le_bytes(),
+        &32u16.to_le_bytes(),
+        &1u16.to_le_bytes(),
+        &40u16.to_le_bytes(),
+        &5u16.to_le_bytes(),
+        &4u16.to_le_bytes(),
+    ]
+    .concat();
+    f[..52].copy_from_slice(&h);
+    let ph: Vec<u8> = [1u32, 0, 0x7f00, 0x7f00, (text_off + code.len()) as u32, (text_off + code.len()) as u32, 5, 0x1000]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    f[52..84].copy_from_slice(&ph);
+    f[text_off..sym_off].copy_from_slice(&code);
+    f[sym_off..str_off].copy_from_slice(&symtab);
+    f[str_off..shs_off].copy_from_slice(&strtab);
+    f[shs_off..shs_off + shstr.len()].copy_from_slice(&shstr);
+    let sh = |name: u32, ty: u32, flags: u32, addr: u32, off: usize, size: usize, link: u32, info: u32, align: u32, ent: u32| -> Vec<u8> {
+        [name, ty, flags, addr, off as u32, size as u32, link, info, align, ent].iter().flat_map(|v| v.to_le_bytes()).collect()
+    };
+    f.extend(vec![0u8; 40]);
+    f.extend(sh(1, 1, 6, 0x8000, text_off, code.len(), 0, 0, 4, 0));
+    f.extend(sh(7, 2, 0, 0, sym_off, symtab.len(), 3, 1 + syms.len() as u32, 4, 16));
+    f.extend(sh(15, 3, 0, 0, str_off, strtab.len(), 0, 0, 1, 0));
+    f.extend(sh(23, 3, 0, 0, shs_off, shstr.len(), 0, 0, 1, 0));
+    f
+}
+
+#[test]
+fn mixed_arm_and_thumb_code() {
+    let first = |bin: &Binary, va: u64, n: usize| -> Vec<(u32, String)> {
+        bin.listing(va, n).unwrap().into_iter().map(|i| (i.size, i.mnemonic)).collect()
+    };
+    for how in ["functions", "mapping", "none"] {
+        let mut bin = Binary::load("mixed", mixed_arm_elf(how)).unwrap_or_else(|e| panic!("{how}: {e}"));
+        assert_eq!(bin.info().arch, paranoia_core::Arch::Arm, "{how}: an ARM entry keeps the image ARM");
+        bin.analyze();
+        // The Thumb function: 2-byte instructions, found through `blx` even without symbols.
+        assert!(bin.is_thumb_at(0x8010), "{how}: 0x8010 is Thumb");
+        let t = first(&bin, 0x8010, 2);
+        assert_eq!(t[0].0, 2, "{how}: {t:?}");
+        assert!(t[0].1.starts_with("mov") && t[1].1 == "bx", "{how}: {t:?}");
+        assert!(bin.functions().iter().any(|f| f.address == 0x8010), "{how}: thumb_fn is a function");
+        // ARM before it stays ARM.
+        assert!(!bin.is_thumb_at(0x8000));
+        assert_eq!(first(&bin, 0x8004, 1)[0], (4, "blx".to_string()), "{how}");
+        if how != "none" {
+            // With symbols, the ARM function after the Thumb code is ARM again.
+            assert!(!bin.is_thumb_at(0x8018), "{how}");
+            assert_eq!(first(&bin, 0x8018, 2), vec![(4, "mov".to_string()), (4, "bx".to_string())], "{how}");
+        }
+        // Mapping symbols are markers, not names.
+        assert!(bin.symbols().iter().all(|s| !s.name.starts_with('$')), "{how}");
+    }
+}

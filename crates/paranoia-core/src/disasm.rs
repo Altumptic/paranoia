@@ -63,6 +63,10 @@ pub struct Disassembler {
     adrp: [Option<u64>; 32],
     /// MIPS: a branch waiting for its delay slot.
     pending: Option<(Flow, Option<u64>)>,
+    /// 32-bit ARM: where ARM / Thumb code starts (`true` = Thumb), from the image.
+    arm_modes: std::collections::BTreeMap<u64, bool>,
+    /// Modes learned from `blx` targets while decoding.
+    learned: Vec<(u64, bool)>,
 }
 
 impl Disassembler {
@@ -71,7 +75,7 @@ impl Disassembler {
             Arch::X86 => 32,
             _ => 64,
         };
-        Disassembler { arch, bits, big: false, adrp: [None; 32], pending: None }
+        Disassembler { arch, bits, big: false, adrp: [None; 32], pending: None, arm_modes: Default::default(), learned: Vec::new() }
     }
 
     /// For architectures whose decoding depends on the image: RISC-V XLEN, MIPS width and byte order.
@@ -84,6 +88,22 @@ impl Disassembler {
         d
     }
 
+    /// 32-bit ARM images that mix ARM and Thumb code: where each instruction set starts.
+    pub fn with_arm_modes(mut self, modes: std::collections::BTreeMap<u64, bool>) -> Self {
+        self.arm_modes = modes;
+        self
+    }
+
+    /// Instruction set at `va` (32-bit ARM): the nearest known start at or before it, else the image's.
+    pub fn thumb_at(&self, va: u64) -> bool {
+        arm_mode_at(&self.arm_modes, self.arch == Arch::Thumb, va)
+    }
+
+    /// Modes learned from `blx` targets since the last call.
+    pub fn take_learned_modes(&mut self) -> Vec<(u64, bool)> {
+        std::mem::take(&mut self.learned)
+    }
+
     /// Forget register state (call at basic-block boundaries).
     pub fn reset(&mut self) {
         self.adrp = [None; 32];
@@ -94,7 +114,18 @@ impl Disassembler {
         match self.arch {
             Arch::X86 | Arch::X86_64 => decode_x86(self.bits, bytes, va),
             Arch::Arm64 => self.decode_arm64(bytes, va),
-            Arch::Arm | Arch::Thumb => decode_arm32(self.arch == Arch::Thumb, bytes, va).1,
+            Arch::Arm | Arch::Thumb => {
+                let thumb = self.thumb_at(va);
+                let (inst, d) = decode_arm32(thumb, bytes, va);
+                // `blx imm` always switches instruction set: its target runs in the other one.
+                if let (Some(i), Some(t)) = (&inst, d.target) {
+                    if i.opcode == a32::Opcode::BLX && d.flow == Flow::Call && !self.arm_modes.contains_key(&t) {
+                        self.arm_modes.insert(t, !thumb);
+                        self.learned.push((t, !thumb));
+                    }
+                }
+                d
+            }
             Arch::RiscV => self.decode_riscv(bytes, va),
             Arch::Mips => self.decode_mips(bytes, va),
             Arch::PowerPc => self.decode_ppc(bytes, va),
@@ -717,12 +748,37 @@ fn decode_arm32(thumb: bool, bytes: &[u8], va: u64) -> (Option<a32::Instruction>
     (Some(inst), d)
 }
 
+/// Instruction set at `va` given the known start points: the nearest at or before it, else the default.
+pub fn arm_mode_at(modes: &std::collections::BTreeMap<u64, bool>, default_thumb: bool, va: u64) -> bool {
+    modes.range(..=va).next_back().map(|(_, t)| *t).unwrap_or(default_thumb)
+}
+
+/// Renders 32-bit ARM code whose instruction set changes at known addresses.
+pub fn render_arm_modes(
+    default_thumb: bool,
+    modes: &std::collections::BTreeMap<u64, bool>,
+    bytes: &[u8],
+    va: u64,
+    max: usize,
+    names: &dyn NameLookup,
+) -> Vec<Instruction> {
+    render_arm32_with(&|a| arm_mode_at(modes, default_thumb, a), bytes, va, max, names)
+}
+
 fn render_arm32(thumb: bool, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
+    render_arm32_with(&|_| thumb, bytes, va, max, names)
+}
+
+fn render_arm32_with(mode: &dyn Fn(u64) -> bool, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
     let mut out = Vec::new();
     let mut pos = 0usize;
-    let step = if thumb { 2 } else { 4 };
-    while out.len() < max && pos + step <= bytes.len() {
+    loop {
         let ip = va + pos as u64;
+        let thumb = mode(ip);
+        let step = if thumb { 2 } else { 4 };
+        if out.len() >= max || pos + step > bytes.len() {
+            break;
+        }
         let (inst, s) = decode_arm32(thumb, &bytes[pos..], ip);
         let Some(inst) = inst.filter(|_| s.valid) else {
             let raw = &bytes[pos..pos + step];
