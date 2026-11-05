@@ -41,6 +41,7 @@ mod pseudo_structs;
 mod pseudo_types;
 mod riscv;
 mod sigs;
+mod ssa;
 pub use sigs::SigReport;
 mod strings;
 mod switch;

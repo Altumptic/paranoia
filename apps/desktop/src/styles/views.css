@@ -1628,3 +1628,11 @@
   margin: 0 8px 6px;
   width: calc(100% - 16px);
 }
+.pseudo-seg {
+  margin: 0;
+  padding: 2px;
+}
+.pseudo-seg .seg-btn {
+  height: 24px;
+  padding: 0 10px;
+}

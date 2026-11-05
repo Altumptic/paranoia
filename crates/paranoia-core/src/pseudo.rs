@@ -114,6 +114,49 @@ impl Expr {
 
 // ------------------------------------------------------------------------------------------------
 
+/// Token kinds for an SSA text line (values, numbers, keywords, block labels).
+fn ssa_tokens(text: &str, dead: bool) -> Vec<Token> {
+    let mut out: Vec<Token> = Vec::new();
+    let (code, comment) = match text.find("  //") {
+        Some(i) => (&text[..i], Some(&text[i..])),
+        None => (text, None),
+    };
+    let mut word = String::new();
+    let flush = |w: &mut String, out: &mut Vec<Token>| {
+        if w.is_empty() {
+            return;
+        }
+        let k = if w.starts_with("block_") || w.starts_with("sub_") {
+            TokenKind::Symbol
+        } else if matches!(w.as_str(), "phi" | "call" | "return" | "branch" | "if" | "jump" | "via") {
+            TokenKind::Keyword
+        } else if w.starts_with("0x") || w.chars().all(|c| c.is_ascii_digit()) {
+            TokenKind::Number
+        } else if w.rsplit_once('_').is_some_and(|(r, n)| !r.is_empty() && n.chars().all(|c| c.is_ascii_digit())) {
+            TokenKind::Register
+        } else {
+            TokenKind::Text
+        };
+        out.push(Token { t: std::mem::take(w), k });
+    };
+    for c in code.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(Token { t: c.to_string(), k: TokenKind::Punct });
+        }
+    }
+    flush(&mut word, &mut out);
+    if let Some(c) = comment {
+        out.push(Token { t: c.to_string(), k: TokenKind::Text });
+    }
+    if dead {
+        out.push(Token { t: "  // dead".into(), k: TokenKind::Text });
+    }
+    crate::pseudo_opt::merge(out)
+}
+
 fn reg_name(r: Register) -> String {
     format!("{r:?}").to_lowercase()
 }
@@ -374,6 +417,57 @@ impl Binary {
     /// C-like pseudocode for the function containing `va` (x86 / x86-64).
     /// Rendering also harvests which typed variables flow into internal callees,
     /// so their pseudocode inherits the types (cross-call type propagation).
+    /// The function containing `va` in SSA form (x86 / x86-64): phi nodes at joins, one definition
+    /// per value, with constants, copies and dead definitions worked out. Lines are tokenised
+    /// like pseudocode; dead lines end in a `// dead` comment.
+    pub fn ssa(&self, va: u64) -> Option<Pseudocode> {
+        let a = self.analysis.as_ref()?;
+        let f = &a.functions[self.function_index_containing(va)?];
+        let name = self.function_name(f);
+        if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
+            return Some(Pseudocode {
+                address: f.address,
+                name,
+                lines: Vec::new(),
+                note: Some("SSA form is available for x86 and x86-64 code.".into()),
+            });
+        }
+        let bits = if self.info.arch == Arch::X86 { 32 } else { 64 };
+        let mut blocks: BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)> = BTreeMap::new();
+        for b in &f.blocks {
+            let bytes = self.bytes_at(b.start)?;
+            let len = ((b.end - b.start) as usize).min(bytes.len());
+            let mut d = Decoder::with_ip(bits, &bytes[..len], b.start, DecoderOptions::NONE);
+            let mut v = Vec::new();
+            while d.can_decode() {
+                let i = d.decode();
+                if i.is_invalid() {
+                    break;
+                }
+                v.push(i);
+            }
+            blocks.insert(b.start, (v, b.succs.clone()));
+        }
+        use Register as R;
+        let volatile: &[Register] = match (bits, self.info.format) {
+            (32, _) => &[R::EAX, R::ECX, R::EDX],
+            (_, Format::Pe) => &[R::RAX, R::RCX, R::RDX, R::R8, R::R9, R::R10, R::R11],
+            _ => &[R::RAX, R::RCX, R::RDX, R::RSI, R::RDI, R::R8, R::R9, R::R10, R::R11],
+        };
+        let s = crate::ssa::build(f.address, &blocks, bits, volatile);
+        let st = &s.stats;
+        let note = format!(
+            "SSA: {} blocks, {} phi nodes, {} values, {} constants, {} copies, {} dead definitions",
+            st.blocks, st.phis, st.values, st.constants, st.copies, st.dead
+        );
+        let lines = s
+            .lines()
+            .into_iter()
+            .map(|(indent, text, address, dead)| PseudoLine { address, indent, tokens: ssa_tokens(&text, dead) })
+            .collect();
+        Some(Pseudocode { address: f.address, name, lines, note: Some(note) })
+    }
+
     pub fn pseudocode(&mut self, va: u64) -> Option<Pseudocode> {
         let a = self.analysis.as_ref()?;
         let idx = self.function_index_containing(va)?;

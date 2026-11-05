@@ -45,6 +45,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, loops/switch, typed variables |
 | `pseudo_structs.rs` | Struct member access in pseudocode (types set with `Y`); argument/return types flow across internal calls, pointer fields chain |
 | `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Listing items + auto names, local C types, operand display/constants, ~250 API prototypes |
+| `ssa.rs` | SSA IR for x86/x64: lift to register statements, dominators (Cooper–Harvey–Kennedy), dominance frontiers, phi placement, renaming; constant / copy propagation and dead code on SSA. `Binary::ssa` (API `ssa`, CLI `paranoia ssa`, UI Pseudocode → SSA). Tests assemble functions with `asm_x86` |
 | `pseudo_ssa.rs` | Variable recovery: flow graph from the structured pseudocode lines (over-approximated on purpose — an extra edge only merges variables), reaching definitions, webs. `type_variables_with` falls back to the old splitting if the structure cannot be read; `Binary::set_ssa_variables(false)` switches it off for comparison |
 | `flirt_sig.rs` | IDA binary `.sig` reader → the same `PatSig` list the `.pat` matcher uses (`Binary::apply_sig`, API `applySig`). Real-file test: set `PARANOIA_FLIRT_DIR` to angr's `libc_ubuntu_2004.sig` + static-libc ELF |
 | `asm_x86.rs` | Text assembler (Intel syntax) on iced's encoder; `Binary::assemble_at` (API `assemble`) patches code with it |
@@ -125,4 +126,4 @@ CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, muta
 
 ## Where the work is
 
-Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: a real SSA IR in the decompiler, `.sig` referenced-function checks, pseudocode beyond x86, remote debugging. Mixed ARM/Thumb: per-address mode in `Binary::arm_modes` (`loader::fix_arm_thumb` + `blx` targets); render code with `Binary::render_code`, never `render_mode` directly. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
+Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: building the C view from the SSA IR (`ssa.rs`), `.sig` referenced-function checks, pseudocode beyond x86, remote debugging. Mixed ARM/Thumb: per-address mode in `Binary::arm_modes` (`loader::fix_arm_thumb` + `blx` targets); render code with `Binary::render_code`, never `render_mode` directly. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
