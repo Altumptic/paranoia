@@ -1554,3 +1554,9 @@
 .ai-foot {
   margin-top: 6px;
 }
+.ai-presets {
+  flex-wrap: wrap;
+}
+.ai-presets-head {
+  margin-top: 6px;
+}

@@ -79,10 +79,10 @@ By default the app and the engine make **no network connections**: no telemetry,
 
 ### AI assistant (optional)
 
-`Assistant → Settings…` takes an OpenAI-compatible endpoint, a model and an optional API key. Until an endpoint is set nothing is ever sent. Requests are made by the **main process** (the renderer keeps `connect-src 'self'`); they carry only the decompiled text of the one function you asked about (clipped to 12,000 characters) and no file bytes, hashes or names of other functions.
+`Assistant → Settings…` takes an endpoint, a model and an optional API key. Presets cover local servers (Ollama, LM Studio) and hosted ones (Claude via Anthropic's Messages API; OpenAI, DeepSeek, Kimi, Gemini, Mistral, OpenRouter via the OpenAI chat API). Until an endpoint is set nothing is ever sent. Requests are made by the **main process** (the renderer keeps `connect-src 'self'`); they carry only the decompiled text of the one function you asked about (clipped to 12,000 characters) and no file bytes, hashes or names of other functions.
 
 * Every change of endpoint is confirmed in a native dialog, so the page cannot quietly redirect the assistant. A loopback endpoint (`127.0.0.1`, `localhost`, `::1`) never leaves the machine. Anything else must be `https://`, is confirmed in a native dialog when you save it, and again once per session before the first request.
-* Redirects are refused, the reply is capped at 256 KB, and a request times out after 120 s or when you close the dialog.
+* Redirects are refused, the reply is capped at 256 KB, and a request times out after 300 s or when you close the dialog.
 * The API key is encrypted with the OS keystore (Electron `safeStorage`) and never returned to the page; if the OS cannot encrypt, it is kept in memory only.
 * Answers are shown as text; a suggested name is applied only when you click *Apply name*, and must be a plain C identifier.
 

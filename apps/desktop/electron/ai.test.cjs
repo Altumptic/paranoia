@@ -55,6 +55,42 @@ test("chat posts to /chat/completions with the key and returns the answer", asyn
   assert.equal("Authorization" in seen.i.headers, false);
 });
 
+test("api.anthropic.com speaks the Messages API", async () => {
+  let seen;
+  const reply = { content: [{ type: "thinking", thinking: "" }, { type: "text", text: "It parses a header." }], stop_reason: "end_turn" };
+  const f = async (url, init) => ((seen = { url, init }), { ok: true, status: 200, text: async () => JSON.stringify(reply) });
+  const messages = A.buildMessages("explain", { name: "f", code: "int f();" });
+  const out = await A.chat({ endpoint: "https://api.anthropic.com/v1", key: "sk-ant-test", model: "claude-opus-5-5", messages, fetchImpl: f });
+  assert.equal(out, "It parses a header.");
+  assert.equal(seen.url, "https://api.anthropic.com/v1/messages");
+  assert.equal(seen.init.headers["x-api-key"], "sk-ant-test");
+  assert.equal(seen.init.headers["anthropic-version"], "2026-10-21");
+  assert.equal("Authorization" in seen.init.headers, false);
+  const body = JSON.parse(seen.init.body);
+  assert.equal(body.model, "claude-opus-5-5");
+  assert.equal(typeof body.system, "string");
+  assert.deepEqual(body.messages.map((m) => m.role), ["user"]);
+  assert.ok(body.max_tokens > 0);
+  for (const k of ["temperature", "top_p", "top_k", "stream"]) assert.equal(k in body, false, k);
+});
+
+test("a Claude refusal and a missing key are reported", async () => {
+  const f = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ content: [], stop_reason: "refusal", stop_details: { category: "cyber" } }) });
+  await assert.rejects(A.chat({ endpoint: "https://api.anthropic.com/v1", key: "k", model: "m", messages: [], fetchImpl: f }), /declined.*cyber/);
+  await assert.rejects(A.chat({ endpoint: "https://api.anthropic.com/v1", model: "m", messages: [], fetchImpl: f }), /API key/);
+});
+
+test("other hosted providers use the OpenAI protocol without sampling parameters", () => {
+  for (const u of ["https://api.openai.com/v1", "https://api.deepseek.com/v1", "https://api.moonshot.ai/v1", "https://openrouter.ai/api/v1", "https://generativelanguage.googleapis.com/v1beta/openai"]) {
+    const ep = A.parseEndpoint(u);
+    assert.equal(A.protocolFor(ep), "openai", u);
+    const r = A.buildRequest(ep, "k", "m", [{ role: "user", content: "x" }]);
+    assert.equal(r.url, `${ep.url}/chat/completions`);
+    assert.equal("temperature" in r.body, false);
+  }
+  assert.equal(A.protocolFor(A.parseEndpoint("https://api.anthropic.com.evil.com/v1")), "openai");
+});
+
 test("chat reports failures in words", async () => {
   const run = (fetchImpl, extra = {}) => A.chat({ endpoint: "http://127.0.0.1:11434/v1", model: "m", messages: [], fetchImpl, ...extra });
   await assert.rejects(run(reply(401, { error: { message: "bad key" } })), /answered 401: bad key/);
