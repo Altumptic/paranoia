@@ -32,6 +32,7 @@ mod nav;
 mod operands;
 mod pdbsym;
 mod pdbtypes;
+mod ppc;
 mod protos;
 mod pseudo;
 mod pseudo_opt;
@@ -392,7 +393,7 @@ impl Binary {
                     &mut dis,
                     &seeds,
                     &skip,
-                    matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb | Arch::RiscV | Arch::Mips),
+                    matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb | Arch::RiscV | Arch::Mips | Arch::PowerPc),
                     bits,
                 )
             } else {

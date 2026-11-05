@@ -77,7 +77,7 @@ impl Disassembler {
     /// For architectures whose decoding depends on the image: RISC-V XLEN, MIPS width and byte order.
     pub fn with_mode(arch: Arch, bits: u8, big_endian: bool) -> Self {
         let mut d = Self::new(arch);
-        if matches!(arch, Arch::RiscV | Arch::Mips) {
+        if matches!(arch, Arch::RiscV | Arch::Mips | Arch::PowerPc) {
             d.bits = if bits == 64 { 64 } else { 32 };
         }
         d.big = big_endian;
@@ -97,6 +97,7 @@ impl Disassembler {
             Arch::Arm | Arch::Thumb => decode_arm32(self.arch == Arch::Thumb, bytes, va).1,
             Arch::RiscV => self.decode_riscv(bytes, va),
             Arch::Mips => self.decode_mips(bytes, va),
+            Arch::PowerPc => self.decode_ppc(bytes, va),
             _ => Decoded::invalid(),
         }
     }
@@ -256,7 +257,7 @@ pub fn render(arch: Arch, bytes: &[u8], va: u64, max: usize, names: &dyn NameLoo
 /// Like [`render`], with the image's word size and byte order (RISC-V, MIPS).
 pub fn render_mode(arch: Arch, bits: u8, big: bool, bytes: &[u8], va: u64, max: usize, names: &dyn NameLookup) -> Vec<Instruction> {
     match arch {
-        Arch::RiscV | Arch::Mips => render_rv_mips(arch, bits, big, bytes, va, max, names),
+        Arch::RiscV | Arch::Mips | Arch::PowerPc => render_rv_mips(arch, bits, big, bytes, va, max, names),
         Arch::X86 | Arch::X86_64 => render_x86(if arch == Arch::X86 { 32 } else { 64 }, bytes, va, max, names),
         Arch::Arm64 => render_arm64(bytes, va, max, names),
         Arch::Arm | Arch::Thumb => render_arm32(arch == Arch::Thumb, bytes, va, max, names),
@@ -870,6 +871,77 @@ impl Disassembler {
         }
         d
     }
+
+    fn decode_ppc(&mut self, bytes: &[u8], va: u64) -> Decoded {
+        let Some(i) = crate::ppc::decode(bytes, va, self.big, self.bits == 64) else {
+            return Decoded { len: 4, ..Decoded::invalid() };
+        };
+        let mut d = Decoded { len: 4, flow: i.flow, target: i.target, data_ref: None, mem_size: 0, indirect_slot: None, valid: true };
+        use crate::ppc::Effect;
+        match i.effect {
+            Effect::SetAddr(rd, v) => self.track(rd, Some(v)),
+            // In `addi` / `ori` and loads, r0 as the base means the literal 0, not the register.
+            Effect::AddImm(rd, ra, imm) => {
+                let v = self.adrp.get(ra as usize).copied().flatten().filter(|_| ra != 0).map(|b| b.wrapping_add(imm as u64));
+                d.data_ref = v;
+                self.track(rd, v);
+            }
+            Effect::Mem(rd, ra, imm, size) => {
+                if let Some(b) = self.adrp.get(ra as usize).copied().flatten().filter(|_| ra != 0) {
+                    d.data_ref = Some(b.wrapping_add(imm as u64));
+                    d.mem_size = size;
+                }
+                self.track(rd, None);
+            }
+            Effect::Write(rd) => self.track(rd, None),
+            Effect::None => {}
+        }
+        d
+    }
+}
+
+fn ppc_tokens(ops: &[crate::ppc::Op], names: &dyn NameLookup) -> Vec<Token> {
+    use crate::ppc::Op;
+    let num = |v: i64| Token {
+        t: if (-9..=9).contains(&v) {
+            v.to_string()
+        } else if v < 0 {
+            format!("-{:#x}", v.unsigned_abs())
+        } else {
+            format!("{v:#x}")
+        },
+        k: TokenKind::Number,
+    };
+    let reg = |s: String| Token { t: s, k: TokenKind::Register };
+    let mut out: Vec<Token> = Vec::new();
+    for op in ops {
+        if !out.is_empty() {
+            out.push(Token { t: ", ".into(), k: TokenKind::Punct });
+        }
+        match op {
+            Op::Reg(r) => out.push(reg(format!("r{r}"))),
+            Op::FReg(r) => out.push(reg(format!("f{r}"))),
+            Op::Cr(c) => out.push(reg(format!("cr{c}"))),
+            Op::Imm(v) => out.push(num(*v)),
+            Op::Mem(off, b) => {
+                out.push(num(*off));
+                out.push(Token { t: "(".into(), k: TokenKind::Punct });
+                out.push(reg(format!("r{b}")));
+                out.push(Token { t: ")".into(), k: TokenKind::Punct });
+            }
+            Op::Addr(t) => out.push(match names.name_at(*t) {
+                Some(n) => Token { t: n, k: TokenKind::Symbol },
+                None => Token { t: format!("{t:#x}"), k: TokenKind::Address },
+            }),
+            Op::Spr(s) => out.push(match crate::ppc::spr_name(*s) {
+                Some(n) => reg(n.to_string()),
+                None => num(*s as i64),
+            }),
+            Op::Vr(v) => out.push(reg(format!("v{v}"))),
+            Op::Vs(v) => out.push(reg(format!("vs{v}"))),
+        }
+    }
+    out
 }
 
 fn rv_mips_tokens(arch: Arch, ops_rv: &[crate::riscv::Op], ops_mips: &[crate::mips::Op], names: &dyn NameLookup) -> Vec<Token> {
@@ -944,6 +1016,8 @@ fn render_rv_mips(arch: Arch, bits: u8, big: bool, bytes: &[u8], va: u64, max: u
         let decoded = if arch == Arch::RiscV {
             crate::riscv::decode(rest, ip, dis.bits)
                 .map(|i| (i.len as usize, i.mnemonic, i.flow, i.target, rv_mips_tokens(arch, &i.ops, &[], names)))
+        } else if arch == Arch::PowerPc {
+            crate::ppc::decode(rest, ip, big, bits == 64).map(|i| (4, i.mnemonic, i.flow, i.target, ppc_tokens(&i.ops, names)))
         } else {
             crate::mips::decode(rest, ip, big, bits == 64)
                 .map(|i| (4, i.mnemonic, i.flow, i.target, rv_mips_tokens(arch, &[], &i.ops, names)))

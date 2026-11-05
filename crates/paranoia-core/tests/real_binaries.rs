@@ -430,3 +430,28 @@ fn real_flirt_sig_names_static_libc() {
     other[7] = 15; // PowerPC
     assert!(bin.apply_sig(&other).unwrap_err().contains("PowerPC"));
 }
+
+/// Real PowerPC binaries (not vendored): a small Go program built with `GOOS=linux GOARCH=ppc64`
+/// and `GOARCH=ppc64le`, files `hello-ppc64` / `hello-ppc64le` in `PARANOIA_PPC_DIR`.
+#[test]
+fn real_powerpc_binaries_decode() {
+    let Ok(dir) = std::env::var("PARANOIA_PPC_DIR") else { return };
+    for (file, big) in [("hello-ppc64", true), ("hello-ppc64le", false)] {
+        let bytes = std::fs::read(std::path::Path::new(&dir).join(file)).expect(file);
+        let mut bin = Binary::load(file, bytes).unwrap();
+        assert_eq!(bin.info().arch, paranoia_core::Arch::PowerPc);
+        assert_eq!(bin.info().endian == paranoia_core::Endian::Big, big, "{file}: byte order");
+        let stats = bin.analyze();
+        assert!(stats.functions > 1000, "{file}: {} functions", stats.functions);
+        // Every non-zero word of .text decodes.
+        let text = bin.info().sections.iter().find(|s| s.name == ".text").expect(".text").clone();
+        let insns = bin.listing(text.vaddr, 100_000).unwrap();
+        let unknown = insns.iter().filter(|i| i.mnemonic == ".word" && i.bytes != "00000000").count();
+        assert!(unknown * 1000 < insns.len(), "{file}: {unknown} of {} words undecoded", insns.len());
+        // main.fib: Go's stack check, a recursive call, and a return.
+        let fib = bin.functions().into_iter().find(|f| f.name == "main.fib").expect("main.fib");
+        let body = bin.listing(fib.address, 40).unwrap();
+        let m: Vec<&str> = body.iter().map(|i| i.mnemonic.as_str()).collect();
+        assert!(m.contains(&"mflr") && m.contains(&"blr") && m.contains(&"bl"), "{file}: {m:?}");
+    }
+}
