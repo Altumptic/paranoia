@@ -238,7 +238,9 @@ fn main() -> Result<()> {
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;
             bin.analyze();
-            let r = bin.apply_pat(&std::fs::read_to_string(&pat)?).map_err(anyhow::Error::msg)?;
+            let is_sig = pat.extension().is_some_and(|e| e.eq_ignore_ascii_case("sig"));
+            let r = if is_sig { bin.apply_sig(&std::fs::read(&pat)?) } else { bin.apply_pat(&std::fs::read_to_string(&pat)?) }
+                .map_err(anyhow::Error::msg)?;
             if cli.json {
                 return print_json(&r);
             }

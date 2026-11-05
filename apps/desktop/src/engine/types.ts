@@ -134,6 +134,8 @@ export interface FunctionSummary {
 export interface SigReport {
   signatures: number;
   matched: number;
+  /** Library name from a `.sig` header (empty for `.pat`). */
+  library?: string;
   names: [number, string][];
 }
 

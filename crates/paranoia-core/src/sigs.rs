@@ -25,6 +25,8 @@ pub struct PatSig {
     pub crc: u16,
     pub len: u32,
     pub name: String,
+    /// `(offset after the CRC run, byte)` pairs that must match too (`.sig` tail bytes).
+    pub tail: Vec<(u32, u8)>,
 }
 
 impl PatSig {
@@ -37,6 +39,9 @@ impl PatSig {
 pub struct SigReport {
     pub signatures: usize,
     pub matched: usize,
+    /// Library name from a `.sig` header (empty for `.pat`).
+    #[serde(default)]
+    pub library: String,
     /// `(address, name)` of every recognised function.
     pub names: Vec<(u64, String)>,
 }
@@ -108,7 +113,7 @@ pub fn parse_pat(text: &str) -> Result<Vec<PatSig>, String> {
             }
         }
         if let Some(name) = name {
-            out.push(PatSig { pattern, crc_len, crc, len, name });
+            out.push(PatSig { pattern, crc_len, crc, len, name, tail: Vec::new() });
         }
     }
     Ok(out)
@@ -330,7 +335,12 @@ impl Binary {
                 if !s.pattern.iter().zip(bytes).all(|(p, b)| p.is_none_or(|p| p == *b)) {
                     continue;
                 }
-                if s.crc_len > 0 && (bytes.len() < 32 + s.crc_len || crc16(&bytes[32..32 + s.crc_len]) != s.crc) {
+                // The CRC covers the bytes right after the pattern (32 bytes in practice).
+                let at = s.pattern.len();
+                if s.crc_len > 0 && (bytes.len() < at + s.crc_len || crc16(&bytes[at..at + s.crc_len]) != s.crc) {
+                    continue;
+                }
+                if !s.tail.iter().all(|&(o, v)| bytes.get(at + s.crc_len + o as usize) == Some(&v)) {
                     continue;
                 }
                 names.push(i);
@@ -369,7 +379,34 @@ impl Binary {
     pub fn apply_pat(&mut self, text: &str) -> Result<SigReport, String> {
         let sigs = parse_pat(text)?;
         let found = self.match_signatures(&sigs);
-        let mut report = SigReport { signatures: sigs.len(), matched: found.len(), names: Vec::new() };
+        let mut report = SigReport { signatures: sigs.len(), matched: found.len(), library: String::new(), names: Vec::new() };
+        for (va, raw) in found {
+            let name = crate::demangle(&raw).unwrap_or(raw);
+            self.annotations.library.insert(va, name.clone());
+            report.names.push((va, name));
+        }
+        Ok(report)
+    }
+
+    /// Applies an IDA `.sig` file (binary FLIRT signatures); the names are kept with the annotations.
+    pub fn apply_sig(&mut self, data: &[u8]) -> Result<SigReport, String> {
+        let (h, sigs) = crate::flirt_sig::parse_sig(data)?;
+        let fits = match h.arch {
+            0 => matches!(self.info.arch, Arch::X86 | Arch::X86_64),
+            12 => self.info.arch == Arch::Mips,
+            13 => matches!(self.info.arch, Arch::Arm | Arch::Thumb | Arch::Arm64),
+            15 => self.info.arch == Arch::PowerPc,
+            _ => false,
+        };
+        if !fits {
+            return Err(format!(
+                "these signatures are for {}, this file is {}",
+                crate::flirt_sig::arch_name(h.arch),
+                self.info.arch.label()
+            ));
+        }
+        let found = self.match_signatures(&sigs);
+        let mut report = SigReport { signatures: sigs.len(), matched: found.len(), library: h.library, names: Vec::new() };
         for (va, raw) in found {
             let name = crate::demangle(&raw).unwrap_or(raw);
             self.annotations.library.insert(va, name.clone());
