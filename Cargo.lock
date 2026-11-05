@@ -375,6 +375,7 @@ name = "paranoia-engine"
 version = "0.6.0"
 dependencies = [
  "iced-x86",
+ "libc",
  "paranoia-core",
  "paranoia-db",
  "serde",

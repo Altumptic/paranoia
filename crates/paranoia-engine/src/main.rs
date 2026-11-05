@@ -19,6 +19,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[cfg(windows)]
 mod debugger;
+#[cfg(target_os = "linux")]
+#[path = "debugger_linux.rs"]
+mod debugger;
 
 use paranoia_core::api::Session;
 use paranoia_db::Store;
@@ -42,7 +45,7 @@ struct Request {
 struct Engine {
     sessions: HashMap<u32, Session>,
     paths: HashMap<u32, String>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     debugger: Option<debugger::Debugger>,
     next: u32,
     store: Option<Store>,
@@ -105,12 +108,12 @@ impl Engine {
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     fn debug_op(&mut self, _h: Option<u32>, _m: &str, _a: Value) -> Result<Value, String> {
-        Err("the debugger is available on Windows only".into())
+        Err("the debugger is available on Windows and Linux".into())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     fn debug_op(&mut self, handle: Option<u32>, method: &str, args: Value) -> Result<Value, String> {
         let va = args.get("va").and_then(Value::as_u64);
         match method {
@@ -118,12 +121,17 @@ impl Engine {
                 let h = handle.ok_or("missing handle")?;
                 let s = self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))?;
                 let info = s.binary().info();
+                #[cfg(windows)]
                 if info.format != paranoia_core::Format::Pe || !matches!(info.arch, paranoia_core::Arch::X86_64 | paranoia_core::Arch::X86)
                 {
-                    return Err("the debugger supports 32-bit and 64-bit Windows executables".into());
+                    return Err("on Windows the debugger runs 32-bit and 64-bit Windows executables".into());
                 }
-                if info.kind != "Executable" {
-                    return Err("only executables can be started (DLLs need a host process)".into());
+                #[cfg(target_os = "linux")]
+                if info.format != paranoia_core::Format::Elf || info.arch != paranoia_core::Arch::X86_64 {
+                    return Err("on Linux the debugger runs x86-64 ELF programs".into());
+                }
+                if !matches!(info.kind.as_str(), "Executable" | "Position-independent executable") {
+                    return Err("only executables can be started (libraries need a host process)".into());
                 }
                 let path = self.paths.get(&h).cloned().filter(|p| !p.is_empty()).ok_or("the file has no path on disk")?;
                 let size = info.sections.iter().map(|x| x.vaddr + x.vsize).max().unwrap_or(0).saturating_sub(info.image_base);
@@ -141,6 +149,7 @@ impl Engine {
                     breakpoints: bps,
                     break_on_entry: args.get("break_on_entry").and_then(Value::as_bool).unwrap_or(true),
                     image_size: size,
+                    #[cfg(windows)]
                     wow64: info.arch == paranoia_core::Arch::X86,
                 })?;
                 self.debugger = Some(d);
@@ -196,7 +205,7 @@ impl Engine {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn hex_encode(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -226,7 +235,7 @@ fn main() {
     let mut engine = Engine {
         sessions: HashMap::new(),
         paths: HashMap::new(),
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         debugger: None,
         next: 0,
         store,

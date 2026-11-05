@@ -24,7 +24,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | --- | --- |
 | `Cargo.toml` | Workspace; **the** version source (`[workspace.package] version`, inherited by every crate) |
 | `crates/paranoia-core/` | The whole analysis engine (~13k lines, the heart of the project) |
-| `crates/paranoia-engine/src/` | `main.rs` — engine process (JSON over stdio, workspace store); `debugger.rs` — Windows x64 + 32-bit (WOW64) debugger |
+| `crates/paranoia-engine/src/` | `main.rs` — engine process (JSON over stdio, workspace store); `debugger.rs` — Windows x64 + 32-bit (WOW64) debugger; `debugger_linux.rs` — Linux x86-64 ptrace debugger with the same interface (tests run on CI's ubuntu job; locally: build with `--target x86_64-unknown-linux-musl`, linker `rust-lld` + `-C linker-flavor=ld.lld -C link-self-contained=yes`, run the test binary in WSL) |
 | `crates/paranoia-cli/src/` | `main.rs` — `paranoia <subcommand>`; `script.rs` — headless Python batch mode |
 | `crates/paranoia-db/src/` | redb store: annotations + recent files, keyed by file SHA-256 |
 | `crates/paranoia-wasm/src/` | The engine for the browser, plain C ABI (no wasm-bindgen) |
@@ -125,4 +125,4 @@ CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, muta
 
 ## Where the work is
 
-Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: a real SSA IR in the decompiler, `.sig` referenced-function checks, pseudocode beyond x86, debugger beyond Windows. Mixed ARM/Thumb: per-address mode in `Binary::arm_modes` (`loader::fix_arm_thumb` + `blx` targets); render code with `Binary::render_code`, never `render_mode` directly. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
+Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: a real SSA IR in the decompiler, `.sig` referenced-function checks, pseudocode beyond x86, remote debugging. Mixed ARM/Thumb: per-address mode in `Binary::arm_modes` (`loader::fix_arm_thumb` + `blx` targets); render code with `Binary::render_code`, never `render_mode` directly. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
