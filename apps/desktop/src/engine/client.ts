@@ -291,6 +291,8 @@ export class Session {
   annotations = () => this.c<Annotations>("annotations");
   setAnnotations = (a: Annotations) => this.c<null>("setAnnotations", a);
   pseudocode = (va: number) => this.c<Pseudocode | null>("pseudocode", { va });
+  /** The function in SSA form (phi nodes, constants, dead definitions), as lines like pseudocode. */
+  ssa = (va: number) => this.c<Pseudocode | null>("ssa", { va });
   callees = (va: number) => this.c<Callee[]>("callees", { va });
   searchAdvanced = (kind: SearchKind, query: string) => this.c<Hit[]>("searchAdvanced", { kind, query });
   makeFunction = (va: number) => this.c<null>("makeFunction", { va });

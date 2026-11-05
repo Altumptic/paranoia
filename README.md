@@ -123,6 +123,7 @@ paranoia strings --referenced sample.exe --json
 paranoia script sample.exe analyse.py --at 140001000   # Python, headless
 paranoia sigmake app.exe --pdb app.pdb -o app.pat       # FLAIR .pat from symbols
 paranoia sigapply app.exe libc.sig                       # apply IDA .sig (or .pat) signatures
+paranoia ssa app.exe main                                # a function in SSA form (phi nodes, constants, dead code)
 paranoia sigapply other.exe app.pat
 ```
 

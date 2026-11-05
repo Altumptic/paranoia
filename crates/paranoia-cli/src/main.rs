@@ -55,6 +55,8 @@ enum Cmd {
     Cfg { file: PathBuf, at: String },
     /// C-like pseudocode for the function at an address or name.
     Pseudo { file: PathBuf, at: String },
+    /// The function in SSA form: phi nodes, one definition per value, constants and dead code.
+    Ssa { file: PathBuf, at: String },
     /// Cross references to an address.
     Xrefs { file: PathBuf, at: String },
     /// Write an IDA-compatible `.pat` signature file from a binary's named functions.
@@ -276,6 +278,22 @@ fn main() -> Result<()> {
             for b in &g.blocks {
                 let succ: Vec<String> = b.succs.iter().map(|e| format!("{:?}:{:#x}", e.kind, e.to)).collect();
                 println!("  {:#x}..{:#x}  {}", b.start, b.end, succ.join(" "));
+            }
+        }
+        Cmd::Ssa { file, at } => {
+            let mut bin = open(&file)?;
+            bin.analyze();
+            let va = resolve(&bin, &at)?;
+            let p = bin.ssa(va).context("no function at that address")?;
+            if cli.json {
+                return print_json(&p);
+            }
+            if let Some(n) = &p.note {
+                println!("// {n}");
+            }
+            for l in &p.lines {
+                let text: String = l.tokens.iter().map(|t| t.t.as_str()).collect();
+                println!("{}{}", "    ".repeat(l.indent as usize), text);
             }
         }
         Cmd::Pseudo { file, at } => {

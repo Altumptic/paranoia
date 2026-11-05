@@ -25,6 +25,15 @@ export function PseudocodeView() {
   const st = useStore.getState;
   const [code, setCode] = useState<Pseudocode | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "none">("loading");
+  // C-like pseudocode or the SSA form of the same function.
+  const [mode, setMode] = useState<"c" | "ssa">(() => {
+    try {
+      return localStorage.getItem("paranoia.pseudo.mode") === "ssa" ? "ssa" : "c";
+    } catch {
+      return "c";
+    }
+  });
+  const fetchView = (va: number) => (mode === "ssa" ? session.ssa(va) : session.pseudocode(va));
   const box = useRef<HTMLDivElement>(null);
 
   const byName = useMemo(() => new Map(functions.map((f) => [f.name, f.address])), [functions]);
@@ -37,7 +46,7 @@ export function PseudocodeView() {
     if (inside && code) return;
     let live = true;
     setState("loading");
-    session.pseudocode(cursor).then((p) => {
+    fetchView(cursor).then((p) => {
       if (!live) return;
       setCode(p);
       setState(p ? "ready" : "none");
@@ -46,12 +55,12 @@ export function PseudocodeView() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor, session]);
+  }, [cursor, session, mode]);
 
   useEffect(() => {
     if (!code) return;
     let live = true;
-    session.pseudocode(code.address).then((p) => live && p && setCode(p));
+    fetchView(code.address).then((p) => live && p && setCode(p));
     return () => {
       live = false;
     };
@@ -113,13 +122,35 @@ export function PseudocodeView() {
       <div className="pseudo-bar">
         <span className="pseudo-title mono">{code.name}</span>
         <span className="badge">{info.arch === "x86" ? "x86 · cdecl" : info.format === "pe" ? "x64 · Microsoft ABI" : "x64 · System V ABI"}</span>
-        <span className="muted small">Lifted pseudocode — verify against the listing</span>
+        <span className="muted small">{mode === "ssa" ? (code.note ?? "SSA form") : "Lifted pseudocode — verify against the listing"}</span>
         <span className="flex1" />
+        <div className="seg pseudo-seg" role="group" aria-label="View">
+          {(["c", "ssa"] as const).map((m) => (
+            <button
+              key={m}
+              className={`seg-btn ${mode === m ? "on" : ""}`}
+              title={m === "ssa" ? "SSA form: phi nodes, one definition per value, constants and dead code" : "C-like pseudocode"}
+              onClick={() => {
+                if (m === mode) return;
+                try {
+                  localStorage.setItem("paranoia.pseudo.mode", m);
+                } catch {
+                  /* not persisted */
+                }
+                setCode(null);
+                setState("loading");
+                setMode(m);
+              }}
+            >
+              {m === "c" ? "C" : "SSA"}
+            </button>
+          ))}
+        </div>
         <button className="btn sm" onClick={copy}>
           <Copy size={13} /> Copy
         </button>
       </div>
-      {code.note ? (
+      {code.note && code.lines.length === 0 ? (
         <div className="empty">{code.note}</div>
       ) : (
         <div
