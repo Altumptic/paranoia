@@ -43,7 +43,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
 | Scripting | ✅ | Python (your CPython, IDAPython-style `idc` / `idautils` names) and JavaScript consoles; headless `paranoia script` batch mode |
-| AI assistant | ✅ | Optional; off until you set an OpenAI-compatible endpoint (Ollama / LM Studio / hosted). **Assistant** menu: explain the function under the cursor, suggest a name (applied only on click), flag suspicious behaviour. Requests come from the main process, carry one function's decompiled text, and a non-loopback host needs native consent. Not yet: streaming, chat, batch renaming |
+| AI assistant | ✅ | Optional; off until you choose a model server: local (Ollama, LM Studio) or cloud (Claude through Anthropic's API; OpenAI / Codex, DeepSeek, Kimi, Gemini, Mistral, OpenRouter through the OpenAI chat API). **Assistant** menu: explain the function under the cursor, suggest a name (applied only on click), flag suspicious behaviour. Requests come from the main process, carry one function's decompiled text, and a non-loopback host needs native consent. Not yet: streaming, chat, batch renaming |
 | Plugins | ✅ | Folder + `plugin.json` manifest + one `.js` / `.py` script; commands in the **Plugins** menu; native confirmation per version (SHA-256 of manifest + script). See [PLUGINS.md](PLUGINS.md). Not yet: plugin panels, hotkeys, event hooks |
 | Debugger | 🟡 | Local Windows x64 and 32-bit (WOW64) programs: breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. Linux and remote planned |
 | Export: IDC script | ✅ | Names, comments, user functions |

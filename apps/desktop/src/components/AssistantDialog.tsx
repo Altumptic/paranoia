@@ -3,9 +3,19 @@ import { useEffect, useState } from "react";
 import { desktop, type AiSettings } from "../engine/client";
 import { useStore } from "../store";
 
-const PRESETS = [
-  { label: "Ollama", endpoint: "http://127.0.0.1:11434/v1", model: "llama3.1" },
-  { label: "LM Studio", endpoint: "http://127.0.0.1:1234/v1", model: "" },
+/** Model servers. Local ones keep everything on this computer; hosted ones need an API key and send
+ *  the function's decompiled text to that company. Model names other than Claude's are left for the
+ *  user to fill in from the provider's model list, since they change often. */
+const PRESETS: { label: string; endpoint: string; model: string; local?: boolean }[] = [
+  { label: "Ollama", endpoint: "http://127.0.0.1:11434/v1", model: "llama3.1", local: true },
+  { label: "LM Studio", endpoint: "http://127.0.0.1:1234/v1", model: "", local: true },
+  { label: "Claude", endpoint: "https://api.anthropic.com/v1", model: "claude-opus-5-5" },
+  { label: "OpenAI / Codex", endpoint: "https://api.openai.com/v1", model: "" },
+  { label: "DeepSeek", endpoint: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  { label: "Kimi", endpoint: "https://api.moonshot.ai/v1", model: "" },
+  { label: "Gemini", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai", model: "" },
+  { label: "Mistral", endpoint: "https://api.mistral.ai/v1", model: "" },
+  { label: "OpenRouter", endpoint: "https://openrouter.ai/api/v1", model: "" },
 ];
 
 function useEsc(open: boolean, close: () => void) {
@@ -67,16 +77,18 @@ export function AiSettingsDialog() {
           Optional. Point Paranoia at a model server that speaks the OpenAI chat API — a local one keeps everything on this computer. Leave the endpoint empty to
           turn the assistant off; nothing is sent anywhere until you choose an Assistant command.
         </p>
+        <div className="ai-presets-head muted small">On this computer</div>
         <div className="ai-presets">
-          {PRESETS.map((p) => (
-            <button
-              key={p.label}
-              className="btn sm"
-              onClick={() => {
-                setEndpoint(p.endpoint);
-                if (!model) setModel(p.model);
-              }}
-            >
+          {PRESETS.filter((p) => p.local).map((p) => (
+            <button key={p.label} className={`btn sm${endpoint === p.endpoint ? " primary" : ""}`} onClick={() => (setEndpoint(p.endpoint), setModel(p.model))}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="ai-presets-head muted small">Cloud — needs an API key, sends the function you ask about</div>
+        <div className="ai-presets">
+          {PRESETS.filter((p) => !p.local).map((p) => (
+            <button key={p.label} className={`btn sm${endpoint === p.endpoint ? " primary" : ""}`} onClick={() => (setEndpoint(p.endpoint), setModel(p.model))}>
               {p.label}
             </button>
           ))}
@@ -87,7 +99,7 @@ export function AiSettingsDialog() {
         </label>
         <label className="ai-field">
           <span>Model</span>
-          <input className="input mono" value={model} placeholder="llama3.1" spellCheck={false} onChange={(e) => setModel(e.target.value)} />
+          <input className="input mono" value={model} placeholder="model id from the provider, e.g. llama3.1" spellCheck={false} onChange={(e) => setModel(e.target.value)} />
         </label>
         <label className="ai-field">
           <span>API key {cur?.hasKey && <em className="muted">(saved)</em>}</span>

@@ -8,7 +8,8 @@
 
 const MAX_CODE_CHARS = 12000;
 const MAX_REPLY_BYTES = 256 * 1024;
-const TIMEOUT_MS = 120000;
+// Hosted models that think before answering can take minutes on a large function.
+const TIMEOUT_MS = 300000;
 
 const TASKS = {
   explain: {
@@ -72,30 +73,71 @@ function buildMessages(task, info) {
   ];
 }
 
+/** The wire protocol an endpoint speaks: Anthropic's Messages API for api.anthropic.com, the
+ *  OpenAI chat-completions API for everything else (OpenAI, DeepSeek, Kimi, Gemini, OpenRouter,
+ *  Mistral, Ollama, LM Studio, …). */
+function protocolFor(ep) {
+  return ep.host === "api.anthropic.com" ? "anthropic" : "openai";
+}
+
+/** Anthropic API version sent with every request. */
+const ANTHROPIC_VERSION = "2026-10-21";
+
+/** The HTTP request for one chat turn; `messages` is `[system, user]` from buildMessages. */
+function buildRequest(ep, key, model, messages) {
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const turns = messages.filter((m) => m.role !== "system");
+  if (protocolFor(ep) === "anthropic") {
+    return {
+      url: `${ep.url}/messages`,
+      headers: { "Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION, ...(key ? { "x-api-key": key } : {}) },
+      body: { model, max_tokens: 16000, ...(system ? { system } : {}), messages: turns },
+    };
+  }
+  // No sampling parameters: several hosted reasoning models reject a non-default temperature.
+  return {
+    url: `${ep.url}/chat/completions`,
+    headers: { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+    body: { model, messages, stream: false },
+  };
+}
+
+/** The answer text of a successful reply. */
+function readAnswer(protocol, j) {
+  if (protocol === "anthropic") {
+    if (j?.stop_reason === "refusal") {
+      const why = j?.stop_details?.explanation || j?.stop_details?.category || "";
+      throw new Error(`The model declined this request${why ? ` (${String(why).slice(0, 200)})` : ""}`);
+    }
+    const blocks = Array.isArray(j?.content) ? j.content : [];
+    // Thinking blocks and others are skipped; only the text answer is shown.
+    return blocks.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("\n");
+  }
+  return j?.choices?.[0]?.message?.content;
+}
+
 /** Calls the model. `fetchImpl` defaults to the global fetch. */
 async function chat({ endpoint, key, model, messages, fetchImpl, signal }) {
   const f = fetchImpl ?? globalThis.fetch;
   const ep = parseEndpoint(endpoint);
   if (typeof model !== "string" || !model.trim()) throw new Error("No model name is set");
+  const protocol = protocolFor(ep);
+  if (protocol === "anthropic" && !key) throw new Error("Claude needs an API key — add it in Assistant → Settings");
+  const req = buildRequest(ep, key, model.trim(), messages);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   signal?.addEventListener("abort", () => ctl.abort(), { once: true });
   let res;
+  let text;
   try {
-    res = await f(`${ep.url}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
-      body: JSON.stringify({ model: model.trim(), messages, temperature: 0.2, stream: false }),
-      signal: ctl.signal,
-      redirect: "error",
-    });
+    res = await f(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(req.body), signal: ctl.signal, redirect: "error" });
+    text = await res.text();
   } catch (e) {
     if (ctl.signal.aborted) throw new Error("The model did not answer in time (or the request was cancelled)");
     throw new Error(`Cannot reach ${ep.host}: ${e instanceof Error ? e.message : e}`);
   } finally {
     clearTimeout(timer);
   }
-  const text = await res.text();
   if (text.length > MAX_REPLY_BYTES) throw new Error("The reply is unexpectedly large");
   if (!res.ok) {
     let detail = "";
@@ -107,12 +149,15 @@ async function chat({ endpoint, key, model, messages, fetchImpl, signal }) {
     }
     throw new Error(`${ep.host} answered ${res.status}${detail ? `: ${String(detail).slice(0, 300)}` : ""}`);
   }
-  let content;
+  let j;
   try {
-    content = JSON.parse(text)?.choices?.[0]?.message?.content;
+    j = JSON.parse(text);
   } catch {
-    throw new Error("The server did not return JSON — is this an OpenAI-compatible /v1 endpoint?");
+    throw new Error(
+      protocol === "anthropic" ? "The server did not return JSON" : "The server did not return JSON — is this an OpenAI-compatible /v1 endpoint?",
+    );
   }
+  const content = readAnswer(protocol, j);
   if (typeof content !== "string" || !content.trim()) throw new Error("The model returned an empty answer");
   return content.trim();
 }
@@ -145,4 +190,4 @@ function publicSettings(s) {
   return { endpoint: ep?.url ?? "", model: s.model ?? "", hasKey: Boolean(s.keyEnc), local: ep?.local ?? true, host: ep?.host ?? "" };
 }
 
-module.exports = { TASKS, parseEndpoint, isLoopbackHost, buildMessages, chat, parseName, publicSettings, MAX_CODE_CHARS };
+module.exports = { TASKS, protocolFor, buildRequest, parseEndpoint, isLoopbackHost, buildMessages, chat, parseName, publicSettings, MAX_CODE_CHARS };
