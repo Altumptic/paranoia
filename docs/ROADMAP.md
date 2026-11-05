@@ -15,7 +15,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | ARM32 / Thumb-2 disassembly | ✅ | Thumb chosen from the entry point's mode bit (Windows on ARM is always Thumb); literal pools and `adr` as data references |
 | RISC-V disassembly | ✅ | RV32 / RV64 IMAFDC + Zicsr, compressed instructions, `auipc`/`lui` pairs resolved to data and call targets |
 | MIPS disassembly | ✅ | MIPS32 / MIPS64, both byte orders, branch delay slots, `lui` + `addiu`/`lw` pairs |
-| PowerPC disassembly | ⏳ | Headers and strings already work |
+| PowerPC disassembly | ✅ | 32- and 64-bit, both byte orders (ELF, Mach-O): integer, branches with simplified mnemonics (`beq`, `bdnz`, `blr`, `bctrl`), loads / stores, rotates, SPR moves, floating point, common AltiVec / VSX; `lis` + `addi`/`ori`/loads resolve addresses. Checked on Go-built ppc64 / ppc64le binaries: under 0.01 % of non-zero words undecoded. Not yet: pseudocode, PPC64 TOC-relative references |
 | Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` |
 | Switch/jump-table recovery | ✅ | Absolute tables, MSVC `__ImageBase` RVA tables, PIC relative tables |
 | Listing with labels, jump arrows, comments | ✅ | |
@@ -56,7 +56,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 2. **Signatures & types** — ~~IDA `.sig` reading~~ and ~~PDB types~~ (done); next: referenced-function checks, more built-in libraries.
 3. ~~**Plugins**~~ — done (commands); next: panels, hotkeys and event hooks.
 4. ~~**AI assistant**~~ — done (explain, suggest a name, flag suspicious behaviour); next: batch naming of `sub_` functions, chat about a selection, streaming.
-5. **More architectures** — PowerPC; mixed ARM/Thumb images; pseudocode beyond x86.
+5. **More architectures** — ~~PowerPC~~ (done); mixed ARM/Thumb images; pseudocode beyond x86.
 6. **Debugger** — ~~32-bit Windows targets~~ (done), Linux (ptrace / gdbserver) and remote backends.
 
 ## Editions

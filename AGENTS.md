@@ -40,7 +40,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 | --- | --- |
 | `loader/` (`pe.rs`, `elf.rs`, `macho.rs`, `macho_bind.rs`) | Loaders producing a normalized `Loaded` image; our own bounds-checked parsers for Mach-O bind/fixups/export trie and PE `.pdata` |
 | `model.rs` | Serializable data model shared by all front-ends |
-| `disasm.rs`, `riscv.rs`, `mips.rs` | Decode (fast, for analysis) + render (tokens, for UI); iced-x86, yaxpeax-arm, own RISC-V/MIPS decoders |
+| `disasm.rs`, `riscv.rs`, `mips.rs`, `ppc.rs` | Decode (fast, for analysis) + render (tokens, for UI); iced-x86, yaxpeax-arm, own RISC-V/MIPS/PowerPC decoders. PowerPC real-binary test: `PARANOIA_PPC_DIR` with Go-built `hello-ppc64`/`hello-ppc64le` |
 | `analysis.rs`, `switch.rs` | Recursive-descent function discovery, basic blocks, jump-table recovery, xref index |
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, loops/switch, typed variables |
 | `pseudo_structs.rs` | Struct member access in pseudocode (types set with `Y`); argument/return types flow across internal calls, pointer fields chain |
@@ -125,4 +125,4 @@ CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, muta
 
 ## Where the work is
 
-Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: decompiler SSA (variable recovery), signature formats (`.sig` reading), plugins, a local-first AI assistant, PowerPC / mixed ARM+Thumb, debugger beyond Windows x64. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
+Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: a real SSA IR in the decompiler, `.sig` referenced-function checks, mixed ARM+Thumb, debugger beyond Windows x64. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
