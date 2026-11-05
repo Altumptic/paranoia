@@ -158,6 +158,8 @@ pub struct Binary {
     /// Runtime cache, derived from `var_types`; not persisted and not undone.
     /// Reaching-definition variables in the decompiler (on); off keeps the older, coarser splitting.
     ssa_vars: bool,
+    /// 32-bit ARM: where ARM / Thumb code starts (`true` = Thumb); see `loader::fix_arm_thumb`.
+    arm_modes: BTreeMap<u64, bool>,
     call_args: HashMap<u64, HashMap<u64, Vec<Option<String>>>>,
     /// Result types harvested when a caller stores a known-typed variable from a call
     /// (callee address → C type). Same runtime-cache rules as `call_args`.
@@ -171,6 +173,7 @@ impl Binary {
         if loaded.arch == Some(Arch::Arm) {
             loader::fix_arm_thumb(&mut loaded, format);
         }
+        let arm_modes: BTreeMap<u64, bool> = loaded.arm_modes.iter().copied().collect();
         let slice = loaded.slice.unwrap_or((0, bytes.len()));
         let data = &bytes[slice.0..slice.0 + slice.1];
 
@@ -291,6 +294,7 @@ impl Binary {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             ssa_vars: true,
+            arm_modes,
             call_args: HashMap::new(),
             ret_types: HashMap::new(),
         })
@@ -381,24 +385,30 @@ impl Binary {
                 source: FunctionSource::User,
                 end: None,
             }));
+            let mut learned: Vec<(u64, bool)> = Vec::new();
             let a = if self.info.disassembly_supported {
-                let mut dis = Disassembler::with_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big);
+                let mut dis = Disassembler::with_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big)
+                    .with_arm_modes(self.arm_modes.clone());
                 let bits = match self.info.arch {
                     Arch::X86 => 32,
                     Arch::X86_64 => 64,
                     _ => 0,
                 };
-                analysis::run(
+                let r = analysis::run(
                     &Source(self),
                     &mut dis,
                     &seeds,
                     &skip,
                     matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb | Arch::RiscV | Arch::Mips | Arch::PowerPc),
                     bits,
-                )
+                );
+                learned = dis.take_learned_modes();
+                r
             } else {
                 Analysis::default()
             };
+            // `blx` targets switch instruction set: remember them for the listing and later runs.
+            self.arm_modes.extend(learned);
             self.analysis = Some(a);
             self.apply_builtin_signatures();
             self.build_strings(4);
@@ -425,6 +435,21 @@ impl Binary {
     /// splitting that only separates top-level overwrites. Mainly for comparing the two.
     pub fn set_ssa_variables(&mut self, on: bool) {
         self.ssa_vars = on;
+    }
+
+    /// Renders code at `va`, following ARM / Thumb switches in mixed 32-bit ARM images.
+    pub(crate) fn render_code(&self, bytes: &[u8], va: u64, max: usize, names: &dyn disasm::NameLookup) -> Vec<Instruction> {
+        match self.info.arch {
+            Arch::Arm | Arch::Thumb if !self.arm_modes.is_empty() => {
+                disasm::render_arm_modes(self.info.arch == Arch::Thumb, &self.arm_modes, bytes, va, max, names)
+            }
+            _ => disasm::render_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big, bytes, va, max, names),
+        }
+    }
+
+    /// Whether 32-bit ARM code at `va` is Thumb.
+    pub fn is_thumb_at(&self, va: u64) -> bool {
+        disasm::arm_mode_at(&self.arm_modes, self.info.arch == Arch::Thumb, va)
     }
 
     /// The user's Local Types over the types from debug info (DWARF, PDB).
@@ -665,15 +690,7 @@ impl Binary {
         for b in &f.blocks {
             let bytes = self.bytes_at(b.start)?;
             let len = ((b.end - b.start) as usize).min(bytes.len());
-            let mut insns = disasm::render_mode(
-                self.info.arch,
-                self.info.bits,
-                self.info.endian == Endian::Big,
-                &bytes[..len],
-                b.start,
-                usize::MAX,
-                &names,
-            );
+            let mut insns = self.render_code(&bytes[..len], b.start, usize::MAX, &names);
             self.annotate(&mut insns);
             self.annotate_calls(&mut insns);
             blocks.push(GraphBlock { start: b.start, end: b.end, instructions: insns, succs: b.succs.clone() });
@@ -706,11 +723,7 @@ impl Binary {
         v.dedup_by_key(|x| x.from);
         // The referencing instruction, like IDA's xrefs dialog shows.
         for x in v.iter_mut().take(400) {
-            if let Some(i) = self.bytes_at(x.from).and_then(|b| {
-                disasm::render_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big, b, x.from, 1, &Names(self))
-                    .into_iter()
-                    .next()
-            }) {
+            if let Some(i) = self.bytes_at(x.from).and_then(|b| self.render_code(b, x.from, 1, &Names(self)).into_iter().next()) {
                 x.text = Some(format!("{} {}", i.mnemonic, i.operands.iter().map(|t| t.t.as_str()).collect::<String>()).trim().to_string());
             }
         }

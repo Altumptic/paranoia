@@ -58,6 +58,9 @@ pub struct Loaded {
     pub imphash: Option<String>,
     /// Byte range of the selected slice inside the original file (fat Mach-O).
     pub slice: Option<(usize, usize)>,
+    /// 32-bit ARM: `(address, is_thumb)` points where the instruction set is known; it holds
+    /// until the next point (mapping symbols `$a` / `$t`, symbol mode bits, entry, exports).
+    pub arm_modes: Vec<(u64, bool)>,
 }
 
 impl Loaded {
@@ -104,6 +107,41 @@ pub(crate) fn fix_arm_thumb(l: &mut Loaded, format: Format) {
     if thumb {
         l.arch = Some(Arch::Thumb);
     }
+    // Where each instruction set starts. ELF mapping symbols (`$a`, `$t`, `$d`, optionally with a
+    // `.suffix`) are the authority; function symbols and exports carry the mode in bit 0.
+    let mapping = |n: &str| match n.split('.').next() {
+        Some("$a") => Some(Some(false)),
+        Some("$t") => Some(Some(true)),
+        Some("$d") => Some(None),
+        _ => None,
+    };
+    let mut modes: Vec<(u64, bool)> = Vec::new();
+    let mut mapped = std::collections::HashSet::new();
+    for s in &l.symbols {
+        if let Some(Some(t)) = mapping(&s.name) {
+            modes.push((s.address & !1, t));
+            mapped.insert(s.address & !1);
+        }
+    }
+    let code = |va: u64, l: &Loaded| l.ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
+    for s in l.symbols.iter().filter(|s| s.kind == SymbolKind::Function) {
+        if !mapped.contains(&(s.address & !1)) {
+            modes.push((s.address & !1, s.address & 1 == 1));
+        }
+    }
+    for e in l.exports.iter().filter(|e| code(e.address & !1, l)) {
+        if !mapped.contains(&(e.address & !1)) {
+            modes.push((e.address & !1, e.address & 1 == 1));
+        }
+    }
+    if l.entry != 0 && !mapped.contains(&(l.entry & !1)) {
+        modes.push((l.entry & !1, l.entry & 1 == 1));
+    }
+    modes.sort();
+    modes.dedup_by_key(|m| m.0);
+    l.arm_modes = modes;
+    // Mapping symbols are markers, not names.
+    l.symbols.retain(|s| mapping(&s.name).is_none());
     l.entry &= !1;
     for s in &mut l.seeds {
         s.address &= !1;
@@ -112,7 +150,6 @@ pub(crate) fn fix_arm_thumb(l: &mut Loaded, format: Format) {
     for s in l.symbols.iter_mut().filter(|s| s.kind == SymbolKind::Function) {
         s.address &= !1;
     }
-    let code = |va: u64, l: &Loaded| l.ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
     let fixed: Vec<u64> =
         l.exports.iter().map(|e| if e.address & 1 == 1 && code(e.address, l) { e.address & !1 } else { e.address }).collect();
     for (e, a) in l.exports.iter_mut().zip(fixed) {

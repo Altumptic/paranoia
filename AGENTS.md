@@ -125,4 +125,4 @@ CI (`.github/workflows/ci.yml`) enforces: fmt, clippy `-D warnings`, tests, muta
 
 ## Where the work is
 
-Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: a real SSA IR in the decompiler, `.sig` referenced-function checks, mixed ARM+Thumb, debugger beyond Windows x64. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
+Check `docs/ROADMAP.md` → "Next milestones" for the current priorities: a real SSA IR in the decompiler, `.sig` referenced-function checks, pseudocode beyond x86, debugger beyond Windows. Mixed ARM/Thumb: per-address mode in `Binary::arm_modes` (`loader::fix_arm_thumb` + `blx` targets); render code with `Binary::render_code`, never `render_mode` directly. Verify your work with the Commands section before handing it over — CI is the same on your machine as on GitHub.
