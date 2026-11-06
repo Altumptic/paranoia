@@ -215,8 +215,49 @@ impl Disassembler {
     }
 }
 
+/// Bytes ready for iced-x86's decoder.
+///
+/// iced-x86 measures instructions with pointers truncated to 32 bits, and debug builds check the
+/// subtraction: a buffer that straddles a 4 GiB address boundary makes it panic ("attempt to
+/// subtract with overflow"). This hands out the bytes as they are, or — when they straddle one — a
+/// copy placed so that it does not.
+pub(crate) enum Decodable<'a> {
+    Borrowed(&'a [u8]),
+    Owned(Vec<u8>, usize, usize),
+}
+
+impl Decodable<'_> {
+    pub(crate) fn as_slice(&self) -> &[u8] {
+        match self {
+            Decodable::Borrowed(b) => b,
+            Decodable::Owned(v, start, len) => &v[*start..*start + *len],
+        }
+    }
+}
+
+fn straddles(b: &[u8]) -> bool {
+    let start = b.as_ptr() as usize as u64;
+    !b.is_empty() && (start >> 32) != ((start + b.len() as u64 - 1) >> 32)
+}
+
+pub(crate) fn decodable(bytes: &[u8]) -> Decodable<'_> {
+    if !straddles(bytes) {
+        return Decodable::Borrowed(bytes);
+    }
+    // Room for the bytes on either side of any boundary inside the allocation.
+    let len = bytes.len();
+    let mut v = vec![0u8; len * 2 + 1];
+    let base = v.as_ptr() as usize as u64;
+    let boundary = ((base >> 32) + 1) << 32;
+    let start = if base + len as u64 <= boundary { 0 } else { (boundary - base) as usize };
+    v[start..start + len].copy_from_slice(bytes);
+    Decodable::Owned(v, start, len)
+}
+
 fn decode_x86(bits: u32, bytes: &[u8], va: u64) -> Decoded {
-    let mut dec = Decoder::with_ip(bits, bytes, va, DecoderOptions::NONE);
+    // One instruction is at most 15 bytes.
+    let bytes = decodable(&bytes[..bytes.len().min(15)]);
+    let mut dec = Decoder::with_ip(bits, bytes.as_slice(), va, DecoderOptions::NONE);
     let ins = dec.decode();
     if ins.is_invalid() {
         return Decoded::invalid();
@@ -349,7 +390,8 @@ fn render_x86(bits: u32, bytes: &[u8], va: u64, max: usize, names: &dyn NameLook
     let mut pos = 0usize;
     while decoded.len() < max && pos < bytes.len() {
         let ip = va + pos as u64;
-        let mut dec = Decoder::with_ip(bits, &bytes[pos..], ip, DecoderOptions::NONE);
+        let one = decodable(&bytes[pos..bytes.len().min(pos + 15)]);
+        let mut dec = Decoder::with_ip(bits, one.as_slice(), ip, DecoderOptions::NONE);
         let ins = dec.decode();
         if ins.is_invalid() {
             decoded.push(Err(bytes[pos]));
@@ -1141,6 +1183,22 @@ fn render_rv_mips(arch: Arch, bits: u8, big: bool, bytes: &[u8], va: u64, max: u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodable_never_straddles_a_4gib_boundary() {
+        let data: Vec<u8> = (0..64u8).collect();
+        let d = decodable(&data);
+        assert_eq!(d.as_slice(), &data[..]);
+        assert!(!straddles(d.as_slice()));
+        // The relocation itself, on a forced copy.
+        let len = data.len();
+        let mut v = vec![0u8; len * 2 + 1];
+        let base = v.as_ptr() as usize as u64;
+        let boundary = ((base >> 32) + 1) << 32;
+        let start = if base + len as u64 <= boundary { 0 } else { (boundary - base) as usize };
+        v[start..start + len].copy_from_slice(&data);
+        assert!(!straddles(&v[start..start + len]));
+    }
 
     struct NoNames;
     impl NameLookup for NoNames {
