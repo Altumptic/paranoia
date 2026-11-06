@@ -166,7 +166,8 @@ impl Binary {
         match self.info.arch {
             Arch::X86 | Arch::X86_64 => {
                 let bits = if self.info.arch == Arch::X86 { 32 } else { 64 };
-                let mut d = Decoder::with_ip(bits, &bytes[..len], start, DecoderOptions::NONE);
+                let code = crate::disasm::decodable(&bytes[..len]);
+                let mut d = Decoder::with_ip(bits, code.as_slice(), start, DecoderOptions::NONE);
                 while d.can_decode() {
                     let pos = d.position();
                     let ins = d.decode();

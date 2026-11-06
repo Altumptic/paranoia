@@ -457,7 +457,8 @@ impl Binary {
         for b in &f.blocks {
             let bytes = self.bytes_at(b.start)?;
             let len = ((b.end - b.start) as usize).min(bytes.len());
-            let mut d = Decoder::with_ip(bits, &bytes[..len], b.start, DecoderOptions::NONE);
+            let code = crate::disasm::decodable(&bytes[..len]);
+            let mut d = Decoder::with_ip(bits, code.as_slice(), b.start, DecoderOptions::NONE);
             let mut v = Vec::new();
             while d.can_decode() {
                 let i = d.decode();
@@ -508,7 +509,8 @@ impl Binary {
         for b in &f.blocks {
             let bytes = self.bytes_at(b.start)?;
             let len = ((b.end - b.start) as usize).min(bytes.len());
-            let mut d = Decoder::with_ip(bits, &bytes[..len], b.start, DecoderOptions::NONE);
+            let code = crate::disasm::decodable(&bytes[..len]);
+            let mut d = Decoder::with_ip(bits, code.as_slice(), b.start, DecoderOptions::NONE);
             let mut v = Vec::new();
             while d.can_decode() {
                 let i = d.decode();
@@ -555,7 +557,8 @@ impl Binary {
         for b in &f.blocks {
             let bytes = self.bytes_at(b.start)?;
             let len = ((b.end - b.start) as usize).min(bytes.len());
-            let mut d = Decoder::with_ip(bits, &bytes[..len], b.start, DecoderOptions::NONE);
+            let code = crate::disasm::decodable(&bytes[..len]);
+            let mut d = Decoder::with_ip(bits, code.as_slice(), b.start, DecoderOptions::NONE);
             let mut v = Vec::new();
             while d.can_decode() {
                 let i = d.decode();

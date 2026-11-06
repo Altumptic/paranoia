@@ -23,7 +23,8 @@ pub struct Switch {
 fn decode_block(src: &dyn CodeSource, bits: u32, start: u64, end: u64) -> Vec<Instruction> {
     let Some(bytes) = src.code_at(start) else { return Vec::new() };
     let len = ((end - start) as usize).min(bytes.len());
-    let mut d = Decoder::with_ip(bits, &bytes[..len], start, DecoderOptions::NONE);
+    let code = crate::disasm::decodable(&bytes[..len]);
+    let mut d = Decoder::with_ip(bits, code.as_slice(), start, DecoderOptions::NONE);
     let mut v = Vec::new();
     while d.can_decode() {
         let i = d.decode();
