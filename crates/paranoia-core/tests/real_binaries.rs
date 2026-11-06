@@ -614,3 +614,65 @@ fn ssa_facts_in_the_c_view_are_safe() {
     }
     eprintln!("ssa facts: {checked} functions, {removed} lines dropped, {notes} constants noted");
 }
+
+/// C generated from the SSA form, on real code: no panics, balanced braces, every `goto` has its
+/// label, and it calls the same functions as the line-based C view.
+#[test]
+fn c_from_ssa_on_real_code() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/node_modules/electron-winstaller/vendor");
+    let mut inputs: Vec<(String, Vec<u8>)> = vec![];
+    if let Ok(b) = std::fs::read(dir.join("Setup.exe")) {
+        inputs.push(("Setup.exe".into(), b));
+    }
+    if let Ok(b) = std::env::current_exe().and_then(std::fs::read) {
+        inputs.push(("self".into(), b));
+    }
+    let take: usize = std::env::var("PARANOIA_SSA_C_FUNCS").ok().and_then(|v| v.parse().ok()).unwrap_or(25);
+    let text = |p: &paranoia_core::Pseudocode| -> Vec<String> {
+        p.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect()
+    };
+    let callees = |p: &paranoia_core::Pseudocode| -> std::collections::BTreeSet<String> {
+        p.lines
+            .iter()
+            .flat_map(|l| {
+                l.tokens
+                    .windows(2)
+                    .filter(|w| w[0].k == paranoia_core::TokenKind::Symbol && w[1].t.starts_with('('))
+                    .map(|w| w[0].t.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    let (mut n, mut same_calls, mut raw_sp) = (0usize, 0usize, 0usize);
+    for (name, bytes) in inputs {
+        let Ok(mut bin) = Binary::load(&name, bytes) else { continue };
+        bin.analyze();
+        let funcs: Vec<u64> =
+            bin.functions().iter().filter(|f| f.instructions > 6 && f.instructions < 800).map(|f| f.address).take(take).collect();
+        for va in funcs {
+            let Some(new) = bin.pseudocode_from_ssa(va) else { continue };
+            let t = text(&new);
+            let depth: i64 = t.iter().map(|l| l.matches('{').count() as i64 - l.matches('}').count() as i64).sum();
+            assert_eq!(depth, 0, "{name} {va:#x}: unbalanced\n{}", t.join("\n"));
+            let labels: Vec<String> = t.iter().filter_map(|l| l.strip_suffix(':').map(str::to_string)).collect();
+            for l in &t {
+                if let Some(rest) = l.trim_start().split("goto ").nth(1) {
+                    let target = rest.trim_end_matches(';');
+                    if target.starts_with("loc_") {
+                        assert!(labels.iter().any(|x| x == target), "{name} {va:#x}: goto {target} without its label\n{}", t.join("\n"));
+                    }
+                }
+            }
+            let old = bin.pseudocode(va).unwrap();
+            if callees(&old) == callees(&new) {
+                same_calls += 1;
+            }
+            raw_sp += usize::from(t.iter().any(|l| l.contains("esp") || l.contains("rsp")));
+            n += 1;
+        }
+    }
+    eprintln!("c from ssa: {n} functions, {same_calls} call the same functions as the C view, {raw_sp} still show the stack pointer");
+    if n > 0 {
+        assert!(same_calls * 10 >= n * 9, "only {same_calls} of {n} functions call the same functions");
+    }
+}

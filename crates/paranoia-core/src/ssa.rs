@@ -21,8 +21,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::Edge;
 
+mod c;
+pub(crate) use c::COptions;
+
 /// A register family (`rax` … `r15`), numbered 0..16.
 type Var = u8;
+
+/// The SSA variable index of a register family (`rax` = 0 … `r15` = 15).
+pub(crate) fn var_index(r: Register) -> Option<Var> {
+    var_of(r)
+}
 
 fn var_of(r: Register) -> Option<Var> {
     let f = r.full_register();
@@ -78,6 +86,12 @@ enum Kind {
     Return {
         val: Option<Expr>,
     },
+    /// `cmp a, b` / `test a, b`: sets the flags a conditional branch reads.
+    Flags {
+        test: bool,
+        a: Expr,
+        b: Expr,
+    },
     /// Anything else: its text, the registers it reads and the ones it writes (as opaque values).
     Other {
         text: String,
@@ -91,6 +105,10 @@ struct Stmt {
     address: u64,
     kind: Kind,
     dead: bool,
+    /// The instruction sets the condition flags (the last flag setter feeds a conditional branch).
+    flags: bool,
+    /// The store half of a `push` (32-bit call arguments).
+    push: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +127,9 @@ struct Block {
     succs: Vec<u64>,
     phis: Vec<Phi>,
     stmts: Vec<Stmt>,
+    /// Branch target (taken / unconditional edge) and fall-through successor.
+    taken: Option<u64>,
+    fall: Option<u64>,
 }
 
 /// Summary numbers of one function's SSA form.
@@ -277,6 +298,9 @@ impl Lifter {
             }
             _ => {}
         }
+        if matches!(m, Mnemonic::Cmp | Mnemonic::Test) && i.op_count() == 2 {
+            return vec![Kind::Flags { test: m == Mnemonic::Test, a: self.operand(i, 0), b: self.operand(i, 1) }];
+        }
         // xor r, r / sub r, r: zero, independent of the old value.
         if matches!(m, Mnemonic::Xor | Mnemonic::Sub)
             && i.op_count() == 2
@@ -296,8 +320,28 @@ impl Lifter {
             Mnemonic::Mov | Mnemonic::Movzx | Mnemonic::Movsxd | Mnemonic::Movsx if i.op_count() == 2 => {
                 if i.op_kind(0) == OpKind::Memory {
                     Some(vec![Kind::Store { size: i.memory_size().size() as u8, addr: self.mem(i), val: self.operand(i, 1) }])
+                } else if let Some((v, w)) = self.full_def(i) {
+                    Some(vec![assign(v, w, self.operand(i, 1))])
                 } else {
-                    self.full_def(i).map(|(v, w)| vec![assign(v, w, self.operand(i, 1))])
+                    // `mov ax, …` / `mov al, …`: the low bits change, the rest of the register stays.
+                    let r = i.op_register(0);
+                    let low = !matches!(r, Register::AH | Register::BH | Register::CH | Register::DH);
+                    let src_ok = i.op_kind(1) != OpKind::Register
+                        || !matches!(i.op_register(1), Register::AH | Register::BH | Register::CH | Register::DH);
+                    match (var_of(r), low && src_ok && m == Mnemonic::Mov) {
+                        (Some(v), true) => {
+                            let bits = r.size() as u32 * 8;
+                            let mask = (1i64 << bits) - 1;
+                            let src = match self.operand(i, 1) {
+                                Expr::Use(sv, n) => Bin("&", Box::new(Expr::Use(sv, n)), Box::new(Const(mask))),
+                                Expr::Const(c) => Const(c & mask),
+                                e => e,
+                            };
+                            let keep = Bin("&", Box::new(Use(v, 0)), Box::new(Const(!mask)));
+                            Some(vec![assign(v, self.bits as u8, Bin("|", Box::new(keep), Box::new(src)))])
+                        }
+                        _ => None,
+                    }
                 }
             }
             Mnemonic::Lea => self.full_def(i).map(|(v, w)| vec![assign(v, w, self.mem(i))]),
@@ -499,6 +543,10 @@ impl Kind {
             }
             Kind::Call { args, .. } => args.iter_mut().for_each(f),
             Kind::Branch { uses, .. } | Kind::Other { uses, .. } => uses.iter_mut().for_each(f),
+            Kind::Flags { a, b, .. } => {
+                f(a);
+                f(b);
+            }
             Kind::Return { val } => {
                 if let Some(v) = val {
                     f(v)
@@ -531,6 +579,35 @@ impl Kind {
     }
 }
 
+/// 32-bit calls: when the caller does not pop the pushed arguments itself (`add esp, 4·n` right
+/// after the call, cdecl), the callee did (stdcall, the Windows API) — model that as a stack-pointer
+/// update after the call, so stack slots keep their names past it.
+fn stdcall_cleanup(stmts: &mut Vec<Stmt>) {
+    let mut pushes = 0i64;
+    let mut i = 0;
+    while i < stmts.len() {
+        if stmts[i].push {
+            pushes += 1;
+        } else if matches!(stmts[i].kind, Kind::Call { .. }) {
+            let caller_cleans = matches!(stmts.get(i + 1).map(|s| &s.kind), Some(Kind::Assign { def: RSP, expr: Expr::Bin("+", a, b), .. })
+                if matches!(&**a, Expr::Use(RSP, _)) && matches!(&**b, Expr::Const(k) if *k == 4 * pushes));
+            if pushes > 0 && !caller_cleans {
+                let address = stmts[i].address;
+                let kind = Kind::Assign {
+                    def: RSP,
+                    ver: 0,
+                    expr: Expr::Bin("+", Box::new(Expr::Use(RSP, 0)), Box::new(Expr::Const(4 * pushes))),
+                    width: 32,
+                };
+                stmts.insert(i + 1, Stmt { address, kind, dead: false, flags: false, push: false });
+                i += 1;
+            }
+            pushes = 0;
+        }
+        i += 1;
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 // Construction
 
@@ -555,8 +632,11 @@ pub(crate) fn build(
         .iter()
         .map(|s| {
             let (insns, succs) = &blocks[s];
-            let mut stmts = Vec::new();
+            let mut stmts: Vec<Stmt> = Vec::new();
             for i in insns {
+                let first = stmts.len();
+                let sets_flags = i.rflags_modified() != 0;
+                let is_push = i.mnemonic() == Mnemonic::Push;
                 for mut k in lifter.lift(i, &mut info) {
                     // A direct jump out of the function is a tail call: it reads the arguments and rax.
                     if let Kind::Branch { target: Some(t), uses, .. } = &mut k {
@@ -564,10 +644,28 @@ pub(crate) fn build(
                             uses.extend(lifter.args.iter().chain(std::iter::once(&0)).map(|v| Expr::Use(*v, 0)));
                         }
                     }
-                    stmts.push(Stmt { address: i.ip(), kind: k, dead: false });
+                    stmts.push(Stmt { address: i.ip(), kind: k, dead: false, flags: false, push: false });
+                }
+                let grew = stmts.len() > first;
+                if let Some(last) = stmts.last_mut().filter(|_| grew) {
+                    last.flags = sets_flags;
+                    last.push = is_push && matches!(last.kind, Kind::Store { .. });
                 }
             }
-            Block { start: *s, succs: succs.iter().map(|e| e.to).filter(|t| index.contains_key(t)).collect(), stmts, ..Default::default() }
+            if bits == 32 {
+                stdcall_cleanup(&mut stmts);
+            }
+            use crate::model::EdgeKind as K;
+            let taken = succs.iter().find(|e| matches!(e.kind, K::True | K::Uncond)).map(|e| e.to);
+            let fall = succs.iter().find(|e| matches!(e.kind, K::False | K::Fall)).map(|e| e.to);
+            Block {
+                start: *s,
+                succs: succs.iter().map(|e| e.to).filter(|t| index.contains_key(t)).collect(),
+                stmts,
+                taken,
+                fall,
+                ..Default::default()
+            }
         })
         .collect();
     for i in 0..bl.len() {
@@ -1003,6 +1101,7 @@ impl SsaFunction {
                         format!("{} = {}{c}", self.name(*def, *ver), t(expr))
                     }
                     Kind::Store { size, addr, val } => format!("*(u{} *)({}) = {}", *size as u32 * 8, t(addr), t(val)),
+                    Kind::Flags { test, a, b } => format!("{}({}, {})", if *test { "test" } else { "cmp" }, t(a), t(b)),
                     Kind::Call { target, args, ret, .. } => {
                         let call = format!("call {target}({})", args.iter().map(&t).collect::<Vec<_>>().join(", "));
                         match ret {

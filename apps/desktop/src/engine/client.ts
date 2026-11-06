@@ -293,6 +293,8 @@ export class Session {
   pseudocode = (va: number) => this.c<Pseudocode | null>("pseudocode", { va });
   /** The function in SSA form (phi nodes, constants, dead definitions), as lines like pseudocode. */
   ssa = (va: number) => this.c<Pseudocode | null>("ssa", { va });
+  /** C-like text generated from the SSA form (an alternative to `pseudocode`). */
+  pseudocodeFromSsa = (va: number) => this.c<Pseudocode | null>("pseudocodeFromSsa", { va });
   callees = (va: number) => this.c<Callee[]>("callees", { va });
   searchAdvanced = (kind: SearchKind, query: string) => this.c<Hit[]>("searchAdvanced", { kind, query });
   makeFunction = (va: number) => this.c<null>("makeFunction", { va });
