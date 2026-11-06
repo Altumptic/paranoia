@@ -488,6 +488,52 @@ impl Binary {
         Some(Pseudocode { address: f.address, name, lines, note: Some(note) })
     }
 
+    /// C-like text generated from the function's SSA form (x86 / x86-64): phi classes as
+    /// variables, stack slots from the tracked stack pointer, conditions from the flags, `if` and
+    /// loops recovered from the branches. An alternative to [`Binary::pseudocode`].
+    pub fn pseudocode_from_ssa(&self, va: u64) -> Option<Pseudocode> {
+        let a = self.analysis.as_ref()?;
+        let f = &a.functions[self.function_index_containing(va)?];
+        let name = self.function_name(f);
+        if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
+            return Some(Pseudocode {
+                address: f.address,
+                name,
+                lines: Vec::new(),
+                note: Some(format!("Pseudocode for {} is on the roadmap; use the listing or graph view.", self.info.arch.label())),
+            });
+        }
+        let bits = if self.info.arch == Arch::X86 { 32 } else { 64 };
+        let mut blocks: BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)> = BTreeMap::new();
+        for b in &f.blocks {
+            let bytes = self.bytes_at(b.start)?;
+            let len = ((b.end - b.start) as usize).min(bytes.len());
+            let mut d = Decoder::with_ip(bits, &bytes[..len], b.start, DecoderOptions::NONE);
+            let mut v = Vec::new();
+            while d.can_decode() {
+                let i = d.decode();
+                if i.is_invalid() {
+                    break;
+                }
+                v.push(i);
+            }
+            blocks.insert(b.start, (v, b.succs.clone()));
+        }
+        let args = ssa_args(bits, self.info.format);
+        let s = crate::ssa::build(f.address, &blocks, bits, ssa_volatile(bits, self.info.format), args);
+        let lookup = |a: u64| self.name_at(a);
+        let returns = blocks.values().flat_map(|(v, _)| v.iter()).any(|i| i.mnemonic() == Mnemonic::Ret) && writes_rax_before_ret(&blocks);
+        let o = crate::ssa::COptions {
+            name: &name,
+            entry: f.address,
+            returns,
+            args: if bits == 64 { args.iter().filter_map(|r| crate::ssa::var_index(*r)).collect() } else { Vec::new() },
+            names: &lookup,
+        };
+        let lines = s.to_c(&o);
+        Some(Pseudocode { address: f.address, name, lines, note: None })
+    }
+
     pub fn pseudocode(&mut self, va: u64) -> Option<Pseudocode> {
         let a = self.analysis.as_ref()?;
         let idx = self.function_index_containing(va)?;

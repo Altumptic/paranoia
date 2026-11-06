@@ -195,6 +195,7 @@ impl Session {
             "graph" => to(b.function_graph(args::<Va>(args_v)?.va)),
             "pseudocode" => to(b.pseudocode(args::<Va>(args_v)?.va)),
             "ssa" => to(b.ssa(args::<Va>(args_v)?.va)),
+            "pseudocodeFromSsa" => to(b.pseudocode_from_ssa(args::<Va>(args_v)?.va)),
             "functionAt" => to(b.function_at(args::<Va>(args_v)?.va)),
             "xrefs" => to(b.xrefs_to(args::<Va>(args_v)?.va)),
             "addressInfo" => to(b.address_info(args::<Va>(args_v)?.va)),

@@ -26,14 +26,15 @@ export function PseudocodeView() {
   const [code, setCode] = useState<Pseudocode | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "none">("loading");
   // C-like pseudocode or the SSA form of the same function.
-  const [mode, setMode] = useState<"c" | "ssa">(() => {
+  const [mode, setMode] = useState<"c" | "cssa" | "ssa">(() => {
     try {
-      return localStorage.getItem("paranoia.pseudo.mode") === "ssa" ? "ssa" : "c";
+      const m = localStorage.getItem("paranoia.pseudo.mode");
+      return m === "ssa" || m === "cssa" ? m : "c";
     } catch {
       return "c";
     }
   });
-  const fetchView = (va: number) => (mode === "ssa" ? session.ssa(va) : session.pseudocode(va));
+  const fetchView = (va: number) => (mode === "ssa" ? session.ssa(va) : mode === "cssa" ? session.pseudocodeFromSsa(va) : session.pseudocode(va));
   const box = useRef<HTMLDivElement>(null);
 
   const byName = useMemo(() => new Map(functions.map((f) => [f.name, f.address])), [functions]);
@@ -125,11 +126,17 @@ export function PseudocodeView() {
         <span className="muted small">{mode === "ssa" ? (code.note ?? "SSA form") : "Lifted pseudocode — verify against the listing"}</span>
         <span className="flex1" />
         <div className="seg pseudo-seg" role="group" aria-label="View">
-          {(["c", "ssa"] as const).map((m) => (
+          {(["c", "cssa", "ssa"] as const).map((m) => (
             <button
               key={m}
               className={`seg-btn ${mode === m ? "on" : ""}`}
-              title={m === "ssa" ? "SSA form: phi nodes, one definition per value, constants and dead code" : "C-like pseudocode"}
+              title={
+                m === "ssa"
+                  ? "SSA form: phi nodes, one definition per value, constants and dead code"
+                  : m === "cssa"
+                    ? "C generated from the SSA form (experimental)"
+                    : "C-like pseudocode"
+              }
               onClick={() => {
                 if (m === mode) return;
                 try {
@@ -142,7 +149,7 @@ export function PseudocodeView() {
                 setMode(m);
               }}
             >
-              {m === "c" ? "C" : "SSA"}
+              {m === "c" ? "C" : m === "cssa" ? "C·SSA" : "SSA"}
             </button>
           ))}
         </div>

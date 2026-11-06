@@ -54,7 +54,13 @@ enum Cmd {
     /// Basic blocks and edges of the function at an address or name.
     Cfg { file: PathBuf, at: String },
     /// C-like pseudocode for the function at an address or name.
-    Pseudo { file: PathBuf, at: String },
+    Pseudo {
+        file: PathBuf,
+        at: String,
+        /// Generate the C text from the SSA form instead of the line-based lifter.
+        #[arg(long)]
+        from_ssa: bool,
+    },
     /// The function in SSA form: phi nodes, one definition per value, constants and dead code.
     Ssa { file: PathBuf, at: String },
     /// Cross references to an address.
@@ -296,11 +302,11 @@ fn main() -> Result<()> {
                 println!("{}{}", "    ".repeat(l.indent as usize), text);
             }
         }
-        Cmd::Pseudo { file, at } => {
+        Cmd::Pseudo { file, at, from_ssa } => {
             let mut bin = open(&file)?;
             bin.analyze();
             let va = resolve(&bin, &at)?;
-            let p = bin.pseudocode(va).context("no function at that address")?;
+            let p = if from_ssa { bin.pseudocode_from_ssa(va) } else { bin.pseudocode(va) }.context("no function at that address")?;
             if cli.json {
                 return print_json(&p);
             }
