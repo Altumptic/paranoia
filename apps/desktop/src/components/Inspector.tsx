@@ -120,7 +120,7 @@ export function Inspector() {
               </div>
             </div>
             <div className="insp-sub mono">
-              {fmtAddr(fn.address, info)} · {fn.size} bytes · via {fn.source === "exceptiontable" ? ".pdata" : fn.source}
+              {fmtAddr(fn.address, info)} · {fn.size} bytes · via {fn.source === "exceptiontable" ? (info?.format === "pe" ? ".pdata" : info?.format === "elf" ? ".eh_frame_hdr" : "LC_FUNCTION_STARTS") : fn.source}
             </div>
           </section>
         )}
