@@ -93,6 +93,8 @@ enum Cmd {
         #[arg(long)]
         at: Option<String>,
     },
+    /// Check a disclosure ledger written by `paranoia mcp --ledger` and summarise what was disclosed.
+    Ledger { file: PathBuf },
     /// Serve the engine to AI agents over the Model Context Protocol (stdio, read-only by default).
     Mcp {
         /// Directory the agent may open files from (repeatable; default: the working directory).
@@ -263,6 +265,35 @@ fn main() -> Result<()> {
             let cursor = at.map(|a| u64::from_str_radix(a.trim_start_matches("0x"), 16)).transpose()?.unwrap_or(0);
             let code = script::run(&file, &script, python.as_deref(), cursor)?;
             std::process::exit(code);
+        }
+        Cmd::Ledger { file } => {
+            let text = std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
+            let r = disclosure::verify(&text);
+            if cli.json {
+                print_json(&serde_json::json!({
+                    "sessions": r.sessions, "answers": r.answers, "errors": r.errors, "chars": r.chars,
+                    "redactions": r.redactions, "tools": r.tools, "files": r.files,
+                    "bad": r.bad.iter().map(|(n, why)| serde_json::json!({ "line": n, "reason": why })).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!(
+                    "{} sessions, {} answers ({} errors), {} characters disclosed, {} strings redacted",
+                    r.sessions, r.answers, r.errors, r.chars, r.redactions
+                );
+                for (tool, n) in &r.tools {
+                    println!("  {tool:<16} {n}");
+                }
+                for f in &r.files {
+                    println!("  file sha256 {f}");
+                }
+                for (n, why) in &r.bad {
+                    println!("line {n}: {why}");
+                }
+                println!("{}", if r.bad.is_empty() { "every answer matches its recorded SHA-256" } else { "THE LEDGER DOES NOT VERIFY" });
+            }
+            if !r.bad.is_empty() {
+                std::process::exit(2);
+            }
         }
         Cmd::Mcp { roots, allow_writes, redact_strings, ledger, workspace } => {
             let workspace = match workspace {
