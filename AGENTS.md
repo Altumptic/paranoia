@@ -40,7 +40,7 @@ Addresses travel as JSON numbers; exact below 2^53 (covers user-mode images). Bo
 
 | Module | Responsibility |
 | --- | --- |
-| `loader/` (`pe.rs`, `elf.rs`, `macho.rs`, `macho_bind.rs`) | Loaders producing a normalized `Loaded` image; our own bounds-checked parsers for Mach-O bind/fixups/export trie and PE `.pdata` |
+| `loader/` (`pe.rs`, `elf.rs`, `macho.rs`, `macho_bind.rs`, `eh_frame.rs`) | Loaders producing a normalized `Loaded` image; our own bounds-checked parsers for Mach-O bind/fixups/export trie, PE `.pdata` and ELF `.eh_frame_hdr` (function starts in stripped binaries; CI's `/bin/ls` on ubuntu-latest is a stripped Rust build and needs it) |
 | `model.rs` | Serializable data model shared by all front-ends |
 | `disasm.rs`, `riscv.rs`, `mips.rs`, `ppc.rs` | Decode (fast, for analysis) + render (tokens, for UI); iced-x86, yaxpeax-arm, own RISC-V/MIPS/PowerPC decoders. PowerPC real-binary test: `PARANOIA_PPC_DIR` with Go-built `hello-ppc64`/`hello-ppc64le` |
 | `analysis.rs`, `switch.rs` | Recursive-descent function discovery, basic blocks, jump-table recovery, xref index |

@@ -1,6 +1,7 @@
 //! Executable format loaders. Each loader turns raw bytes into a [`Loaded`]
 //! image: a normalized, format-agnostic description of the binary.
 
+mod eh_frame;
 mod elf;
 mod macho;
 mod macho_bind;

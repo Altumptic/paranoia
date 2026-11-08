@@ -186,6 +186,23 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     if out.entry != 0 {
         out.seeds.push(Seed { address: out.entry, source: FunctionSource::Entry, end: None });
     }
+
+    // Unwind table: function starts that survive stripping. Only starts inside an
+    // executable segment are kept, and only ones no symbol already covers.
+    if let Some(p) = elf.program_headers.iter().find(|p| p.p_type == ph::PT_GNU_EH_FRAME) {
+        let range = usize::try_from(p.p_offset).ok().and_then(|o| Some(o..o.checked_add(usize::try_from(p.p_filesz).ok()?)?));
+        if let Some(hdr) = range.and_then(|r| bytes.get(r)) {
+            let known: std::collections::HashSet<u64> = out.seeds.iter().map(|s| s.address).collect();
+            let exec = |va: u64| out.ranges.iter().any(|r| r.perms.x && r.contains(va));
+            let found: Vec<u64> = super::eh_frame::function_starts(hdr, p.p_vaddr, out.big_endian, out.bits)
+                .into_iter()
+                .filter(|&va| va != 0 && exec(va) && !known.contains(&va))
+                .collect();
+            for va in found {
+                out.seeds.push(Seed { address: va, source: FunctionSource::ExceptionTable, end: None });
+            }
+        }
+    }
     Ok(out)
 }
 

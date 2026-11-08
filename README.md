@@ -43,7 +43,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 | --- | --- |
 | **Formats** | PE / PE32+ (.NET detection, forwarders, TLS callbacks, `.pdata` with chained unwind info), ELF (PIE, PLT/GOT imports, symbol versions), Mach-O (universal binaries, dyld bind opcodes, chained fixups, export trie) |
 | **Architectures** | x86 and x86-64 (iced-x86), AArch64, ARM32 and Thumb-2 (yaxpeax-arm), RISC-V RV32/RV64GC, MIPS32/64 and PowerPC 32/64 (own decoders) |
-| **Auto-analysis** | Recursive-descent function discovery from entry points, exports, symbols and exception tables; basic blocks; switch-table recovery; no-return awareness; import thunks |
+| **Auto-analysis** | Recursive-descent function discovery from entry points, exports, symbols and exception / unwind tables (`.pdata`, `.eh_frame_hdr` — stripped ELF files keep their functions); basic blocks; switch-table recovery; no-return awareness; import thunks |
 | **Listing** | Code and data in one view: `sub_` / `loc_` labels, `db/dw/dd/dq`, strings, `offset`, `extrn`, auto names (`aHelloWorld`, `qword_…`), `XREF` comments, jump arrows, argument labels from API prototypes |
 | **Decompiler** | x86 / x64 (`Tab` / `F5`): typed variables (`HANDLE v3 = CreateFileW(a1, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, …)`), expression propagation, `switch`, `while` / `for` / `do-while` with `break` / `continue`; type a variable (`Y`) and struct fields render as `ctx->FileName`, with the type flowing into the functions it is passed to, back through typed call results, and along pointer fields — so linked lists and trees stay readable (`p = ctx->next; p->id`) |
 | **Graph & xrefs** | Control-flow graph with pan, zoom and minimap; xrefs dialog (`X`), call graph, stack frames |

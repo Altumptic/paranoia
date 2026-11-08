@@ -16,7 +16,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | RISC-V disassembly | ✅ | RV32 / RV64 IMAFDC + Zicsr, compressed instructions, `auipc`/`lui` pairs resolved to data and call targets |
 | MIPS disassembly | ✅ | MIPS32 / MIPS64, both byte orders, branch delay slots, `lui` + `addiu`/`lw` pairs |
 | PowerPC disassembly | ✅ | 32- and 64-bit, both byte orders (ELF, Mach-O): integer, branches with simplified mnemonics (`beq`, `bdnz`, `blr`, `bctrl`), loads / stores, rotates, SPR moves, floating point, common AltiVec / VSX; `lis` + `addi`/`ori`/loads resolve addresses. Checked on Go-built ppc64 / ppc64le binaries: under 0.01 % of non-zero words undecoded. Not yet: pseudocode, PPC64 TOC-relative references |
-| Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` |
+| Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` and, in ELF, the `.eh_frame_hdr` unwind table — so stripped binaries keep their functions (GNU `ls`, stripped: 18 functions without it, 446 with it; all 341 unwind-table starts found). Not yet: Mach-O `LC_FUNCTION_STARTS`, ELF files with `.eh_frame` but no `.eh_frame_hdr` |
 | Switch/jump-table recovery | ✅ | Absolute tables, MSVC `__ImageBase` RVA tables, PIC relative tables |
 | Listing with labels, jump arrows, comments | ✅ | |
 | Graph view | ✅ | |
