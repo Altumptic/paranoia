@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize};
 
 pub use demangle::demangle;
 pub use frame::{Frame, FrameVar};
-pub use items::{DataItem, ItemKind};
+pub use items::{string_name, DataItem, ItemKind};
 pub use loader::detect;
 pub use model::*;
 pub use nav::{CallGraph, CallNode, InsnPatch, NameEntry};

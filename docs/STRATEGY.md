@@ -6,7 +6,7 @@ Last reviewed: 2026-11-08 · v0.7.0
 
 ## In one sentence
 
-Paranoia is a reverse-engineering engine for files you cannot send anywhere: it runs on your machine, it is fast enough to be interactive, its releases can be verified, and an AI agent can drive it without the sample or the analysis leaving the machine.
+Paranoia is a reverse-engineering engine for files you cannot send anywhere: it runs on your machine, it is fast enough to be interactive, its releases can be verified, and when an AI agent works on a sample, Paranoia decides what the agent may see and keeps a record of everything it saw.
 
 ## Who it is for
 
@@ -20,7 +20,23 @@ Paranoia is a reverse-engineering engine for files you cannot send anywhere: it 
 
 ## The key feature: private, agent-ready analysis
 
-It is three properties together. Each one exists today and has evidence.
+### What is unique: controlled disclosure
+
+Connecting a disassembler to an AI agent is no longer rare — IDA, Ghidra, Binary Ninja and radare2 all have MCP integrations. What those integrations do not address is the analyst's real constraint: the sample may contain a customer's hostnames, keys or personal data, and once the agent's model has read it, there is no taking it back and no record of what was read. Paranoia's MCP server handles that itself:
+
+| | What it does | Evidence |
+| --- | --- | --- |
+| **Redaction** (`--redact-strings`) | The file's string contents never reach the agent. Quoted literals in pseudocode, listings, comments, string lists and search results become `"<str#12 len=23>"`; auto names derived from strings (`aDbInternalCorp`) become `aRedacted12`. The same string keeps its number for the whole session, so the agent can still reason about "the function that uses str#12" and the analyst can look it up locally | `redaction_and_ledger` in `crates/paranoia-cli/src/mcp.rs`; `disclosure.rs` unit tests |
+| **Disclosure ledger** (`--ledger FILE`) | Every answer the agent receives is appended to a local JSON-lines file first: time, tool, arguments, the analysed file's SHA-256, the exact text and its SHA-256, and how many strings were redacted. If the line cannot be written, the answer is withheld | `unwritable_ledger_withholds_results`; the ledger format in [MCP.md](MCP.md#disclosure-ledger) |
+| **Boundaries** | stdio only, files only under `--root`, read-only by default | [MCP.md § Security](MCP.md#security) |
+
+So an analyst under an NDA can use a hosted model and later show exactly what it was given — or run it with redaction and show that no string from the sample was disclosed. We know of no other reverse-engineering tool that does this (checked on the review date; tell us if one does).
+
+**What redaction does not cover**, stated so it is not over-trusted: function, import and export names, section names, numeric constants (an IP address stored as a number), code structure, and the arguments the agent itself sends (a `search` for a word reveals whether the file contains it). Redaction lowers what leaks; it does not make a hosted model safe for every sample.
+
+### The ground it stands on
+
+Three properties make the feature possible. Each one exists today and has evidence.
 
 | Property | What it means | Evidence |
 | --- | --- | --- |
@@ -37,6 +53,7 @@ It is three properties together. Each one exists today and has evidence.
 | Licence | Commercial | Free, Apache-2.0 | Commercial, free tier | Free, LGPL | Free, Apache-2.0 |
 | Decompiler | Hex-Rays, many architectures, best C++ | Many architectures | Several architectures (IL based) | Through plugins (e.g. rz-ghidra) | x86 / x64 today; AArch64 next |
 | Agent interface (MCP) | Community plugins inside IDA | Community plugins inside Ghidra | Plugins | r2mcp | Built into the engine binary: `paranoia mcp`, no host application, no Python bridge |
+| Redaction of sample content and a ledger of what the agent saw | Not known to us | Not known to us | Not known to us | Not known to us | Yes (`--redact-strings`, `--ledger`) |
 | Runs in a browser with no server | No | No | No | No | Yes (WebAssembly) |
 | Release verification | Vendor download | Published checksums | Vendor download | Varies | Sigstore-signed checksums, provenance attestations, SBOM per release |
 
@@ -71,7 +88,8 @@ Every feature ships with tests on real binaries, a line in the roadmap's parity 
 | Time to first analysis | `paranoia functions` on fixed system binaries, release build | See the table above |
 | Robustness | Mutation suite on real PE / ELF / Mach-O (`tests/real_binaries.rs`) | 500 mutants per OS in CI, 18 000 before a release, no crash |
 | Decompiler agreement | C·SSA view against the C view on real functions (`c_from_ssa_on_real_code`) | Same callees in 598 of 600 functions |
-| Agent interface | End-to-end MCP tests (`crates/paranoia-cli/src/mcp.rs`) and a stdio session against system binaries | 14 read-only tools, 3 write tools |
+| Agent interface | End-to-end MCP tests (`crates/paranoia-cli/src/mcp.rs`) and a stdio session against system binaries | 15 read-only tools, 3 write tools; `triage` over all 2 604 functions of kernel32.dll, including opening the file, in 1.2 s |
+| Disclosure control | Redaction and ledger tests; live run on notepad.exe | Every string literal in the output replaced; every answer in the ledger with its SHA-256 |
 | Decompiler readability | — | Not measured yet. Goal: a public corpus (open-source binaries with their sources) and a published score per release |
 
 ## Risks
@@ -79,6 +97,7 @@ Every feature ships with tests on real binaries, a line in the roadmap's parity 
 | Risk | What we do about it |
 | --- | --- |
 | The decompiler stays behind Hex-Rays and Ghidra | Two architectures only, measured on a corpus; no breadth work while AArch64 pseudocode is missing |
-| Prompt injection: strings in a sample address the agent | The MCP server tells clients that file content is data; writes are off by default and stay in memory; see [MCP.md § Security](MCP.md#security) |
+| Prompt injection: strings in a sample address the agent | The MCP server tells clients that file content is data; writes are off by default and stay in memory; with `--redact-strings` the strings never reach the model at all; see [MCP.md § Security](MCP.md#security) |
+| Redaction is trusted beyond what it covers | Its limits are listed next to the feature, in [MCP.md](MCP.md) and here |
 | One maintainer | Recorded in [PSB.md](PSB.md); CI enforces the checks a reviewer would make |
 | macOS distribution needs an Apple Developer ID for notarisation (paid, tied to the maintainer) | Unsigned builds first, the requirement stated in the roadmap; notarisation when the account exists |
