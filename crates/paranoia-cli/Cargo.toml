@@ -18,3 +18,4 @@ clap = { version = "4.6", default-features = false, features = ["std", "derive",
 paranoia-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.11.1"

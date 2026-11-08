@@ -32,7 +32,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 
 - **Private by design.** No accounts, no telemetry, no update checks. Files are analysed on your machine and never uploaded. The one optional exception is the AI assistant, which stays off until you point it at a model server (a local Ollama / LM Studio keeps everything on your computer).
 - **Fast.** The native Rust engine analyses `shell32.dll` (7.7 MB, 24 449 functions, 1.47 M instructions) in about a second and `notepad.exe` in 45 ms (release build, Core i5-12450H; [how it was measured](docs/STRATEGY.md#the-key-feature-private-agent-ready-analysis)).
-- **Ready for AI agents.** `paranoia mcp` serves the engine over the Model Context Protocol on stdio: no network, files only from folders you allow, read-only by default ([MCP.md](docs/MCP.md)).
+- **Ready for AI agents, on your terms.** `paranoia mcp` serves the engine over the Model Context Protocol on stdio: no network, files only from folders you allow, read-only by default. `--redact-strings` keeps the sample's strings away from the model and `--ledger` records every answer the agent received, so you can show exactly what was disclosed ([MCP.md](docs/MCP.md)).
 - **Built for hostile input.** The engine parses files in its own process, every CI run feeds it 1 500 corrupted PE / ELF / Mach-O files, and a crash never takes the UI down.
 - **Verifiable.** Releases come with signed checksums, build-provenance attestations and an SBOM ([how to verify](docs/VERIFY.md)).
 - **Open.** Apache-2.0. The same engine powers the desktop app, a CLI and a WebAssembly build that runs in the browser.
@@ -130,6 +130,7 @@ paranoia sigapply app.exe libc.sig                       # apply IDA .sig (or .p
 paranoia ssa app.exe main                                # a function in SSA form (phi nodes, constants, dead code)
 paranoia sigapply other.exe app.pat
 paranoia mcp --root ./samples                            # MCP server for AI agents (stdio, read-only)
+paranoia mcp --root ./case --redact-strings --ledger ./case/agent.jsonl   # hide strings, record what the agent saw
 ```
 
 ## Build from source

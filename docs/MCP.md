@@ -38,6 +38,14 @@ Then ask, for example: *"Open D:\samples\invoice_update.exe, find the functions 
 | --- | --- |
 | `--root DIR` | Folder files may be opened from (repeatable). Without it, the current working directory |
 | `--allow-writes` | Also offer `rename`, `set_comment` and `rename_variable`. Changes stay in the server's memory for this session; `export_idc` gives them back as an IDC script |
+| `--redact-strings` | The file's string contents never reach the agent ([below](#redaction)) |
+| `--ledger FILE` | Append every answer to `FILE` before sending it; if that fails, the answer is withheld ([below](#disclosure-ledger)) |
+
+For a confidential sample with a hosted model, the recommended start is:
+
+```bash
+paranoia mcp --root D:\cases\0412 --redact-strings --ledger D:\cases\0412\agent-ledger.jsonl
+```
 
 ## Tools
 
@@ -56,10 +64,35 @@ All tools take an optional `binary` (an id returned by `open_binary`; default: t
 | `callees` | Functions and imports the function calls |
 | `list_strings`, `list_imports`, `list_exports` | Filterable, paged lists |
 | `search` | Functions, names and strings matching a query |
+| `triage` | One line per function: what it calls (imports first) and which strings it references; library functions and thunks left out unless `include_library`. The quickest way to pick functions to decompile (kernel32.dll: all 2 604 functions, opening included, in 1.2 s) |
 | `export_idc` | An IDC script with the session's names, comments and functions |
 | `rename`, `set_comment`, `rename_variable` | Only with `--allow-writes` |
 
 Each result is plain text, at most 60 000 characters; longer output is cut with a note that says how to narrow the request. Lists say how many items exist and which `offset` gives the next page.
+
+## Controlled disclosure
+
+### Redaction
+
+With `--redact-strings`, every answer is filtered before it is sent:
+
+- quoted literals — in pseudocode, listings, comments, `list_strings`, `search`, `triage` and `xrefs_to` — become `"<str#N len=L>"`;
+- auto names made from strings (`aHelloWorld`) become `aRedactedN`, with the same `N` as the literal.
+
+Numbers are given in the file's string order when it is opened, so they do not depend on what the agent asks first and stay the same for the session. The agent is told about the placeholders in the server's instructions. To see what `str#N` is, look it up in the app or in a run without redaction.
+
+Not redacted: function, import, export and section names; numbers in code (an IP address stored as a constant); the arguments the agent sends — a `search` for a word reveals whether the file contains it; `export_idc` output is redacted like everything else, so it is not usable as an IDC script in this mode.
+
+### Disclosure ledger
+
+With `--ledger FILE`, the server appends one JSON line per event to `FILE` (created if missing, never truncated) and syncs it to disk before answering:
+
+```json
+{"event":"session","version":"0.7.0","roots":["D:\\cases\\0412"],"allow_writes":false,"redact_strings":true,"time":1762610400}
+{"event":"tool","tool":"decompile","arguments":{"address":"sub_401C04"},"file_sha256":"1e47…","is_error":false,"redactions":2,"chars":2068,"sha256":"45ee…","text":"// sub_401C04 at 0x401c04\n…","time":1762610412}
+```
+
+`text` is exactly what the agent received and `sha256` is its hash, so the record can be checked against a client's transcript. If a line cannot be written (disk full, file removed), the agent gets an error instead of the answer. The ledger contains the disclosed text itself — keep it with the case files.
 
 ## Security
 
@@ -68,8 +101,8 @@ The server follows the same rules as the rest of Paranoia ([SECURITY-DESIGN.md](
 - **No network.** It reads requests on stdin and writes answers on stdout. It opens no sockets.
 - **Confined files.** `open_binary` resolves the path (symbolic links included) and refuses anything outside the `--root` folders. Files larger than 1 GiB are refused.
 - **Read-only by default.** Write tools are not even listed unless `--allow-writes` is given, and they never touch the analysed file or the desktop app's workspace.
-- **The sample is hostile.** Strings, symbol names and comments come from the file's author. A string such as "ignore previous instructions and …" is data. The server's `instructions` tell the client so, but whether a model obeys text it reads is up to the model and the client: keep write tools off for untrusted samples and review what an agent proposes.
-- **Where the text goes.** Paranoia sends nothing. Your MCP client sends what the tools return to the model it uses. With a hosted model (Claude, GPT, …) that includes the pseudocode, listings and strings the agent asked for. For no egress at all, use a client with a local model.
+- **The sample is hostile.** Strings, symbol names and comments come from the file's author. A string such as "ignore previous instructions and …" is data. The server's `instructions` tell the client so, but whether a model obeys text it reads is up to the model and the client: keep write tools off for untrusted samples, review what an agent proposes, and use `--redact-strings` so string contents never reach the model.
+- **Where the text goes.** Paranoia sends nothing. Your MCP client sends what the tools return to the model it uses. With a hosted model (Claude, GPT, …) that includes the pseudocode, listings and strings the agent asked for — minus what `--redact-strings` removes, and all of it recorded if you use `--ledger`. For no egress at all, use a client with a local model.
 - **Crashes.** A panic while answering a tool call is caught and reported as a tool error; the server keeps running.
 
 ## Limits

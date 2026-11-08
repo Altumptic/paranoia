@@ -92,7 +92,7 @@ By default the app and the engine make **no network connections**: no telemetry,
 
 ### MCP server (`paranoia mcp`)
 
-The command-line tool can serve the engine to an AI agent over the Model Context Protocol. It reads JSON-RPC messages on stdin and answers on stdout; it opens **no sockets**. It is a separate program the user starts (or configures in an agent), not part of the desktop app. Files are opened only under the `--root` folders (the working directory by default); write tools exist only with `--allow-writes` and keep their changes in memory. The agent's client decides where the returned text goes: with a hosted model, the pseudocode and strings it asked for leave the machine through that client, not through Paranoia. Details: [MCP.md](MCP.md).
+The command-line tool can serve the engine to an AI agent over the Model Context Protocol. It reads JSON-RPC messages on stdin and answers on stdout; it opens **no sockets**. It is a separate program the user starts (or configures in an agent), not part of the desktop app. Files are opened only under the `--root` folders (the working directory by default); write tools exist only with `--allow-writes` and keep their changes in memory. `--redact-strings` replaces the file's string contents in every answer with placeholders; `--ledger FILE` writes every answer to a local file before it is sent and withholds it if that fails (fail closed). The agent's client decides where the returned text goes: with a hosted model, the pseudocode and strings it asked for leave the machine through that client, not through Paranoia. Details: [MCP.md](MCP.md).
 
 Updates are manual: download a new release and verify it ([VERIFY.md](VERIFY.md)). There is no auto-updater.
 
@@ -107,6 +107,7 @@ Everything stays on your machine.
 | AI assistant settings: endpoint, model, API key encrypted by the OS keystore (`ai-settings.json`) | `%APPDATA%\Paranoia\ai-settings.json` | so the assistant works after a restart | you clear the fields / delete the file |
 | Recent files: name, **full path**, SHA-256, format, size, time | same database | the start screen list | removed from the list, or the database deleted |
 | UI preferences, console scripts | Electron / browser `localStorage` | convenience | cleared with the app data |
+| MCP disclosure ledger: every answer given to an agent, with tool, arguments, the analysed file's SHA-256 and the text's SHA-256 | the file named with `paranoia mcp --ledger` (only when given) | a record of what an AI agent was shown | you delete the file |
 | Python run files (`paranoia.py`, `script.py`) | a fresh `%TEMP%\paranoia-py-*` folder | to run the script | deleted when the script ends |
 
 To remove everything: close Paranoia and delete `%APPDATA%\Paranoia` (Windows). The analysed files themselves are never copied.

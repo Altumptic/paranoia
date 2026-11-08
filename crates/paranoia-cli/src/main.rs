@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use paranoia_core::{Binary, Instruction};
 
+mod disclosure;
 mod mcp;
 mod script;
 
@@ -100,6 +101,12 @@ enum Cmd {
         /// Also offer rename / comment tools (changes stay in the session; export_idc keeps them).
         #[arg(long)]
         allow_writes: bool,
+        /// Hide the file's string contents from the agent (placeholders like "<str#12 len=23>").
+        #[arg(long)]
+        redact_strings: bool,
+        /// Append every answer sent to the agent to this JSON-lines file; nothing is sent unrecorded.
+        #[arg(long, value_name = "FILE")]
+        ledger: Option<PathBuf>,
     },
 }
 
@@ -253,7 +260,7 @@ fn main() -> Result<()> {
             let code = script::run(&file, &script, python.as_deref(), cursor)?;
             std::process::exit(code);
         }
-        Cmd::Mcp { roots, allow_writes } => mcp::run(mcp::Config { roots, allow_writes })?,
+        Cmd::Mcp { roots, allow_writes, redact_strings, ledger } => mcp::run(mcp::Config { roots, allow_writes, redact_strings, ledger })?,
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;
             bin.analyze();
