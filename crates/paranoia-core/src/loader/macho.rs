@@ -238,7 +238,54 @@ fn load_single(bytes: &[u8], m: &MachO) -> goblin::error::Result<Loaded> {
     if out.entry != 0 {
         out.seeds.push(Seed { address: out.entry, source: FunctionSource::Entry, end: None });
     }
+
+    // LC_FUNCTION_STARTS: every function start the linker saw, kept in stripped binaries.
+    let starts = m.load_commands.iter().find_map(|lc| match &lc.command {
+        CommandVariant::FunctionStarts(d) if d.datasize > 0 => Some(blob(d.dataoff, d.datasize)),
+        _ => None,
+    });
+    if let Some(data) = starts {
+        let known: std::collections::HashSet<u64> = out.seeds.iter().map(|s| s.address).collect();
+        let exec = |va: u64| out.sections.iter().any(|s| s.perms.x && va >= s.vaddr && va < s.vaddr.saturating_add(s.vsize));
+        let found: Vec<u64> = function_starts(data, text_vmaddr).into_iter().filter(|&va| exec(va) && !known.contains(&va)).collect();
+        for va in found {
+            out.seeds.push(Seed { address: va, source: FunctionSource::ExceptionTable, end: None });
+        }
+    }
     Ok(out)
+}
+
+/// Decodes `LC_FUNCTION_STARTS`: ULEB128 deltas, the first from the `__TEXT` segment's
+/// address; a zero delta (or the end of the data) ends the list.
+fn function_starts(data: &[u8], text_vmaddr: u64) -> Vec<u64> {
+    let mut out = Vec::new();
+    let mut addr = text_vmaddr;
+    let mut pos = 0usize;
+    // Each entry needs at least one byte, which also bounds the loop.
+    while pos < data.len() {
+        let mut delta = 0u64;
+        let mut shift = 0u32;
+        loop {
+            let Some(&b) = data.get(pos) else { return out };
+            pos += 1;
+            if shift < 64 {
+                delta |= u64::from(b & 0x7f) << shift;
+            }
+            shift += 7;
+            if b & 0x80 == 0 {
+                break;
+            }
+            if shift > 70 {
+                return out;
+            }
+        }
+        if delta == 0 {
+            break;
+        }
+        addr = addr.wrapping_add(delta);
+        out.push(addr);
+    }
+    out
 }
 
 fn version(v: u32) -> String {
@@ -340,6 +387,17 @@ fn walk_export_trie(data: &[u8], libs: &[&str]) -> Vec<TrieExport> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn function_starts_table() {
+        // 0x1000 + 0x3a0, + 0x20, + 0x200 (two-byte LEB128), then the terminating zero.
+        let data = [0xa0, 0x07, 0x20, 0x80, 0x04, 0x00, 0x55];
+        assert_eq!(function_starts(&data, 0x1_0000_0000), vec![0x1_0000_03a0, 0x1_0000_03c0, 0x1_0000_05c0]);
+        // Truncated or endless LEB128 and empty data end quietly.
+        assert_eq!(function_starts(&[0x10, 0x80], 0), vec![0x10]);
+        assert!(function_starts(&[0xff; 32], 0).is_empty());
+        assert!(function_starts(&[], 0).is_empty());
+    }
 
     #[test]
     fn export_trie() {

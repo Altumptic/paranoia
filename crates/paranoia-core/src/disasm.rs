@@ -146,6 +146,14 @@ impl Disassembler {
             _ => None,
         });
         let mut d = Decoded { len: 4, flow: Flow::None, target: None, data_ref: None, mem_size: 0, indirect_slot: None, valid: true };
+        // `adrp x2, page; add x2, x2, #off; blr x2`: a call (or jump) whose target the
+        // decoder already knows. Without this, Go's darwin/arm64 entry never reaches `main`.
+        let via_reg = |s: &Self| match inst.operands[0] {
+            Operand::Register(SizeCode::X, r) if (r as usize) < 31 => s.adrp[r as usize],
+            _ => None,
+        };
+        // A register value computed by this instruction, kept after the clobber below.
+        let mut known: Option<(usize, u64)> = None;
         match inst.opcode {
             Opcode::B => {
                 d.flow = Flow::Jump;
@@ -159,8 +167,14 @@ impl Disassembler {
                 d.flow = Flow::CondJump;
                 d.target = pc_target;
             }
-            Opcode::BR | Opcode::BRAA | Opcode::BRAAZ | Opcode::BRAB | Opcode::BRABZ => d.flow = Flow::Jump,
-            Opcode::BLR | Opcode::BLRAA | Opcode::BLRAAZ | Opcode::BLRAB | Opcode::BLRABZ => d.flow = Flow::Call,
+            Opcode::BR | Opcode::BRAA | Opcode::BRAAZ | Opcode::BRAB | Opcode::BRABZ => {
+                d.flow = Flow::Jump;
+                d.target = via_reg(self);
+            }
+            Opcode::BLR | Opcode::BLRAA | Opcode::BLRAAZ | Opcode::BLRAB | Opcode::BLRABZ => {
+                d.flow = Flow::Call;
+                d.target = via_reg(self);
+            }
             Opcode::RET | Opcode::RETAA | Opcode::RETAB | Opcode::ERET => d.flow = Flow::Ret,
             Opcode::BRK | Opcode::HLT | Opcode::UDF => d.flow = Flow::Interrupt,
             Opcode::ADR => d.data_ref = pc_target,
@@ -185,11 +199,16 @@ impl Disassembler {
                     _ => None,
                 };
                 if let (Some(rd), Some(rn), Some(imm)) = (reg(inst.operands[0]), reg(inst.operands[1]), imm) {
-                    if let Some(page) = self.adrp.get(rn).copied().flatten() {
-                        d.data_ref = Some(page + imm);
+                    let value = self.adrp.get(rn).copied().flatten().map(|page| page.wrapping_add(imm));
+                    if let Some(v) = value {
+                        d.data_ref = Some(v);
                     }
                     if rd < 31 {
                         self.adrp[rd] = None;
+                        // Only 64-bit adds keep an address; `add w2, …` truncates it.
+                        if matches!(inst.operands[0], Operand::Register(SizeCode::X, _) | Operand::RegisterOrSP(SizeCode::X, _)) {
+                            known = value.map(|v| (rd, v));
+                        }
                     }
                 }
             }
@@ -210,6 +229,9 @@ impl Disassembler {
             if !matches!(inst.opcode, Opcode::ADRP) && (rd as usize) < 31 && inst.opcode != Opcode::STR {
                 self.adrp[rd as usize] = None;
             }
+        }
+        if let Some((rd, v)) = known {
+            self.adrp[rd] = Some(v);
         }
         d
     }
@@ -1246,6 +1268,21 @@ mod tests {
         let r = render(Arch::Arm64, &code, 0x4000, 10, &NoNames);
         assert_eq!(r[0].mnemonic, "bl");
         assert_eq!(r[0].operands[0].t, "0x4008");
+    }
+
+    #[test]
+    fn arm64_calls_through_a_built_address() {
+        // Go's darwin/arm64 entry: adrp x2, page ; add x2, x2, #0xf60 ; blr x2
+        let code: Vec<u8> = [0x90ff_ffe2u32, 0x913d_8042, 0xd63f_0040].iter().flat_map(|w| w.to_le_bytes()).collect();
+        let mut d = Disassembler::new(Arch::Arm64);
+        d.decode(&code[0..4], 0x1_0007_3150);
+        assert_eq!(d.decode(&code[4..8], 0x1_0007_3154).data_ref, Some(0x1_0006_ff60));
+        let blr = d.decode(&code[8..12], 0x1_0007_3158);
+        assert_eq!((blr.flow, blr.target), (Flow::Call, Some(0x1_0006_ff60)));
+        // Once the register is overwritten, a later `blr x2` has no known target.
+        let mov = 0xaa1f_03e2u32.to_le_bytes(); // mov x2, xzr
+        d.decode(&mov, 0x1_0007_315c);
+        assert_eq!(d.decode(&code[8..12], 0x1_0007_3160).target, None);
     }
 
     #[test]

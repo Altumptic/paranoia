@@ -11,12 +11,12 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | PE / ELF / Mach-O loading | ✅ | Universal binaries, chained fixups, forwarders, TLS callbacks |
 | Raw binaries, firmware, COFF/OMF objects, DEX, NE/LE | ⏳ | Raw images and firmware first (phase 4 below); COFF/OMF, DEX, NE/LE later |
 | x86 / x86-64 disassembly | ✅ | |
-| AArch64 disassembly | ✅ | ADRP-based data references |
+| AArch64 disassembly | ✅ | ADRP-based data references; calls and jumps through a register built with `adrp` + `add` (`blr x2`) are followed — a stripped Go darwin/arm64 binary went from 1 function to 723 |
 | ARM32 / Thumb-2 disassembly | ✅ | Mixed ARM / Thumb images: the instruction set is tracked per address from ELF mapping symbols (`$a` / `$t`), the mode bit of function symbols, exports and the entry point, and `blx` targets found during analysis; the image default comes from the entry point (Windows on ARM is always Thumb). Literal pools and `adr` as data references. Limit: in a stripped image, code that follows a `blx` target with no symbol of its own is read in the target's mode |
 | RISC-V disassembly | ✅ | RV32 / RV64 IMAFDC + Zicsr, compressed instructions, `auipc`/`lui` pairs resolved to data and call targets |
 | MIPS disassembly | ✅ | MIPS32 / MIPS64, both byte orders, branch delay slots, `lui` + `addiu`/`lw` pairs |
 | PowerPC disassembly | ✅ | 32- and 64-bit, both byte orders (ELF, Mach-O): integer, branches with simplified mnemonics (`beq`, `bdnz`, `blr`, `bctrl`), loads / stores, rotates, SPR moves, floating point, common AltiVec / VSX; `lis` + `addi`/`ori`/loads resolve addresses. Checked on Go-built ppc64 / ppc64le binaries: under 0.01 % of non-zero words undecoded. Not yet: pseudocode, PPC64 TOC-relative references |
-| Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` and, in ELF, the `.eh_frame_hdr` unwind table — so stripped binaries keep their functions (GNU `ls`, stripped: 18 functions without it, 446 with it; all 341 unwind-table starts found). Not yet: Mach-O `LC_FUNCTION_STARTS`, ELF files with `.eh_frame` but no `.eh_frame_hdr` |
+| Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` and, in ELF, the `.eh_frame_hdr` unwind table — so stripped binaries keep their functions (GNU `ls`, stripped: 18 functions without it, 446 with it; all 341 unwind-table starts found); in Mach-O, `LC_FUNCTION_STARTS` (decoder unit-tested; not yet checked on an Apple-linked sample, Go does not write it). Not yet: ELF files with `.eh_frame` but no `.eh_frame_hdr` |
 | Switch/jump-table recovery | ✅ | Absolute tables, MSVC `__ImageBase` RVA tables, PIC relative tables |
 | Listing with labels, jump arrows, comments | ✅ | |
 | Graph view | ✅ | |
