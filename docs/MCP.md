@@ -40,6 +40,7 @@ Then ask, for example: *"Open D:\samples\invoice_update.exe, find the functions 
 | `--allow-writes` | Also offer `rename`, `set_comment` and `rename_variable`. Changes stay in the server's memory for this session; `export_idc` gives them back as an IDC script |
 | `--redact-strings` | The file's string contents never reach the agent ([below](#redaction)) |
 | `--ledger FILE` | Append every answer to `FILE` before sending it; if that fails, the answer is withheld ([below](#disclosure-ledger)) |
+| `--workspace [FILE]` | Share names with the desktop app. On `open_binary` the analyst's names, comments, types and patches are loaded from the app's workspace (without a value: the app's own, `%APPDATA%\Paranoia\workspace.redb` on Windows, `~/.config/Paranoia/` on Linux, `~/Library/Application Support/Paranoia/` on macOS). With `--allow-writes`, every rename or comment is saved there at once. The app locks its workspace while it runs: then nothing is loaded, and a change is refused and undone — close the app, or work without `--workspace` |
 
 For a confidential sample with a hosted model, the recommended start is:
 
@@ -66,7 +67,7 @@ All tools take an optional `binary` (an id returned by `open_binary`; default: t
 | `search` | Functions, names and strings matching a query |
 | `triage` | One line per function: what it calls (imports first) and which strings it references; library functions and thunks left out unless `include_library`. The quickest way to pick functions to decompile (kernel32.dll: all 2 604 functions, opening included, in 1.2 s) |
 | `export_idc` | An IDC script with the session's names, comments and functions |
-| `rename`, `set_comment`, `rename_variable` | Only with `--allow-writes` |
+| `rename`, `set_comment`, `rename_variable` | Only with `--allow-writes`; saved to the workspace with `--workspace` |
 
 Each result is plain text, at most 60 000 characters; longer output is cut with a note that says how to narrow the request. Lists say how many items exist and which `offset` gives the next page.
 
@@ -100,7 +101,7 @@ The server follows the same rules as the rest of Paranoia ([SECURITY-DESIGN.md](
 
 - **No network.** It reads requests on stdin and writes answers on stdout. It opens no sockets.
 - **Confined files.** `open_binary` resolves the path (symbolic links included) and refuses anything outside the `--root` folders. Files larger than 1 GiB are refused.
-- **Read-only by default.** Write tools are not even listed unless `--allow-writes` is given, and they never touch the analysed file or the desktop app's workspace.
+- **Read-only by default.** Write tools are not even listed unless `--allow-writes` is given. They never touch the analysed file, and they touch the desktop app's workspace only with `--workspace`.
 - **The sample is hostile.** Strings, symbol names and comments come from the file's author. A string such as "ignore previous instructions and …" is data. The server's `instructions` tell the client so, but whether a model obeys text it reads is up to the model and the client: keep write tools off for untrusted samples, review what an agent proposes, and use `--redact-strings` so string contents never reach the model.
 - **Where the text goes.** Paranoia sends nothing. Your MCP client sends what the tools return to the model it uses. With a hosted model (Claude, GPT, …) that includes the pseudocode, listings and strings the agent asked for — minus what `--redact-strings` removes, and all of it recorded if you use `--ledger`. For no egress at all, use a client with a local model.
 - **Crashes.** A panic while answering a tool call is caught and reported as a tool error; the server keeps running.
@@ -108,6 +109,6 @@ The server follows the same rules as the rest of Paranoia ([SECURITY-DESIGN.md](
 ## Limits
 
 - Pseudocode for x86 / x64 only; for other architectures use `disassemble` and `function_graph`.
-- Names and comments made through MCP are not shared with the desktop app (planned: an opt-in link to the app's workspace, see the roadmap).
+- Names are shared with the desktop app only through `--workspace`, and only while the app is closed (its workspace is locked while it runs). The app reads the names when it next opens the file.
 - No MCP resources or prompts yet; tools only. No progress notifications for long analyses (a 7.7 MB DLL takes about a second).
 - Protocol revisions 2025-06-18, 2025-03-26 and 2024-11-05.

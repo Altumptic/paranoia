@@ -16,6 +16,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
 paranoia-core.workspace = true
+paranoia-db.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11.1"
