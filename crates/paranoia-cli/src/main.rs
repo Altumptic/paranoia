@@ -107,6 +107,10 @@ enum Cmd {
         /// Append every answer sent to the agent to this JSON-lines file; nothing is sent unrecorded.
         #[arg(long, value_name = "FILE")]
         ledger: Option<PathBuf>,
+        /// Share names with the desktop app: read them from its workspace on open and, with
+        /// --allow-writes, save changes there. Without a value, the app's own workspace.
+        #[arg(long, value_name = "FILE", num_args = 0..=1, default_missing_value = "")]
+        workspace: Option<PathBuf>,
     },
 }
 
@@ -260,7 +264,15 @@ fn main() -> Result<()> {
             let code = script::run(&file, &script, python.as_deref(), cursor)?;
             std::process::exit(code);
         }
-        Cmd::Mcp { roots, allow_writes, redact_strings, ledger } => mcp::run(mcp::Config { roots, allow_writes, redact_strings, ledger })?,
+        Cmd::Mcp { roots, allow_writes, redact_strings, ledger, workspace } => {
+            let workspace = match workspace {
+                Some(p) if p.as_os_str().is_empty() => {
+                    Some(mcp::default_workspace().context("cannot tell where the app's workspace is; pass a path")?)
+                }
+                other => other,
+            };
+            mcp::run(mcp::Config { roots, allow_writes, redact_strings, ledger, workspace })?
+        }
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;
             bin.analyze();

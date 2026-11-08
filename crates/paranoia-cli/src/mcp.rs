@@ -6,7 +6,7 @@
 //! * stdio only — no sockets, no network;
 //! * files only from the directories given with `--root` (the working directory by default);
 //! * read-only unless started with `--allow-writes`; even then, names and comments live in
-//!   this session's memory and reach disk only through `export_idc`;
+//!   this session's memory, or — with `--workspace` — in the desktop app's workspace store;
 //! * everything taken from the analysed file (strings, symbol names) is data from a possibly
 //!   hostile author — the server says so to the client in its instructions;
 //! * controlled disclosure ([`crate::disclosure`]): `--redact-strings` hides the file's string
@@ -43,6 +43,22 @@ pub struct Config {
     pub allow_writes: bool,
     pub redact_strings: bool,
     pub ledger: Option<PathBuf>,
+    /// The desktop app's workspace store: names are read from it on open and, with
+    /// `allow_writes`, written back after every change.
+    pub workspace: Option<PathBuf>,
+}
+
+/// Where the desktop app keeps its workspace (Electron's `appData` + `Paranoia`).
+pub fn default_workspace() -> Option<PathBuf> {
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let dir = if cfg!(windows) {
+        env("APPDATA")?
+    } else if cfg!(target_os = "macos") {
+        env("HOME")?.join("Library").join("Application Support")
+    } else {
+        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))?
+    };
+    Some(dir.join("Paranoia").join("workspace.redb"))
 }
 
 struct Loaded {
@@ -58,6 +74,7 @@ pub struct Server {
     allow_writes: bool,
     redact: bool,
     ledger: Option<Ledger>,
+    workspace: Option<PathBuf>,
     bins: Vec<Loaded>,
     current: Option<usize>,
 }
@@ -87,7 +104,41 @@ impl Server {
                 "redact_strings": cfg.redact_strings,
             }))?;
         }
-        Ok(Server { roots, allow_writes: cfg.allow_writes, redact: cfg.redact_strings, ledger, bins: Vec::new(), current: None })
+        Ok(Server {
+            roots,
+            allow_writes: cfg.allow_writes,
+            redact: cfg.redact_strings,
+            ledger,
+            workspace: cfg.workspace,
+            bins: Vec::new(),
+            current: None,
+        })
+    }
+
+    /// Opens the workspace store for one operation. The desktop app holds the store's lock
+    /// while it runs, so this fails then — by design: the two never write at the same time.
+    fn store(&self) -> Result<Option<paranoia_db::Store>, ToolError> {
+        let Some(p) = &self.workspace else { return Ok(None) };
+        paranoia_db::Store::open(p).map(Some).map_err(|e| {
+            ToolError(format!("the workspace {} is not available ({e}); if the Paranoia app is open, close it and try again", shown(p)))
+        })
+    }
+
+    /// Writes the binary's annotations to the workspace after a change. On failure the
+    /// change is undone, so memory and disk never disagree.
+    fn persist(&mut self, i: usize, before: paranoia_core::Annotations) -> Result<(), ToolError> {
+        if self.workspace.is_none() {
+            return Ok(());
+        }
+        let saved = self.store().and_then(|s| {
+            let s = s.expect("workspace set");
+            let value = serde_json::to_value(self.bins[i].bin.annotations())?;
+            s.set_annotations(&self.bins[i].sha256, &value).map_err(ToolError::from)
+        });
+        if saved.is_err() {
+            self.bins[i].bin.set_annotations(before);
+        }
+        saved
     }
 
     /// Redacts (when asked), clips and records one tool answer. If the ledger cannot be
@@ -293,7 +344,7 @@ impl Server {
             v.push(tool(
                 "rename",
                 "Rename",
-                "Name an address or function (in this session; export_idc keeps it). An empty name restores the automatic one.",
+                "Name an address or function (kept for the session, or saved to the app's workspace with --workspace). An empty name restores the automatic one.",
                 json!({ "binary": bin, "address": addr, "name": { "type": "string" } }),
                 &["address", "name"],
                 &write,
@@ -301,7 +352,7 @@ impl Server {
             v.push(tool(
                 "set_comment",
                 "Comment",
-                "Comment an instruction (in this session). Empty text removes it.",
+                "Comment an instruction (kept for the session, or saved with --workspace). Empty text removes it.",
                 json!({ "binary": bin, "address": addr, "text": { "type": "string" } }),
                 &["address", "text"],
                 &write,
@@ -309,7 +360,7 @@ impl Server {
             v.push(tool(
                 "rename_variable",
                 "Rename variable",
-                "Rename a pseudocode variable (a1, v3, var_8) of a function (in this session).",
+                "Rename a pseudocode variable (a1, v3, var_8) of a function (kept for the session, or saved with --workspace).",
                 json!({ "binary": bin, "function": addr, "variable": { "type": "string" }, "name": { "type": "string" } }),
                 &["function", "variable", "name"],
                 &write,
@@ -481,26 +532,40 @@ impl Server {
             }
             "export_idc" => Ok(self.pick(a)?.bin.export_idc()),
             "triage" => Ok(triage(&self.pick(a)?.bin, a)),
-            "rename" => {
-                let b = &mut self.pick_mut(a)?.bin;
-                let va = resolve(b, str_arg(a, "address")?)?;
-                let n = str_arg(a, "name")?.trim().to_string();
-                b.rename(va, &n);
-                Ok(if n.is_empty() { format!("Name at {va:#x} restored.") } else { format!("{va:#x} is now {n}.") })
-            }
-            "set_comment" => {
-                let b = &mut self.pick_mut(a)?.bin;
-                let va = resolve(b, str_arg(a, "address")?)?;
-                b.set_comment(va, str_arg(a, "text")?);
-                Ok(format!("Comment at {va:#x} saved for this session."))
-            }
-            "rename_variable" => {
-                let b = &mut self.pick_mut(a)?.bin;
-                let va = resolve(b, str_arg(a, "function")?)?;
-                let f = b.function_at(va).ok_or_else(|| ToolError(format!("no function at {va:#x}")))?.address;
-                let (var, n) = (str_arg(a, "variable")?, str_arg(a, "name")?);
-                b.set_var_name(f, var, n).map_err(ToolError)?;
-                Ok(format!("In {f:#x}, {var} is now {}.", if n.trim().is_empty() { var } else { n.trim() }))
+            "rename" | "set_comment" | "rename_variable" => {
+                let i = self.index(a)?;
+                let before = self.bins[i].bin.annotations().clone();
+                let b = &mut self.bins[i].bin;
+                let done = match name {
+                    "rename" => {
+                        let va = resolve(b, str_arg(a, "address")?)?;
+                        let n = str_arg(a, "name")?.trim().to_string();
+                        b.rename(va, &n);
+                        if n.is_empty() {
+                            format!("Name at {va:#x} restored.")
+                        } else {
+                            format!("{va:#x} is now {n}.")
+                        }
+                    }
+                    "set_comment" => {
+                        let va = resolve(b, str_arg(a, "address")?)?;
+                        b.set_comment(va, str_arg(a, "text")?);
+                        format!("Comment at {va:#x} saved.")
+                    }
+                    _ => {
+                        let va = resolve(b, str_arg(a, "function")?)?;
+                        let f = b.function_at(va).ok_or_else(|| ToolError(format!("no function at {va:#x}")))?.address;
+                        let (var, n) = (str_arg(a, "variable")?, str_arg(a, "name")?);
+                        b.set_var_name(f, var, n).map_err(ToolError)?;
+                        format!("In {f:#x}, {var} is now {}.", if n.trim().is_empty() { var } else { n.trim() })
+                    }
+                };
+                self.persist(i, before)?;
+                Ok(if self.workspace.is_some() {
+                    format!("{done} Saved to the workspace; the Paranoia app shows it next time it opens the file.")
+                } else {
+                    format!("{done} Kept for this session (export_idc keeps it).")
+                })
             }
             _ => Err(ToolError(format!("unknown tool `{name}`"))),
         }
@@ -528,6 +593,23 @@ impl Server {
         let mut bin = Binary::load(&name, bytes)?;
         let stats = bin.analyze();
         let sha256 = bin.info().hashes.sha256.clone();
+        // The analyst's names and comments from the desktop app, when asked for.
+        let workspace_note = match self.store() {
+            Ok(None) => String::new(),
+            Ok(Some(s)) => match s.annotations(&sha256) {
+                Ok(Some(v)) => match serde_json::from_value::<paranoia_core::Annotations>(v) {
+                    Ok(saved) => {
+                        let n = saved.names.len() + saved.comments.len() + saved.var_names.values().map(|m| m.len()).sum::<usize>();
+                        bin.set_annotations(saved);
+                        format!(" Loaded {n} names and comments from the workspace.")
+                    }
+                    Err(e) => format!(" The workspace record for this file could not be read ({e}); continuing without it."),
+                },
+                Ok(None) => " The workspace has no names for this file yet.".into(),
+                Err(e) => format!(" The workspace could not be read ({e})."),
+            },
+            Err(ToolError(e)) => format!(" Names were not loaded: {e}."),
+        };
         let redactor = self.redact.then(|| Redactor::new(bin.strings().iter().map(|s| s.value.as_str())));
         // Reopening the same file replaces it (fresh analysis, same id).
         let id = match self.bins.iter().position(|l| l.path == p) {
@@ -547,7 +629,7 @@ impl Server {
         let b = &self.bins[self.current.unwrap_or(0)].bin;
         let i = b.info();
         Ok(format!(
-            "Opened {} as {id}: {} {} {}-bit, entry {:#x}. {} functions, {} instructions, {} strings in {} ms.",
+            "Opened {} as {id}: {} {} {}-bit, entry {:#x}. {} functions, {} instructions, {} strings in {} ms.{workspace_note}",
             shown(&p),
             i.format.label(),
             i.arch.label(),
@@ -589,7 +671,8 @@ pub fn run(cfg: Config) -> anyhow::Result<()> {
         env!("CARGO_PKG_VERSION"),
         if server.allow_writes { "writes allowed (session only)" } else { "read-only" },
         if server.redact { ", strings redacted" } else { "" },
-        server.ledger.as_ref().map(|l| format!(", ledger {}", shown(l.path()))).unwrap_or_default(),
+        server.ledger.as_ref().map(|l| format!(", ledger {}", shown(l.path()))).unwrap_or_default()
+            + &server.workspace.as_ref().map(|w| format!(", workspace {}", shown(w))).unwrap_or_default(),
         roots.join(", ")
     );
     let stdin = std::io::stdin();
@@ -885,6 +968,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(err && text.contains("withheld"), "{text}");
         assert!(!text.contains("sha256"), "nothing of the answer may leak: {text}");
+    }
+
+    #[test]
+    fn workspace_names_are_shared_with_the_app() {
+        let (_, exe) = server(true);
+        let dir = std::env::temp_dir().join(format!("paranoia-mcp-ws-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let ws = dir.join("workspace.redb");
+        let cfg = || Config {
+            roots: vec![exe.parent().unwrap().to_path_buf()],
+            allow_writes: true,
+            workspace: Some(ws.clone()),
+            ..Config::default()
+        };
+        let mut s = Server::new(cfg()).unwrap();
+        let (_, opened) = call(&mut s, "open_binary", json!({ "path": exe.to_string_lossy() }));
+        assert!(opened.contains("no names for this file yet"), "{opened}");
+        let entry = format!("{:#x}", s.bins[0].bin.info().entry);
+        let (err, t) = call(&mut s, "rename", json!({ "address": entry, "name": "agent_named_this" }));
+        assert!(!err && t.contains("Saved to the workspace"), "{t}");
+
+        // What the app would read: the same record, keyed by the file's SHA-256.
+        let sha = s.bins[0].sha256.clone();
+        {
+            let store = paranoia_db::Store::open(&ws).unwrap();
+            let saved = store.annotations(&sha).unwrap().unwrap();
+            assert!(saved.to_string().contains("agent_named_this"));
+            // While the app holds the store, a change is refused and undone.
+            let (err, t) = call(&mut s, "rename", json!({ "address": entry, "name": "second_name" }));
+            assert!(err && t.contains("not available"), "{t}");
+            let (_, d) = call(&mut s, "disassemble", json!({ "address": entry, "count": 1 }));
+            assert!(d.contains("agent_named_this") && !d.contains("second_name"), "{d}");
+        }
+
+        // A new session (or the app) sees the name.
+        let mut again = Server::new(cfg()).unwrap();
+        let (_, opened) = call(&mut again, "open_binary", json!({ "path": exe.to_string_lossy() }));
+        assert!(opened.contains("Loaded"), "{opened}");
+        let (_, d) = call(&mut again, "disassemble", json!({ "address": "agent_named_this", "count": 1 }));
+        assert!(d.contains("agent_named_this"), "{d}");
+        drop(again);
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
