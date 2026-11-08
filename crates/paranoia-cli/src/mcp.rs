@@ -894,8 +894,11 @@ mod tests {
         let (err, t) = call(&mut s, "triage", json!({ "limit": 2000 }));
         assert!(!err, "{t}");
         assert!(t.contains(" | calls "), "{t}");
+        // A page holds `limit` functions, or all of them when there are fewer (a stripped
+        // binary may show only a handful).
+        let own = s.bins[0].bin.functions().iter().filter(|f| !f.library && !f.is_import_thunk).count();
         let (_, page) = call(&mut s, "triage", json!({ "limit": 3 }));
-        assert_eq!(page.lines().filter(|l| l.starts_with("0x")).count(), 3, "{page}");
+        assert_eq!(page.lines().filter(|l| l.starts_with("0x")).count(), own.min(3), "{page}");
     }
 
     fn call(s: &mut Server, name: &str, args: Value) -> (bool, String) {
