@@ -81,6 +81,15 @@ export function EditDialog() {
       } catch (e) {
         st.toast(e instanceof Error ? e.message : String(e), "error");
       }
+    } else if (dialog.kind === "varname") {
+      const v = value.trim();
+      try {
+        await st.session!.setVarName(dialog.va, dialog.varName ?? "", v);
+        await st.afterEdit(false);
+        st.toast(v ? `${dialog.varName} is now ${v}` : `${dialog.varName} restored`, "success");
+      } catch (e) {
+        st.toast(e instanceof Error ? e.message : String(e), "error");
+      }
     } else if (dialog.kind === "enum") {
       const c = filtered[Math.min(pick, filtered.length - 1)];
       if (!c || !dialog.ins) {
@@ -118,8 +127,9 @@ export function EditDialog() {
             assemble: "Assemble",
             enum: "Symbolic constant",
             vartype: "Type variable",
+            varname: "Rename variable",
           }[dialog.kind]}{" "}
-          {dialog.kind === "vartype" ? <span className="mono muted">{dialog.varName}</span> : <span className="mono muted">{fmtAddr(dialog.va, info)}</span>}
+          {dialog.kind === "vartype" || dialog.kind === "varname" ? <span className="mono muted">{dialog.varName}</span> : <span className="mono muted">{fmtAddr(dialog.va, info)}</span>}
         </div>
         {isRename ? (
           <input
@@ -139,6 +149,8 @@ export function EditDialog() {
                 ? structNames.length
                   ? `Pointer type, e.g. ${structNames[0]} * — empty to reset`
                   : "Declare the struct in Local Types first"
+                : dialog.kind === "varname"
+                ? "A C identifier — leave empty to restore the generated name"
                 : dialog.kind === "assemble"
                 ? "e.g. mov eax, 1  ·  jz 0x401020  ·  nop  ·  db 0x90, 0xcc"
                 : dialog.kind === "bookmark"

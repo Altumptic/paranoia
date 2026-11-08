@@ -227,6 +227,12 @@ impl Session {
                 b.set_var_type(a.va, &a.var, &a.ty);
                 Ok(Value::Null)
             }
+            "setVarName" => {
+                let a: VarType = args(args_v)?;
+                b.checkpoint();
+                b.set_var_name(a.va, &a.var, &a.ty)?;
+                Ok(Value::Null)
+            }
             "annotations" => to(b.annotations()),
             "setAnnotations" => {
                 let a: Annotations = args(args_v)?;

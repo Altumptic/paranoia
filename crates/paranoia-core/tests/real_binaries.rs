@@ -169,6 +169,35 @@ fn var_types_in_pseudocode() {
     assert_eq!(text(&bin.pseudocode(f).unwrap()), text(&plain));
 }
 
+/// Renaming a pseudocode variable changes every use, is undone by an empty name,
+/// survives a save/load of the annotations and is refused for names that are not identifiers.
+#[test]
+fn var_names_in_pseudocode() {
+    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    let text = |pc: &paranoia_core::Pseudocode| {
+        pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n")
+    };
+    let word = |s: &str, w: &str| s.split(|c: char| !c.is_alphanumeric() && c != '_').any(|x| x == w);
+    let f = bin.functions().iter().find(|f| f.blocks > 6).map(|f| f.address).unwrap();
+    let plain = text(&bin.pseudocode(f).unwrap());
+    assert!(word(&plain, "v1"), "the test needs a function with a v1:\n{plain}");
+    assert!(bin.set_var_name(f, "v1", "while").is_err());
+    assert!(bin.set_var_name(f, "v1", "a b").is_err());
+    assert!(bin.set_var_name(f, "rax", "x").is_err());
+    bin.set_var_name(f, "v1", "counter").unwrap();
+    let named = text(&bin.pseudocode(f).unwrap());
+    assert!(word(&named, "counter") && !word(&named, "v1"), "{named}");
+    assert_eq!(named.replace("counter", "v1"), plain, "only the name may change");
+    // Persisted with the annotations.
+    let saved = serde_json::to_string(&bin.annotations()).unwrap();
+    assert!(saved.contains("counter"));
+    bin.set_var_name(f, "v1", "").unwrap();
+    assert_eq!(text(&bin.pseudocode(f).unwrap()), plain);
+    assert!(bin.annotations().var_names.is_empty());
+}
+
 /// Argument types flow across internal calls: when a caller passes its typed `a1`
 /// to another function, the callee's signature adopts the type on its own.
 #[test]

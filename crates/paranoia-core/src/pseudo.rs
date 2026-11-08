@@ -841,6 +841,9 @@ impl Binary {
                 }
             }
         }
+        if let Some(names) = self.annotations.var_names.get(&f_addr) {
+            crate::pseudo_types::apply_var_names(&mut out, names);
+        }
         Some(Pseudocode { address: f_addr, name, lines: out, note: None })
     }
 }

@@ -30,7 +30,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | Allowed algorithms only | ✅ | SHA-256 for identity and integrity; Sigstore (ECDSA P-256 with Fulcio, justified by the Sigstore ecosystem) for signatures. MD5 / SHA-1 are displayed for file identification only, never for a security decision |
 | Keys and secrets | ➖ | The product holds no keys of its own. The optional AI assistant can store the user's own API key, encrypted with the OS keystore (`safeStorage`) and never exposed to the page. CI uses OIDC tokens for signing; the optional Authenticode certificate would live in GitHub encrypted secrets |
 | Data at rest | ➖ | Only the user's own annotations and recent-file list, stored locally ([data inventory](SECURITY-DESIGN.md#data-inventory)) |
-| Data in transit | ➖ | No network traffic unless the user configures the optional AI assistant: loopback by default, `https://` otherwise, with native consent ([SECURITY-DESIGN.md § AI assistant](SECURITY-DESIGN.md#ai-assistant-optional)) |
+| Data in transit | ➖ | No network traffic unless the user configures the optional AI assistant: loopback by default, `https://` otherwise, with native consent ([SECURITY-DESIGN.md § AI assistant](SECURITY-DESIGN.md#ai-assistant-optional)). The MCP server (`paranoia mcp`) uses stdio only ([SECURITY-DESIGN.md § MCP server](SECURITY-DESIGN.md#mcp-server-paranoia-mcp)) |
 
 ## 3. Release authenticity
 
