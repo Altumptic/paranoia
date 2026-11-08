@@ -127,11 +127,15 @@ jobs:
         run: |
           npm ci
           npm run dist
+      # The command-line tool, which also serves the engine to AI agents (`paranoia mcp`).
+      - name: Build CLI
+        run: cargo build --release --locked -p paranoia-cli
       - name: Collect release files
         shell: bash
         run: |
           mkdir release
           cp apps/desktop/out/Paranoia-Setup-*.exe apps/desktop/out/Paranoia-*-portable.exe release/
+          cp target/release/paranoia.exe "release/paranoia-cli-${GITHUB_REF_NAME}-windows-x64.exe"
           cd release
           sha256sum -- *.exe > SHA256SUMS
           cat SHA256SUMS

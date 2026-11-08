@@ -110,6 +110,10 @@ pub struct Annotations {
     /// Variable types set in pseudocode (IDA's `Y`), by function address then variable name.
     #[serde(default)]
     pub var_types: BTreeMap<u64, BTreeMap<String, String>>,
+    /// Pseudocode variables renamed by the user (IDA's `N` on a local), by function address,
+    /// then the generated name (`v3`, `a1`, `var_8`) → the user's name.
+    #[serde(default)]
+    pub var_names: BTreeMap<u64, BTreeMap<String, String>>,
 }
 
 #[derive(Default)]
@@ -905,6 +909,28 @@ impl Binary {
         } else {
             vars.insert(var.to_string(), ty.to_string());
         }
+    }
+
+    /// Renames a pseudocode variable of the function at `va`. `var` is the generated name
+    /// (`a1`, `v3`, `var_8`, `arg_C`); an empty `name` restores it.
+    pub fn set_var_name(&mut self, va: u64, var: &str, name: &str) -> Result<(), String> {
+        if !pseudo_types::is_generated_var(var) {
+            return Err(format!("{var} is not a pseudocode variable"));
+        }
+        let name = name.trim();
+        if !name.is_empty() {
+            pseudo_types::check_var_name(name)?;
+        }
+        let names = self.annotations.var_names.entry(va).or_default();
+        if name.is_empty() || name == var {
+            names.remove(var);
+        } else {
+            names.insert(var.to_string(), name.to_string());
+        }
+        if names.is_empty() {
+            self.annotations.var_names.remove(&va);
+        }
+        Ok(())
     }
 }
 

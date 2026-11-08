@@ -330,6 +330,8 @@ export class Session {
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
   /** Types a pseudocode variable (IDA's `Y`): `va` is the function address, `ty` like `MY_STRUCT *` (empty resets). */
   setVarType = (va: number, variable: string, ty: string) => this.c<null>("setVarType", { va, var: variable, ty });
+  /** Renames a pseudocode variable; `variable` is its generated name, an empty `name` restores it. */
+  setVarName = (va: number, variable: string, name: string) => this.c<null>("setVarName", { va, var: variable, ty: name });
   /** Applies an IDA-format `.pat` signature file. */
   applyPat = (text: string) => this.c<SigReport>("applyPat", { text });
   /** IDA binary signatures (`.sig`). */

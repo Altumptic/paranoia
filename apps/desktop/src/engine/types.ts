@@ -209,6 +209,8 @@ export interface Annotations {
   types?: TypeLibrary;
   /** Pseudocode variable types (IDA's `Y`): function address → variable → C type. */
   var_types?: Record<string, Record<string, string>>;
+  /** Renamed pseudocode variables: function address → generated name → user name. */
+  var_names?: Record<string, Record<string, string>>;
 }
 
 export type ItemKind = "byte" | "word" | "dword" | "qword" | "ascii" | "utf16" | "code" | "struct";

@@ -38,8 +38,12 @@ export function PseudocodeView() {
   const box = useRef<HTMLDivElement>(null);
 
   const byName = useMemo(() => new Map(functions.map((f) => [f.name, f.address])), [functions]);
-  // Variables the `Y` (type variable) command applies to.
-  const isVar = (t: string) => /^(a\d+|v\d+|var_[0-9A-Fa-f]+|arg_[0-9A-Fa-f]+)$/.test(t);
+  const varNames = useStore((s) => s.annotations.var_names);
+  // User names of this function's variables, and back to the generated names the engine keys by.
+  const renamed = (code && varNames?.[String(code.address)]) || {};
+  const generated = (shown: string) => Object.entries(renamed).find(([, user]) => user === shown)?.[0] ?? shown;
+  // Variables the `Y` (type variable) and `N` (rename) commands apply to.
+  const isVar = (t: string) => /^(a\d+|v\d+|var_[0-9A-Fa-f]+|arg_[0-9A-Fa-f]+)$/.test(t) || Object.values(renamed).includes(t);
 
   const inside = code && cursor != null && functions.some((f) => f.address === code.address && cursor >= f.address && cursor < f.address + Math.max(1, f.size));
   useEffect(() => {
@@ -113,9 +117,13 @@ export function PseudocodeView() {
     }
   };
 
-  const typeVar = (name: string) => {
+  const typeVar = (shown: string) => {
+    const name = generated(shown);
     const current = st().annotations.var_types?.[String(code.address)]?.[name] ?? "";
     st().set("dialog", { kind: "vartype", va: code.address, initial: current, varName: name });
+  };
+  const renameVar = (shown: string) => {
+    st().set("dialog", { kind: "varname", va: code.address, initial: shown === generated(shown) ? "" : shown, varName: generated(shown) });
   };
 
   return (
@@ -168,6 +176,10 @@ export function PseudocodeView() {
             if (e.key === "Tab" || e.key === "F5") {
               e.preventDefault();
               st().set("centerTab", "disasm");
+            } else if ((e.key === "n" || e.key === "N") && mode === "c" && highlight && isVar(highlight)) {
+              // A variable is selected: rename it; otherwise N renames the function.
+              e.preventDefault();
+              renameVar(highlight);
             } else if (e.key === "n" || e.key === "N") {
               e.preventDefault();
               st().set("dialog", { kind: "rename", va: code.address, initial: code.name });
@@ -202,7 +214,7 @@ export function PseudocodeView() {
                           ? () => st().set("highlight", st().highlight === t.t ? null : t.t)
                           : undefined
                       }
-                      title={target != null ? "Double-click to open" : isVar(t.t) ? "Double-click to type (Y)" : undefined}
+                      title={target != null ? "Double-click to open" : isVar(t.t) ? "Click to select · N rename · Double-click or Y to type" : undefined}
                     >
                       {t.t}
                     </span>

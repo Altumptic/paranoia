@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use paranoia_core::{Binary, Instruction};
 
+mod mcp;
 mod script;
 
 #[derive(Parser)]
@@ -90,6 +91,15 @@ enum Cmd {
         /// Address returned by `here()` (hex).
         #[arg(long)]
         at: Option<String>,
+    },
+    /// Serve the engine to AI agents over the Model Context Protocol (stdio, read-only by default).
+    Mcp {
+        /// Directory the agent may open files from (repeatable; default: the working directory).
+        #[arg(long = "root")]
+        roots: Vec<PathBuf>,
+        /// Also offer rename / comment tools (changes stay in the session; export_idc keeps them).
+        #[arg(long)]
+        allow_writes: bool,
     },
 }
 
@@ -243,6 +253,7 @@ fn main() -> Result<()> {
             let code = script::run(&file, &script, python.as_deref(), cursor)?;
             std::process::exit(code);
         }
+        Cmd::Mcp { roots, allow_writes } => mcp::run(mcp::Config { roots, allow_writes })?,
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;
             bin.analyze();

@@ -14,18 +14,40 @@ use std::collections::{HashMap, HashSet};
 use crate::model::{Token, TokenKind};
 use crate::pseudo::PseudoLine;
 
+/// The x86 legacy registers: family name and its 64/32/16/8-bit names.
+const LEGACY: [(&str, [&str; 4]); 8] = [
+    ("rax", ["rax", "eax", "ax", "al"]),
+    ("rbx", ["rbx", "ebx", "bx", "bl"]),
+    ("rcx", ["rcx", "ecx", "cx", "cl"]),
+    ("rdx", ["rdx", "edx", "dx", "dl"]),
+    ("rsi", ["rsi", "esi", "si", "sil"]),
+    ("rdi", ["rdi", "edi", "di", "dil"]),
+    ("rbp", ["rbp", "ebp", "bp", "bpl"]),
+    ("rsp", ["rsp", "esp", "sp", "spl"]),
+];
+
+/// The register of `family` that is `width` bits wide (`rdx`, 32 → `edx`; `r8`, 16 → `r8w`).
+/// Families without sub-registers come back unchanged.
+pub(crate) fn sized(family: &str, width: u32) -> String {
+    let i = match width {
+        64 => 0,
+        32 => 1,
+        16 => 2,
+        8 => 3,
+        _ => return family.to_string(),
+    };
+    if let Some((_, names)) = LEGACY.iter().find(|(f, _)| *f == family) {
+        return names[i].to_string();
+    }
+    let numbered = family.strip_prefix('r').is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()));
+    if numbered {
+        return format!("{family}{}", ["", "d", "w", "b"][i]);
+    }
+    family.to_string()
+}
+
 /// Register family (`eax`, `ax`, `al` → `rax`) and width in bits.
 pub(crate) fn family(name: &str) -> Option<(String, u32)> {
-    const LEGACY: [(&str, [&str; 4]); 8] = [
-        ("rax", ["rax", "eax", "ax", "al"]),
-        ("rbx", ["rbx", "ebx", "bx", "bl"]),
-        ("rcx", ["rcx", "ecx", "cx", "cl"]),
-        ("rdx", ["rdx", "edx", "dx", "dl"]),
-        ("rsi", ["rsi", "esi", "si", "sil"]),
-        ("rdi", ["rdi", "edi", "di", "dil"]),
-        ("rbp", ["rbp", "ebp", "bp", "bpl"]),
-        ("rsp", ["rsp", "esp", "sp", "spl"]),
-    ];
     for (f, names) in LEGACY {
         if let Some(i) = names.iter().position(|n| *n == name) {
             return Some((f.to_string(), [64, 32, 16, 8][i]));
@@ -517,6 +539,22 @@ mod tests {
 
     fn line(indent: u8, toks: &[(&str, TokenKind)]) -> PseudoLine {
         PseudoLine { address: None, indent, tokens: toks.iter().map(|(t, k)| Token { t: t.to_string(), k: *k }).collect() }
+    }
+
+    #[test]
+    fn registers_by_width() {
+        assert_eq!(sized("rdx", 64), "rdx");
+        assert_eq!(sized("rdx", 32), "edx");
+        assert_eq!(sized("rsi", 8), "sil");
+        assert_eq!(sized("r8", 32), "r8d");
+        assert_eq!(sized("r12", 16), "r12w");
+        assert_eq!(sized("r9", 8), "r9b");
+        assert_eq!(sized("var_8", 32), "var_8");
+        // Every name maps back to its own family and width.
+        for name in ["eax", "bx", "dil", "r10d", "rbp"] {
+            let (f, w) = family(name).unwrap();
+            assert_eq!(sized(&f, w), name);
+        }
     }
 
     fn text(l: &PseudoLine) -> String {

@@ -1,6 +1,6 @@
 # Roadmap
 
-Paranoia aims to cover the day-to-day workflow of IDA Pro in an open, local-first package. This page is an honest comparison of where it stands today.
+Paranoia aims to cover the day-to-day workflow of IDA Pro in an open, local-first package. This page is an honest comparison of where it stands today and the order in which the gaps get closed. Why this order: [STRATEGY.md](STRATEGY.md).
 
 Legend: ✅ available · 🟡 partial · ⏳ planned
 
@@ -9,7 +9,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Capability | Status | Notes |
 | --- | --- | --- |
 | PE / ELF / Mach-O loading | ✅ | Universal binaries, chained fixups, forwarders, TLS callbacks |
-| Raw binaries, firmware, COFF/OMF objects, DEX, NE/LE | ⏳ | Manual load address and processor selection |
+| Raw binaries, firmware, COFF/OMF objects, DEX, NE/LE | ⏳ | Raw images and firmware first (phase 4 below); COFF/OMF, DEX, NE/LE later |
 | x86 / x86-64 disassembly | ✅ | |
 | AArch64 disassembly | ✅ | ADRP-based data references |
 | ARM32 / Thumb-2 disassembly | ✅ | Mixed ARM / Thumb images: the instruction set is tracked per address from ELF mapping symbols (`$a` / `$t`), the mode bit of function symbols, exports and the entry point, and `blx` targets found during analysis; the image default comes from the entry point (Windows on ARM is always Thumb). Literal pools and `adr` as data references. Limit: in a stripped image, code that follows a `blx` target with no symbol of its own is read in the target's mode |
@@ -21,7 +21,7 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Listing with labels, jump arrows, comments | ✅ | |
 | Graph view | ✅ | |
 | Cross references (to / from) | ✅ | Code and data |
-| Rename, comments, bookmarks | ✅ | Persisted per SHA-256 |
+| Rename, comments, bookmarks | ✅ | Persisted per SHA-256. Pseudocode variables too: click a variable, press `N` (C identifier; keywords, generated names and names already used in the function are refused) — in the C view; the SSA views and the stack-frame panel keep the generated names |
 | Create function (`P`) / reanalyze | ✅ | |
 | Undefine / define code, data & strings (`U`, `C`, `D`, `A`) | ✅ | Listing covers data: `db/dw/dd/dq`, strings, `offset`, `extrn`, `dup` |
 | Auto names (`aString`, `qword_…`, `off_…`, `loc_…`) | ✅ | From access sizes and references, like IDA |
@@ -43,21 +43,80 @@ Legend: ✅ available · 🟡 partial · ⏳ planned
 | Navigation band | ✅ | |
 | Xrefs dialog (`X`), token highlight, context menu | ✅ | |
 | Scripting | ✅ | Python (your CPython, IDAPython-style `idc` / `idautils` names) and JavaScript consoles; headless `paranoia script` batch mode |
-| AI assistant | ✅ | Optional; off until you choose a model server: local (Ollama, LM Studio) or cloud (Claude through Anthropic's API; OpenAI / Codex, DeepSeek, Kimi, Gemini, Mistral, OpenRouter through the OpenAI chat API). **Assistant** menu: explain the function under the cursor, suggest a name (applied only on click), flag suspicious behaviour. Requests come from the main process, carry one function's decompiled text, and a non-loopback host needs native consent. Not yet: streaming, chat, batch renaming |
+| AI assistant | ✅ | Optional; off until you choose a model server: local (Ollama, LM Studio) or cloud (Claude through Anthropic's API; OpenAI / Codex, DeepSeek, Kimi, Gemini, Mistral, OpenRouter through the OpenAI chat API). **Assistant** menu: explain the function under the cursor, suggest a name (applied only on click), flag suspicious behaviour. Requests come from the main process, carry one function's decompiled text, and a non-loopback host needs native consent. Tested against a stub server only; runs against real Ollama / LM Studio models are pending. Not yet: streaming, chat, batch renaming |
+| MCP server for AI agents | ✅ | `paranoia mcp`: stdio only, files confined to `--root` folders, read-only unless `--allow-writes`; 14 read tools (open, info, functions, pseudocode, disassembly, graph, xrefs, callees, strings, imports, exports, search, IDC export) and 3 write tools that stay in the session. See [MCP.md](MCP.md). Not yet: shared names with the desktop app, resources, batch tools |
 | Plugins | ✅ | Folder + `plugin.json` manifest + one `.js` / `.py` script; commands in the **Plugins** menu; native confirmation per version (SHA-256 of manifest + script). See [PLUGINS.md](PLUGINS.md). Not yet: plugin panels, hotkeys, event hooks |
 | Debugger | 🟡 | Local programs of the OS the app runs on: Windows x64 and 32-bit (WOW64) PE, Linux x86-64 ELF (ptrace; PIE base from `/proc/<pid>/maps`, program output in the debugger log). Breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. Not yet: remote targets (gdbserver), Linux 32-bit / ARM, macOS |
 | Export: IDC script | ✅ | Names, comments, user functions |
 | Project files, undo/redo | ✅ | Annotations auto-save per file hash; undo / redo (200 steps) |
 | Collaboration / shared projects | ⏳ | Pro edition |
 
-## Next milestones
+## Plan
 
-1. **Decompiler v3** — ~~SSA-style variable recovery~~, ~~SSA IR with phi nodes~~, ~~SSA facts in the C view~~ (done); ~~C text from the SSA IR~~ (C·SSA view, experimental); next: make C·SSA the default once it matches the C view's types and structuring, memory SSA for stack slots, type propagation through arithmetic and arrays of structures.
-2. **Signatures & types** — ~~IDA `.sig` reading~~ and ~~PDB types~~ (done); next: referenced-function checks, more built-in libraries.
-3. ~~**Plugins**~~ — done (commands); next: panels, hotkeys and event hooks.
-4. ~~**AI assistant**~~ — done (explain, suggest a name, flag suspicious behaviour); next: batch naming of `sub_` functions, chat about a selection, streaming.
-5. **More architectures** — ~~PowerPC~~, ~~mixed ARM/Thumb~~ (done); pseudocode beyond x86.
-6. **Debugger** — ~~32-bit Windows targets~~, ~~Linux x86-64 (ptrace)~~ (done); remote (gdbserver) backends, more Linux architectures.
+Phases run in this order; a phase is done when its exit criteria hold on CI, not when the code is merged. Version numbers are targets, not promises. Work inside a phase can run in parallel.
+
+### Phase 1 — Agent-ready (v0.8)
+
+The [key feature](STRATEGY.md#the-key-feature-private-agent-ready-analysis) made usable by people who do not build from source.
+
+| Item | Status | Exit criterion |
+| --- | --- | --- |
+| MCP server `paranoia mcp` | ✅ done | Tests in `crates/paranoia-cli/src/mcp.rs`; stdio session against system binaries |
+| CLI in Windows releases | ✅ workflow changed | `paranoia-cli-vX.Y.Z-windows-x64.exe` present, in `SHA256SUMS` and attested on the next release |
+| Pseudocode variable rename (`N` on a variable) | ✅ done | `var_names_in_pseudocode` test |
+| AI assistant against real local models | ⏳ | Explain / name / flag run against Ollama and LM Studio with two open models each; results and failures written down here |
+| MCP names shared with the desktop app | ⏳ | Opt-in `--workspace`: a name set by an agent appears in the app after reopening the file, and the other way round; the app and the server never write the store at the same time |
+| MCP batch tools for triage | ⏳ | One call returns, per function, its callees, imports and referenced strings, paged; a 2 600-function DLL in under 2 s |
+
+### Phase 2 — AArch64 decompiler (v0.9, top priority for the decompiler)
+
+AArch64 covers Apple silicon, Android and Linux servers. The SSA IR (`ssa.rs`) and the C generator built on it (`ssa/c.rs`) are architecture-neutral by design; the work is a lifter and the ABI.
+
+| Step | Exit criterion |
+| --- | --- |
+| Lift AArch64 into the SSA IR: data processing, loads / stores (pre / post index, pairs), `b.cond` / `cbz` / `tbz`, `bl` / `blr`, `ret`; NZCV flags into conditions | Unit tests per instruction class, assembled from known encodings |
+| AAPCS64: arguments `x0`–`x7`, result `x0`, callee-saved `x19`–`x28`, stack slots from `sp` / `x29` | Signatures on Go, Rust and clang arm64 binaries match their symbols' argument counts in ≥ 90 % of functions |
+| C output (C·SSA) for AArch64 in the app, CLI and MCP | No panic across the mutation suite; on the corpus, the callees in the C text match the disassembly in ≥ 95 % of functions |
+| Types: API prototypes for libc and common Apple / Android imports | Calls to known APIs render with typed arguments, as on x86 |
+| Corpus | arm64 ELF and Mach-O built from published sources, in `PARANOIA_ARM64_DIR`, run on CI |
+
+Afterwards: make C·SSA the default view on x86 / x64 once it matches the C view's types and structuring (`else` / `while` / `switch` still missing there), memory SSA for stack slots.
+
+### Phase 3 — Linux and macOS builds (v0.10)
+
+| Item | Exit criterion | Note |
+| --- | --- | --- |
+| Linux AppImage and `.deb` | Built by CI on `ubuntu-latest` on every tag, checksummed, signed and attested like the Windows files; starts on a clean Ubuntu LTS and opens a file | `electron-builder` targets are already configured but have never been built |
+| Flatpak | Manifest on `org.electronjs.Electron2.BaseApp`, builds in CI; submitted to Flathub | Free; Flathub reviews the submission |
+| macOS `.dmg` (arm64 and x64), unsigned | Built by CI on macOS runners; opens a file on both architectures | Without notarisation Gatekeeper blocks the first launch; the README will say how to allow it |
+| macOS notarisation | Notarised builds | **Needs an Apple Developer ID (paid yearly, held by the maintainer). Deferred until the account exists** |
+| CLI (and MCP) for Linux and macOS | `paranoia-cli-*` for linux-x64, linux-arm64, macos-arm64, macos-x64 in each release | |
+
+### Phase 4 — Firmware and raw images (v0.11)
+
+| Item | Exit criterion |
+| --- | --- |
+| Raw loader: the user picks architecture, endianness and base address | A raw `.bin` opens with functions found from user-given entry points |
+| Intel HEX and Motorola S-record | Loaded at the addresses they declare; mutation tests like the other loaders |
+| Cortex-M vector table | Initial SP and handler addresses recognised (Thumb bit), handlers seeded as functions without the user typing anything |
+| Base-address recovery for raw images | On a test set of firmware with known bases, the right base ranks first in ≥ 80 % of cases |
+| Memory map | Named regions (flash, RAM, peripherals); SVD files later |
+
+### Phase 5 — Remote debugging (v0.12)
+
+| Item | Exit criterion |
+| --- | --- |
+| GDB remote serial protocol client in the engine | Registers, memory, breakpoints, step and continue against `gdbserver` and QEMU's gdbstub |
+| Targets | Linux x86-64 and AArch64 through `gdbserver`; QEMU user and system mode; OpenOCD later |
+| Security first | The engine's first network socket: started only by the user, loopback by default, any other host confirmed natively; [SECURITY-DESIGN.md](SECURITY-DESIGN.md) and [PSB.md](PSB.md) updated **before** it ships |
+
+### Ongoing
+
+- **Signatures & types:** `.sig` referenced-function checks, more built-in libraries.
+- **Plugins:** panels, hotkeys and event hooks.
+- **AI assistant:** batch naming of `sub_` functions, chat about a selection, streaming.
+- **Debugger:** Linux 32-bit and ARM, macOS.
+- **Security baseline:** reviewed before every release ([PSB.md](PSB.md)); an independent audit when funding allows.
 
 ## Editions
 

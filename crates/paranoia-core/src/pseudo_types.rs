@@ -303,6 +303,67 @@ fn to_for(lines: &mut Vec<PseudoLine>, w: usize) {
     lines.remove(k);
 }
 
+/// Whether `name` is a variable the pseudocode generates (`a1`, `v12`, `var_8`, `arg_C`).
+pub(crate) fn is_generated_var(name: &str) -> bool {
+    let tail = |p: &str, hex: bool| {
+        name.strip_prefix(p)
+            .is_some_and(|d| !d.is_empty() && d.chars().all(|c| if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() }))
+    };
+    tail("a", false) || tail("v", false) || tail("var_", true) || tail("arg_", true)
+}
+
+const C_KEYWORDS: &[&str] = &[
+    "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum", "extern", "float", "for", "goto",
+    "if", "inline", "int", "long", "register", "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+    "unsigned", "void", "volatile", "while",
+];
+
+/// A user name for a variable must be a plain C identifier that cannot be mistaken for
+/// a keyword or for a generated variable.
+pub(crate) fn check_var_name(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !ok || name.len() > 64 {
+        return Err("A variable name is letters, digits and _, starting with a letter or _ (at most 64 characters)".into());
+    }
+    if C_KEYWORDS.contains(&name) {
+        return Err(format!("{name} is a C keyword"));
+    }
+    if is_generated_var(name) {
+        return Err(format!("{name} is reserved for generated variables"));
+    }
+    Ok(())
+}
+
+/// Applies the user's variable names. A name that another token in the function already
+/// uses (a symbol, a variable) or that two variables would share is skipped, so the
+/// output never merges two values.
+pub(crate) fn apply_var_names(lines: &mut [PseudoLine], names: &BTreeMap<String, String>) {
+    if names.is_empty() {
+        return;
+    }
+    let used: std::collections::HashSet<&str> = lines
+        .iter()
+        .flat_map(|l| l.tokens.iter())
+        .filter(|t| matches!(t.k, TokenKind::Register | TokenKind::Symbol))
+        .map(|t| t.t.as_str())
+        .collect();
+    let mut taken: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut map: HashMap<String, String> = HashMap::new();
+    for (var, new) in names {
+        if used.contains(var.as_str()) && !used.contains(new.as_str()) && taken.insert(new.as_str()) {
+            map.insert(var.clone(), new.clone());
+        }
+    }
+    for t in lines.iter_mut().flat_map(|l| l.tokens.iter_mut()) {
+        if t.k == TokenKind::Register {
+            if let Some(n) = map.get(&t.t) {
+                t.t = n.clone();
+            }
+        }
+    }
+}
+
 /// Size-based C type.
 fn int_type(bytes: u32) -> &'static str {
     match bytes {
@@ -599,15 +660,17 @@ pub(crate) fn type_variables_with(lines: &mut Vec<PseudoLine>, sig: &Signature, 
             continue;
         }
         let n = &names[k];
-        let w = widths.get(k).copied().unwrap_or(64) / 8;
+        let bits = widths.get(k).copied().unwrap_or(64);
+        // The comment names the register as the code uses it: `edx` in 32-bit code, not `rdx`.
+        let reg = crate::pseudo_opt::sized(f, bits);
         decls.push(line(
             1,
             vec![
-                tok(type_of(k, w), TokenKind::Keyword),
+                tok(type_of(k, bits / 8), TokenKind::Keyword),
                 tok(" ", TokenKind::Text),
                 tok(n.clone(), TokenKind::Register),
                 tok("; ", TokenKind::Punct),
-                tok(format!("// {f}"), TokenKind::Text),
+                tok(format!("// {reg}"), TokenKind::Text),
             ],
         ));
     }
@@ -705,6 +768,62 @@ mod tests {
         assert_eq!(text(&negate_cond(&c)), "a >= b");
         let c = vec![tok("a", Register), tok(" < ", Punct), tok("b", Register), tok(" && ", Punct), tok("c", Register)];
         assert_eq!(text(&negate_cond(&c)), "!(a < b && c)");
+    }
+
+    #[test]
+    fn variable_names_are_validated() {
+        for ok in ["count", "_tmp", "buf2", "hKey"] {
+            assert!(check_var_name(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "2x", "a b", "x-y", "while", "int", "v3", "a1", "var_8", "arg_C", "naïve"] {
+            assert!(check_var_name(bad).is_err(), "{bad}");
+        }
+        assert!(is_generated_var("v12") && is_generated_var("var_1F") && is_generated_var("arg_8") && is_generated_var("a2"));
+        assert!(!is_generated_var("value") && !is_generated_var("v") && !is_generated_var("var_") && !is_generated_var("count"));
+    }
+
+    #[test]
+    fn user_names_replace_variables_everywhere() {
+        use TokenKind::*;
+        let mut v = vec![
+            l(0, &[("void", Keyword), (" f(", Punct), ("int", Keyword), (" ", Text), ("a1", Register), (")", Punct)]),
+            l(1, &[("int", Keyword), (" ", Text), ("v1", Register), ("; ", Punct)]),
+            l(1, &[("v1", Register), (" = ", Punct), ("a1", Register), (" + ", Punct), ("v2", Register), (";", Punct)]),
+            l(1, &[("g", Symbol), ("(", Punct), ("v1", Register), (");", Punct)]),
+        ];
+        let names = BTreeMap::from([
+            ("a1".to_string(), "size".to_string()),
+            ("v1".to_string(), "total".to_string()),
+            // `g` is a function in this listing: a variable must not shadow it.
+            ("v2".to_string(), "g".to_string()),
+            // Not in this function at all.
+            ("v9".to_string(), "ghost".to_string()),
+        ]);
+        apply_var_names(&mut v, &names);
+        let t: Vec<String> = v.iter().map(|x| text(&x.tokens)).collect();
+        assert_eq!(t, ["void f(int size)", "int total; ", "total = size + v2;", "g(total);"]);
+        // Two variables cannot share a name: the first wins, the second keeps its own.
+        let mut v = vec![l(1, &[("v1", Register), (" = ", Punct), ("v2", Register)])];
+        let same = BTreeMap::from([("v1".to_string(), "x".to_string()), ("v2".to_string(), "x".to_string())]);
+        apply_var_names(&mut v, &same);
+        assert_eq!(text(&v[0].tokens), "x = v2");
+    }
+
+    #[test]
+    fn declarations_name_registers_at_their_width() {
+        use TokenKind::*;
+        // 32-bit code: `edx` stays `edx` in the comment (it used to read `rdx`).
+        let mut v = vec![
+            l(0, &[("void", Keyword)]),
+            l(1, &[("edx", Register), (" = ", Punct), ("0", Number), (";", Punct)]),
+            l(1, &[("rbx", Register), (" = ", Punct), ("edx", Register), (";", Punct)]),
+            l(1, &[("f", Symbol), ("(", Punct), ("rbx", Register), (");", Punct)]),
+        ];
+        let sig = Signature { name: "f", ret: "void", params: Vec::new(), fastcall: false, stack: BTreeMap::new(), volatile: &[] };
+        type_variables_with(&mut v, &sig, false);
+        let t: Vec<String> = v.iter().map(|x| text(&x.tokens)).collect();
+        assert!(t.contains(&"int v1; // edx".to_string()), "{t:#?}");
+        assert!(t.contains(&"__int64 v2; // rbx".to_string()), "{t:#?}");
     }
 
     #[test]

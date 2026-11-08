@@ -36,6 +36,7 @@ flowchart LR
 | **Main process** (Electron) | file dialogs, starting processes | it accepts requests only from the app's own top-level page and limits them as described below |
 | **Python** | the user's own scripts | Python is a normal program with the user's permissions — see non-goals |
 | **Debuggee** | nothing | it is the program being analysed, running for real |
+| **MCP client** (`paranoia mcp`, an AI agent the user started) | asking read-only questions about files under the `--root` folders | opening other files, the network, the analysed file on disk, the desktop app's workspace; writes only with `--allow-writes`, and then only in the server's memory |
 
 ## Threats and mitigations
 
@@ -49,6 +50,9 @@ flowchart LR
 | Another frame sends IPC messages | Every handler checks that the sender is the app's own top-level page; `<webview>`, pop-ups and navigation are blocked; all permission requests are denied | `trusted()` in `electron/main.cjs` |
 | Electron or Node.js used as a launcher for other code | Electron fuses: `RunAsNode`, `NODE_OPTIONS` and `--inspect` disabled; the app loads only from its asar archive, whose integrity is checked | `build.electronFuses` in `apps/desktop/package.json` |
 | Python picks up planted modules | Each run uses a fresh private temporary directory; the interpreter runs with `-E` (ignores `PYTHONPATH`, `PYTHONSTARTUP`, …) and starts in that empty directory, so a stray `python.exe` or module in the current folder is not used | `electron/python.cjs`, `crates/paranoia-cli/src/script.rs` |
+| An AI agent (or text it read) asks the MCP server for files outside the samples folder | `open_binary` canonicalises the path, symbolic links included, and refuses anything outside the `--root` folders; no other tool takes a path | `files_outside_the_roots_are_refused` in `crates/paranoia-cli/src/mcp.rs` |
+| Strings in a sample try to instruct the agent (prompt injection) | The server's instructions tell the client that file content is data; write tools are off by default and never change the file or the app's workspace. Whether a model obeys injected text is outside Paranoia's control — stated in [MCP.md](MCP.md#security) | `tools/list` without `--allow-writes` has no write tools (`handshake_and_tool_list`) |
+| A crafted file crashes the MCP server mid-session | Each tool call runs under a panic guard and returns a tool error; output is capped at 60 000 characters | `crates/paranoia-cli/src/mcp.rs` |
 | A tampered download | Every release ships `SHA256SUMS`, its Sigstore signature, GitHub build-provenance attestations and an SBOM | [VERIFY.md](VERIFY.md) |
 | A vulnerable dependency | `cargo audit` and `npm audit` run in CI and block releases (one packaging-tool advisory is accepted until 2027-01-31, [PSB.md](PSB.md) PSB-EX-4); actions are pinned to commit SHAs; Dependabot proposes updates | `.github/workflows/ci.yml` |
 
@@ -85,6 +89,10 @@ By default the app and the engine make **no network connections**: no telemetry,
 * Redirects are refused, the reply is capped at 256 KB, and a request times out after 300 s or when you close the dialog.
 * The API key is encrypted with the OS keystore (Electron `safeStorage`) and never returned to the page; if the OS cannot encrypt, it is kept in memory only.
 * Answers are shown as text; a suggested name is applied only when you click *Apply name*, and must be a plain C identifier.
+
+### MCP server (`paranoia mcp`)
+
+The command-line tool can serve the engine to an AI agent over the Model Context Protocol. It reads JSON-RPC messages on stdin and answers on stdout; it opens **no sockets**. It is a separate program the user starts (or configures in an agent), not part of the desktop app. Files are opened only under the `--root` folders (the working directory by default); write tools exist only with `--allow-writes` and keep their changes in memory. The agent's client decides where the returned text goes: with a hosted model, the pseudocode and strings it asked for leave the machine through that client, not through Paranoia. Details: [MCP.md](MCP.md).
 
 Updates are manual: download a new release and verify it ([VERIFY.md](VERIFY.md)). There is no auto-updater.
 

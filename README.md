@@ -6,7 +6,7 @@
 </picture>
 
 **An open, local-first reverse-engineering platform.**
-Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-O — in a private desktop app built on Rust.
+Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-O — in a private desktop app built on Rust, with a built-in MCP server so AI agents can work on a sample without it leaving your machine.
 
 [![CI](https://github.com/Altumptic/paranoia/actions/workflows/ci.yml/badge.svg)](https://github.com/Altumptic/paranoia/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Altumptic/paranoia?label=release)](https://github.com/Altumptic/paranoia/releases/latest)
@@ -15,7 +15,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 `PSB-C` · `SIGNED` · `ATTESTED` · `SBOM` · `NO-TELEMETRY` · `LOCAL-FIRST` · `AUDIT:NONE` · `DISCLOSURE:OK`
 <sub>Altumptic Product Security Baseline labels — what each one means and the evidence: [docs/PSB.md](docs/PSB.md)</sub>
 
-[Download](#install-and-verify) · [Features](#features) · [Security](#security-and-privacy) · [Keyboard](#keyboard) · [Command line](#command-line) · [Build](#build-from-source) · [Roadmap](docs/ROADMAP.md)
+[Download](#install-and-verify) · [Features](#features) · [AI agents](docs/MCP.md) · [Security](#security-and-privacy) · [Keyboard](#keyboard) · [Command line](#command-line) · [Build](#build-from-source) · [Roadmap](docs/ROADMAP.md) · [Strategy](docs/STRATEGY.md)
 
 </div>
 
@@ -31,7 +31,8 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 ## Why Paranoia
 
 - **Private by design.** No accounts, no telemetry, no update checks. Files are analysed on your machine and never uploaded. The one optional exception is the AI assistant, which stays off until you point it at a model server (a local Ollama / LM Studio keeps everything on your computer).
-- **Fast.** The native Rust engine analyses `shell32.dll` (24 449 functions, 1.47 M instructions) in about two seconds on a mid-range laptop.
+- **Fast.** The native Rust engine analyses `shell32.dll` (7.7 MB, 24 449 functions, 1.47 M instructions) in about a second and `notepad.exe` in 45 ms (release build, Core i5-12450H; [how it was measured](docs/STRATEGY.md#the-key-feature-private-agent-ready-analysis)).
+- **Ready for AI agents.** `paranoia mcp` serves the engine over the Model Context Protocol on stdio: no network, files only from folders you allow, read-only by default ([MCP.md](docs/MCP.md)).
 - **Built for hostile input.** The engine parses files in its own process, every CI run feeds it 1 500 corrupted PE / ELF / Mach-O files, and a crash never takes the UI down.
 - **Verifiable.** Releases come with signed checksums, build-provenance attestations and an SBOM ([how to verify](docs/VERIFY.md)).
 - **Open.** Apache-2.0. The same engine powers the desktop app, a CLI and a WebAssembly build that runs in the browser.
@@ -53,14 +54,17 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 | **Debugger** | Windows x64 / 32-bit and Linux x86-64 programs: breakpoints (`F2`), run (`F9`), step into / over (`F7` / `F8`), run to cursor (`F4`), registers and stack |
 | **Scripting** | Python in your own interpreter — `import idc, idautils` works for common calls — and JavaScript, both with the `pn` API; headless `paranoia script` batch mode |
 | **Triage** | Hashes, entropy map, section map, `checksec`-style mitigations (ASLR, DEP, CFG, RELRO, PIE, canaries, FORTIFY) |
+| **AI** | MCP server for agents (`paranoia mcp`: open, functions, pseudocode, disassembly, graph, xrefs, strings, imports, search); optional assistant in the app (explain, suggest a name, flag suspicious code) with local or hosted models |
 
 ### Current limits
 
 Stated here so nobody has to find them the hard way (full list in the [roadmap](docs/ROADMAP.md)):
 
-- The decompiler covers x86 / x64 only; it does not yet do SSA-based variable recovery or struct member access.
+- The decompiler covers x86 / x64 only; the C·SSA view is experimental and has no `else` / `while` / `switch` yet.
 - MIPS support is checked with decoder tests on known encodings, not yet on a full MIPS binary.
-- The debugger runs local programs only (Windows x64 / 32-bit, Linux x86-64); remote targets are planned. The packaged app is built for Windows; on Linux run it from source (`npm run app`).
+- The debugger runs local programs only (Windows x64 / 32-bit, Linux x86-64); remote targets are planned.
+- Packages are built for Windows only. On Linux run the app from source (`npm run app`); macOS builds, AppImage and Flatpak are planned ([roadmap, phase 3](docs/ROADMAP.md#phase-3--linux-and-macos-builds-v010)).
+- Raw images and firmware (no PE / ELF / Mach-O header) cannot be loaded yet.
 - Windows executables are not Authenticode-signed yet (see below).
 
 ## Install and verify
@@ -88,7 +92,7 @@ Step by step: [docs/VERIFY.md](docs/VERIFY.md).
 
 ## Security and privacy
 
-- **No network by default.** The app makes no connections: no telemetry, no update checks, no remote fonts or scripts. Updates are manual. Only if you configure the AI assistant does the desktop app contact the server you chose — the page itself still has no network access.
+- **No network by default.** The app makes no connections: no telemetry, no update checks, no remote fonts or scripts. Updates are manual. Only if you configure the AI assistant does the desktop app contact the server you chose — the page itself still has no network access. The MCP server uses stdio only; what your agent sends to its model is up to the agent ([MCP.md § Security](docs/MCP.md#security)).
 - **Your data stays local.** Annotations and the recent-files list live in `%APPDATA%\Paranoia`; nothing else is stored ([data inventory](docs/SECURITY-DESIGN.md#data-inventory)).
 - **Hardened desktop shell.** Sandboxed renderer with a CSP that forbids `eval`; the JavaScript console runs in an isolated worker; the engine opens only files you chose; starting the debugger or a Python script needs a native confirmation; Electron fuses lock the binary down.
 - **Honest scope.** The debugger runs the program you analyse — use a VM for malware. Your Python scripts are ordinary programs. No independent audit has been done yet.
@@ -103,7 +107,7 @@ Details: [security design and threat model](docs/SECURITY-DESIGN.md) · [baselin
 | `Ctrl K` / `G` | Go to address, name, string | `Tab` / `F5` | Pseudocode |
 | `Esc` / `Alt ←` | Back | `Alt →` | Forward |
 | `Enter` / double-click | Follow operand | `X` | Cross references |
-| `N` | Rename | `;` | Comment |
+| `N` | Rename (a selected pseudocode variable, or the function) | `;` | Comment |
 | `Y` | Type variable (pseudocode) | `Alt M` / `Ctrl M` | Bookmark / list bookmarks |
 | `P` | Create function | `Alt M` / `Ctrl M` | Bookmark / list bookmarks |
 | `C` / `D` / `A` / `U` | Code / data / string / undefine | `Ctrl Z` / `Ctrl Y` | Undo / redo |
@@ -125,6 +129,7 @@ paranoia sigmake app.exe --pdb app.pdb -o app.pat       # FLAIR .pat from symbol
 paranoia sigapply app.exe libc.sig                       # apply IDA .sig (or .pat) signatures
 paranoia ssa app.exe main                                # a function in SSA form (phi nodes, constants, dead code)
 paranoia sigapply other.exe app.pat
+paranoia mcp --root ./samples                            # MCP server for AI agents (stdio, read-only)
 ```
 
 ## Build from source
