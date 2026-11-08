@@ -89,11 +89,19 @@ Not redacted: function, import, export and section names; numbers in code (an IP
 With `--ledger FILE`, the server appends one JSON line per event to `FILE` (created if missing, never truncated) and syncs it to disk before answering:
 
 ```json
-{"event":"session","version":"0.7.0","roots":["D:\\cases\\0412"],"allow_writes":false,"redact_strings":true,"time":1762610400}
-{"event":"tool","tool":"decompile","arguments":{"address":"sub_401C04"},"file_sha256":"1e47…","is_error":false,"redactions":2,"chars":2068,"sha256":"45ee…","text":"// sub_401C04 at 0x401c04\n…","time":1762610412}
+{"event":"session","version":"0.7.0","roots":["D:\\cases\\0412"],"allow_writes":false,"redact_strings":true,"time":1762610400,"prev":null}
+{"event":"tool","tool":"decompile","arguments":{"address":"sub_401C04"},"file_sha256":"1e47…","is_error":false,"redactions":2,"chars":2068,"sha256":"45ee…","text":"// sub_401C04 at 0x401c04\n…","time":1762610412,"prev":"9c1f…"}
 ```
 
-`text` is exactly what the agent received and `sha256` is its hash, so the record can be checked against a client's transcript. If a line cannot be written (disk full, file removed), the agent gets an error instead of the answer. The ledger contains the disclosed text itself — keep it with the case files.
+`text` is exactly what the agent received and `sha256` is its hash, so the record can be checked against a client's transcript. `prev` is the SHA-256 of the line before (also across sessions appended to the same file), so the lines form a chain. If a line cannot be written (disk full, file removed), the agent gets an error instead of the answer. The ledger contains the disclosed text itself — keep it with the case files.
+
+Check a ledger:
+
+```bash
+paranoia ledger D:\cases\0412\agent-ledger.jsonl
+```
+
+It prints how many answers, characters and redactions each tool produced and which files they concerned, and exits with status 2 if any text no longer matches its hash or the chain is broken (a line removed, inserted or changed). What it cannot prove: that nobody rewrote the whole file from some line onward with fresh hashes — for that, keep a copy of the last line's hash elsewhere (for example in the case notes) or sign the file.
 
 ## Security
 

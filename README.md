@@ -131,6 +131,7 @@ paranoia ssa app.exe main                                # a function in SSA for
 paranoia sigapply other.exe app.pat
 paranoia mcp --root ./samples                            # MCP server for AI agents (stdio, read-only)
 paranoia mcp --root ./case --redact-strings --ledger ./case/agent.jsonl   # hide strings, record what the agent saw
+paranoia ledger ./case/agent.jsonl                       # check the record and summarise what was disclosed
 ```
 
 ## Build from source

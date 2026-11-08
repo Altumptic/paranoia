@@ -68,7 +68,8 @@ The [key feature](STRATEGY.md#the-key-feature-private-agent-ready-analysis) made
 | MCP names shared with the desktop app | ✅ done | `--workspace`: names, comments and types load from the app's workspace on open and are saved there after each change; the app's lock keeps the two from writing at once (a change made while the app runs is refused and undone). Test `workspace_names_are_shared_with_the_app` |
 | MCP batch tool for triage | ✅ done | `triage`: per function, callees (imports first) and referenced strings, paged; kernel32.dll (2 604 functions) opened and triaged in 1.2 s |
 | Controlled disclosure (the key feature) | ✅ done | `--redact-strings` and `--ledger`; tests `redaction_and_ledger`, `unwritable_ledger_withholds_results` |
-| Disclosure follow-ups | ⏳ | Redaction profiles beyond strings (numeric constants that look like IPv4 addresses, symbol names on request); a `paranoia ledger verify` command that checks every line's hash; the same controls for the desktop AI assistant |
+| Ledger check | ✅ done | Lines chained by SHA-256 (`prev`); `paranoia ledger FILE` verifies every text and the chain and summarises what was disclosed; exits 2 on any mismatch. Test `verify_checks_texts_and_the_chain` |
+| Disclosure follow-ups | ⏳ | Redaction profiles beyond strings (numeric constants that look like IPv4 addresses, symbol names on request); the same controls for the desktop AI assistant |
 
 ### Phase 2 — AArch64 decompiler (v0.9, top priority for the decompiler)
 

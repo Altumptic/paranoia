@@ -121,13 +121,21 @@ fn closing(chars: &[char], open: usize) -> Option<usize> {
 pub struct Ledger {
     file: File,
     path: PathBuf,
+    /// SHA-256 of the last line written (or found when the file was opened).
+    prev: Option<String>,
 }
 
 impl Ledger {
     /// Opens `path` for appending (created if missing); earlier sessions are kept.
     pub fn open(path: &Path) -> std::io::Result<Ledger> {
+        // Continue the hash chain of an existing ledger.
+        let prev = match std::fs::read_to_string(path) {
+            Ok(t) => t.lines().rev().find(|l| !l.trim().is_empty()).map(|l| sha256_hex(l.as_bytes())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
         let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(Ledger { file, path: path.to_path_buf() })
+        Ok(Ledger { file, path: path.to_path_buf(), prev })
     }
 
     pub fn path(&self) -> &Path {
@@ -137,17 +145,86 @@ impl Ledger {
     /// A ledger whose writes fail, to test that results are withheld.
     #[cfg(test)]
     pub fn read_only_for_tests(path: &Path) -> Ledger {
-        Ledger { file: File::open(path).unwrap(), path: path.to_path_buf() }
+        Ledger { file: File::open(path).unwrap(), path: path.to_path_buf(), prev: None }
     }
 
-    /// Writes one JSON line and flushes it to disk before returning.
+    /// Writes one JSON line and flushes it to disk before returning. Each line carries the
+    /// SHA-256 of the line before it (`prev`), so removing, inserting or rewriting a line
+    /// breaks the chain at that point.
     pub fn record(&mut self, mut entry: Value) -> std::io::Result<()> {
         if let Some(o) = entry.as_object_mut() {
             o.insert("time".into(), Value::from(unix_time()));
+            o.insert("prev".into(), self.prev.clone().map_or(Value::Null, Value::from));
         }
-        writeln!(self.file, "{entry}")?;
-        self.file.sync_data()
+        let line = entry.to_string();
+        writeln!(self.file, "{line}")?;
+        self.file.sync_data()?;
+        self.prev = Some(sha256_hex(line.as_bytes()));
+        Ok(())
     }
+}
+
+/// What `paranoia ledger` found in a ledger file.
+#[derive(Default, Debug)]
+pub struct Report {
+    pub sessions: usize,
+    pub answers: usize,
+    pub errors: usize,
+    pub chars: usize,
+    pub redactions: u64,
+    /// Answer counts per tool, sorted by name.
+    pub tools: std::collections::BTreeMap<String, usize>,
+    /// SHA-256 of every analysed file the agent was shown something about.
+    pub files: std::collections::BTreeSet<String>,
+    /// Line numbers (1-based) whose text does not match its recorded hash, or that are not
+    /// valid ledger lines.
+    pub bad: Vec<(usize, String)>,
+}
+
+/// Re-checks a ledger: the hash chain from the first line to the last, and each answer's
+/// text against its recorded SHA-256.
+pub fn verify(text: &str) -> Report {
+    let mut r = Report::default();
+    let mut prev: Option<String> = None;
+    for (i, line) in text.lines().enumerate() {
+        let n = i + 1;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let expected = prev.replace(sha256_hex(line.as_bytes()));
+        let Ok(e) = serde_json::from_str::<Value>(line) else {
+            r.bad.push((n, "not JSON".into()));
+            continue;
+        };
+        if e.get("prev").and_then(Value::as_str).map(str::to_string) != expected {
+            r.bad.push((n, "hash chain broken: a line before this one was removed, inserted or changed".into()));
+        }
+        match e.get("event").and_then(Value::as_str) {
+            Some("session") => r.sessions += 1,
+            Some("tool") => {
+                let (Some(t), Some(h)) = (e.get("text").and_then(Value::as_str), e.get("sha256").and_then(Value::as_str)) else {
+                    r.bad.push((n, "answer without text or sha256".into()));
+                    continue;
+                };
+                if sha256_hex(t.as_bytes()) != h {
+                    r.bad.push((n, "text does not match its sha256 (edited after it was written?)".into()));
+                    continue;
+                }
+                r.answers += 1;
+                r.chars += t.chars().count();
+                r.redactions += e.get("redactions").and_then(Value::as_u64).unwrap_or(0);
+                if e.get("is_error").and_then(Value::as_bool) == Some(true) {
+                    r.errors += 1;
+                }
+                *r.tools.entry(e.get("tool").and_then(Value::as_str).unwrap_or("?").to_string()).or_default() += 1;
+                if let Some(f) = e.get("file_sha256").and_then(Value::as_str) {
+                    r.files.insert(f.to_string());
+                }
+            }
+            _ => r.bad.push((n, "unknown event".into())),
+        }
+    }
+    r
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -198,5 +275,41 @@ mod tests {
         assert_eq!(lines[1]["tool"], "xrefs_to");
         assert!(lines[0]["time"].as_u64().unwrap() > 1_700_000_000);
         assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+
+    #[test]
+    fn verify_checks_texts_and_the_chain() {
+        let path = std::env::temp_dir().join(format!("paranoia-ledger-chain-{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let answer = |tool: &str, text: &str| serde_json::json!({ "event": "tool", "tool": tool, "text": text, "sha256": sha256_hex(text.as_bytes()), "file_sha256": "f1", "redactions": 2, "is_error": false });
+        {
+            let mut l = Ledger::open(&path).unwrap();
+            l.record(serde_json::json!({ "event": "session" })).unwrap();
+            l.record(answer("decompile", "int main() {}")).unwrap();
+        }
+        // A second session continues the same chain.
+        {
+            let mut l = Ledger::open(&path).unwrap();
+            l.record(serde_json::json!({ "event": "session" })).unwrap();
+            l.record(answer("xrefs_to", "0x401000  Call")).unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let r = verify(&text);
+        assert!(r.bad.is_empty(), "{:?}", r.bad);
+        assert_eq!((r.sessions, r.answers, r.chars, r.redactions), (2, 2, 27, 4));
+        assert_eq!(r.tools.get("decompile"), Some(&1));
+        assert_eq!(r.files.len(), 1);
+
+        let lines: Vec<&str> = text.lines().collect();
+        // An edited text: its own hash fails.
+        let edited = lines[1].replace("int main() {}", "int main() {1}");
+        let r = verify(&[lines[0], &edited, lines[2], lines[3]].join("\n"));
+        assert_eq!(r.bad.iter().map(|b| b.0).collect::<Vec<_>>(), vec![2, 3], "{:?}", r.bad);
+        // A removed line: the chain breaks where it was.
+        let r = verify(&[lines[0], lines[2], lines[3]].join("\n"));
+        assert_eq!(r.bad.iter().map(|b| b.0).collect::<Vec<_>>(), vec![2], "{:?}", r.bad);
+        // Garbage is reported, not trusted.
+        assert_eq!(verify("not json").bad.len(), 1);
     }
 }
