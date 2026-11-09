@@ -116,7 +116,7 @@ The server follows the same rules as the rest of Paranoia ([SECURITY-DESIGN.md](
 
 ## Limits
 
-- Pseudocode for x86 / x64 only; for other architectures use `disassemble` and `function_graph`.
+- Pseudocode for x86 / x64, and experimentally for AArch64 (no types yet); for other architectures use `disassemble` and `function_graph`.
 - Names are shared with the desktop app only through `--workspace`, and only while the app is closed (its workspace is locked while it runs). The app reads the names when it next opens the file.
 - No MCP resources or prompts yet; tools only. No progress notifications for long analyses (a 7.7 MB DLL takes about a second).
 - Protocol revisions 2025-06-18, 2025-03-26 and 2024-11-05.

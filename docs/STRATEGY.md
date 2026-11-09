@@ -51,7 +51,7 @@ Three properties make the feature possible. Each one exists today and has eviden
 | | IDA Pro | Ghidra | Binary Ninja | radare2 / rizin | Paranoia |
 | --- | --- | --- | --- | --- | --- |
 | Licence | Commercial | Free, Apache-2.0 | Commercial, free tier | Free, LGPL | Free, Apache-2.0 |
-| Decompiler | Hex-Rays, many architectures, best C++ | Many architectures | Several architectures (IL based) | Through plugins (e.g. rz-ghidra) | x86 / x64 today; AArch64 next |
+| Decompiler | Hex-Rays, many architectures, best C++ | Many architectures | Several architectures (IL based) | Through plugins (e.g. rz-ghidra) | x86 / x64; AArch64 experimental |
 | Agent interface (MCP) | Community plugins inside IDA | Community plugins inside Ghidra | Plugins | r2mcp | Built into the engine binary: `paranoia mcp`, no host application, no Python bridge |
 | Redaction of sample content and a ledger of what the agent saw | Not known to us | Not known to us | Not known to us | Not known to us | Yes (`--redact-strings`, `--ledger`) |
 | Runs in a browser with no server | No | No | No | No | Yes (WebAssembly) |

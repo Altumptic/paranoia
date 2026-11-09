@@ -134,6 +134,21 @@ fn ssa_volatile(bits: u32, format: Format) -> &'static [Register] {
     }
 }
 
+/// The SSA view of a function: its lines and a summary note.
+fn ssa_page(address: u64, name: String, s: &crate::ssa::SsaFunction) -> Pseudocode {
+    let st = &s.stats;
+    let note = format!(
+        "SSA: {} blocks, {} phi nodes, {} values, {} constants, {} copies, {} dead definitions",
+        st.blocks, st.phis, st.values, st.constants, st.copies, st.dead
+    );
+    let lines = s
+        .lines()
+        .into_iter()
+        .map(|(indent, text, address, dead)| PseudoLine { address, indent, tokens: ssa_tokens(&text, dead) })
+        .collect();
+    Pseudocode { address, name, lines, note: Some(note) }
+}
+
 /// Token kinds for an SSA text line (values, numbers, keywords, block labels).
 fn ssa_tokens(text: &str, dead: bool) -> Vec<Token> {
     let mut out: Vec<Token> = Vec::new();
@@ -433,7 +448,47 @@ fn is_callee_saved(r: Register) -> bool {
     ) || matches!(r, Register::EBX | Register::EBP | Register::ESI | Register::EDI)
 }
 
+/// Decoded AArch64 blocks of a function, for the SSA lifter.
+type A64Blocks = crate::ssa::a64::Blocks;
+
 impl Binary {
+    /// Decodes every block of the AArch64 function at `index`. Words that do not decode end
+    /// their block (the analysis would not have put code there).
+    fn a64_blocks(&self, index: usize) -> Option<A64Blocks> {
+        use yaxpeax_arch::{Decoder as _, U8Reader};
+        let f = &self.analysis.as_ref()?.functions[index];
+        let big = self.info.endian == crate::model::Endian::Big;
+        let mut out = A64Blocks::new();
+        for b in &f.blocks {
+            let bytes = self.bytes_at(b.start)?;
+            let len = ((b.end.saturating_sub(b.start)) as usize).min(bytes.len());
+            let mut v = Vec::new();
+            for (k, w) in bytes[..len].chunks_exact(4).enumerate() {
+                let word = if big { [w[3], w[2], w[1], w[0]] } else { [w[0], w[1], w[2], w[3]] };
+                let Ok(i) = yaxpeax_arm::armv8::a64::InstDecoder::default().decode(&mut U8Reader::new(&word)) else { break };
+                v.push((b.start + 4 * k as u64, i));
+            }
+            out.insert(b.start, (v, b.succs.clone()));
+        }
+        Some(out)
+    }
+
+    /// C text for an AArch64 function, generated from its SSA form.
+    fn a64_c(&self, index: usize, name: &str) -> Option<Vec<PseudoLine>> {
+        let f = &self.analysis.as_ref()?.functions[index];
+        let blocks = self.a64_blocks(index)?;
+        let s = crate::ssa::a64::build(f.address, &blocks);
+        let lookup = |a: u64| self.name_at(a);
+        let o = crate::ssa::COptions {
+            name,
+            entry: f.address,
+            returns: crate::ssa::a64::returns_value(&blocks),
+            args: crate::ssa::a64::ARGS.to_vec(),
+            names: &lookup,
+        };
+        Some(s.to_c(&o))
+    }
+
     /// C-like pseudocode for the function containing `va` (x86 / x86-64).
     /// Rendering also harvests which typed variables flow into internal callees,
     /// so their pseudocode inherits the types (cross-call type propagation).
@@ -442,14 +497,20 @@ impl Binary {
     /// like pseudocode; dead lines end in a `// dead` comment.
     pub fn ssa(&self, va: u64) -> Option<Pseudocode> {
         let a = self.analysis.as_ref()?;
-        let f = &a.functions[self.function_index_containing(va)?];
+        let index = self.function_index_containing(va)?;
+        let f = &a.functions[index];
         let name = self.function_name(f);
+        if self.info.arch == Arch::Arm64 {
+            let blocks = self.a64_blocks(index)?;
+            let s = crate::ssa::a64::build(f.address, &blocks);
+            return Some(ssa_page(f.address, name, &s));
+        }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             return Some(Pseudocode {
                 address: f.address,
                 name,
                 lines: Vec::new(),
-                note: Some("SSA form is available for x86 and x86-64 code.".into()),
+                note: Some("SSA form is available for x86, x86-64 and AArch64 code.".into()),
             });
         }
         let bits = if self.info.arch == Arch::X86 { 32 } else { 64 };
@@ -476,17 +537,7 @@ impl Binary {
             _ => &[R::RAX, R::RCX, R::RDX, R::RSI, R::RDI, R::R8, R::R9, R::R10, R::R11],
         };
         let s = crate::ssa::build(f.address, &blocks, bits, volatile, ssa_args(bits, self.info.format));
-        let st = &s.stats;
-        let note = format!(
-            "SSA: {} blocks, {} phi nodes, {} values, {} constants, {} copies, {} dead definitions",
-            st.blocks, st.phis, st.values, st.constants, st.copies, st.dead
-        );
-        let lines = s
-            .lines()
-            .into_iter()
-            .map(|(indent, text, address, dead)| PseudoLine { address, indent, tokens: ssa_tokens(&text, dead) })
-            .collect();
-        Some(Pseudocode { address: f.address, name, lines, note: Some(note) })
+        Some(ssa_page(f.address, name, &s))
     }
 
     /// C-like text generated from the function's SSA form (x86 / x86-64): phi classes as
@@ -494,8 +545,13 @@ impl Binary {
     /// loops recovered from the branches. An alternative to [`Binary::pseudocode`].
     pub fn pseudocode_from_ssa(&self, va: u64) -> Option<Pseudocode> {
         let a = self.analysis.as_ref()?;
-        let f = &a.functions[self.function_index_containing(va)?];
+        let index = self.function_index_containing(va)?;
+        let f = &a.functions[index];
         let name = self.function_name(f);
+        if self.info.arch == Arch::Arm64 {
+            let lines = self.a64_c(index, &name)?;
+            return Some(Pseudocode { address: f.address, name, lines, note: None });
+        }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             return Some(Pseudocode {
                 address: f.address,
@@ -542,6 +598,19 @@ impl Binary {
         let f = &a.functions[idx];
         let f_addr = f.address;
         let name = self.function_name(f);
+        // AArch64: the C text comes from the SSA form (the line lifter below is x86 only).
+        if self.info.arch == Arch::Arm64 {
+            let mut lines = self.a64_c(idx, &name)?;
+            if let Some(names) = self.annotations.var_names.get(&f_addr) {
+                crate::pseudo_types::apply_var_names(&mut lines, names);
+            }
+            return Some(Pseudocode {
+                address: f_addr,
+                name,
+                lines,
+                note: Some("AArch64: generated from the SSA form (experimental) — verify against the listing".into()),
+            });
+        }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             return Some(Pseudocode {
                 address: f.address,

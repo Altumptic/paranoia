@@ -60,7 +60,7 @@ Disassembly, graphs, a decompiler, debugging and scripting for PE, ELF and Mach-
 
 Stated here so nobody has to find them the hard way (full list in the [roadmap](docs/ROADMAP.md)):
 
-- The decompiler covers x86 / x64 only; the C·SSA view is experimental and has no `else` / `while` / `switch` yet.
+- The decompiler covers x86 / x64 and, experimentally, AArch64 (generated from the SSA form: no types yet, checked on Go binaries only). The C·SSA view has no `else` / `while` / `switch` yet. Other architectures have disassembly and graphs, no pseudocode.
 - MIPS support is checked with decoder tests on known encodings, not yet on a full MIPS binary.
 - The debugger runs local programs only (Windows x64 / 32-bit, Linux x86-64); remote targets are planned.
 - Packages are built for Windows only. On Linux run the app from source (`npm run app`); macOS builds, AppImage and Flatpak are planned ([roadmap, phase 3](docs/ROADMAP.md#phase-3--linux-and-macos-builds-v010)).
