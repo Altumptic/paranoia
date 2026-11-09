@@ -1,6 +1,6 @@
-# Altumptic Product Security Baseline — Paranoia
+# Altumptic Product Security Baseline: Paranoia
 
-Paranoia is assigned **class C — local-first tooling** (reverse-engineering tool, offline, no account). Class C requires **PSB-Core + supply chain**. This page records how each requirement is met, with evidence, and lists every exception with an expiry date.
+Paranoia is in class C, local-first tooling (a reverse-engineering tool, offline, no account). Class C requires PSB-Core plus supply chain. This page records how each requirement is met, with evidence, and lists every exception with an expiry date.
 
 Status key: ✅ met · ⚠️ met with an exception · ➖ not applicable to class C · ❌ not met
 
@@ -50,7 +50,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | Minimal OS permissions, explained | ✅ | No admin rights, all permission requests denied ([SECURITY-DESIGN.md § Operating-system permissions](SECURITY-DESIGN.md#operating-system-permissions)) |
 | Auto-update only from a signed channel | ➖ | No auto-update; manual download + verification |
 | No debug builds on stable | ✅ | DevTools disabled in packaged builds; Electron fuses disable `RunAsNode`, `NODE_OPTIONS`, `--inspect`; asar integrity enforced |
-| CSP without eval | ⚠️ | `script-src 'self' 'wasm-unsafe-eval'` — no `'unsafe-eval'`, no inline script (PSB-EX-2 for `'wasm-unsafe-eval'`) |
+| CSP without eval | ⚠️ | `script-src 'self' 'wasm-unsafe-eval'`, no `'unsafe-eval'`, no inline script (PSB-EX-2 for `'wasm-unsafe-eval'`) |
 | Renderer isolation | ⚠️ | Sandbox, `contextIsolation`, no Node integration, sender checks on every IPC handler, file allow-list, native confirmations; Electron's extra `file://` privileges kept (PSB-EX-3) |
 
 ## 6. Privacy

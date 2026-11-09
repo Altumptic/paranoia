@@ -5,7 +5,7 @@
 //! pseudocode lines: a control-flow graph is built from the structure the decompiler emitted
 //! (`if` / `else`, loops, `switch`, `goto`, labels, `break` / `continue`), reaching definitions
 //! are computed per register, and definitions that reach a common use are merged into one
-//! variable (a "web" — what a phi node followed by copy coalescing produces). Everything else
+//! variable (a "web", which is what a phi node plus copy coalescing would give). Everything else
 //! becomes its own variable, wherever it sits: inside branches and loop bodies too.
 //!
 //! The graph is deliberately an over-approximation (a `return` or `goto` still "falls through",
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn a_value_defined_in_both_branches_is_one_variable() {
-        // rax = 1; if (rcx) { rax = 2; } use(rax)  — the join merges both definitions.
+        // rax = 1; if (rcx) { rax = 2; } use(rax): the join merges both definitions.
         let lines = vec![head(), set("rax", num("1")), if_open("rcx"), set("rax", num("2")), close(), call(&["rax"])];
         let w = recover(&lines).unwrap();
         assert_eq!(k(&w, "rax", 1, 0), k(&w, "rax", 3, 0), "both definitions reach the use after the if");
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn if_else_branches_that_each_redefine_are_merged_only_if_used_after() {
-        // if (rcx) { rax = 1; use } else { rax = 2; use }  — no use after the join: two variables.
+        // if (rcx) { rax = 1; use } else { rax = 2; use }: no use after the join, so two variables.
         let lines =
             vec![head(), if_open("rcx"), set("rax", num("1")), call(&["rax"]), else_open(), set("rax", num("2")), call(&["rax"]), close()];
         let w = recover(&lines).unwrap();
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn a_loop_carries_its_value_around() {
-        // rax = 0; while (rcx) { use(rax); rax = f(); }  — the in-loop definition reaches the loop's own use.
+        // rax = 0; while (rcx) { use(rax); rax = f(); }: the definition in the loop reaches the use at its top.
         let wh =
             raw(1, vec![("while", TokenKind::Keyword), (" (", TokenKind::Punct), ("rcx", TokenKind::Register), (") {", TokenKind::Punct)]);
         let mut call_def = set("rax", vec![tok("g", TokenKind::Symbol), tok("()", TokenKind::Punct)]);
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn gotos_join_values() {
-        // if (rcx) goto L; rax = 1; L: use(rax)  — the entry value and the definition both reach L.
+        // if (rcx) goto L; rax = 1; L: use(rax): the entry value and the definition both reach L.
         let g = raw(
             1,
             vec![

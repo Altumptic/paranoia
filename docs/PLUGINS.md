@@ -1,8 +1,8 @@
 # Plugins
 
 A plugin is a folder with a manifest and one script. It adds commands to the **Plugins** menu of the
-desktop app. Plugins use the same APIs as the consoles — the JavaScript `pn` object or the Python
-`paranoia` / `idc` / `idautils` modules — so anything you can script, you can package.
+desktop app. Plugins use the same APIs as the consoles (the JavaScript `pn` object or the Python
+`paranoia` / `idc` / `idautils` modules), so anything you can script, you can package.
 
 ## Where they live
 
@@ -37,7 +37,7 @@ plugins/
 | `description` | optional, up to 300 characters |
 | `language` | `"js"` or `"py"` |
 | `entry` | a file in the plugin folder ending in `.js` / `.py` (matching `language`), up to 256 KB; no sub-folders, no links leaving the folder |
-| `commands` | 1–32 entries: `id`, `title` and an optional `run` — the name of a function in the script that is called after the file is evaluated (omit it to just run the file) |
+| `commands` | 1–32 entries with `id`, `title` and an optional `run`: a function in the script to call after the file is evaluated (leave it out to just run the file) |
 
 A plugin that fails validation is listed in the menu with the reason instead of being loaded.
 
@@ -48,7 +48,7 @@ Plugin code is somebody else's code, so:
 * The first time a version runs, Paranoia asks in a **native dialog** (outside the page, so a plugin
   cannot click it) and shows the folder, script size and fingerprint. *Always run this version* remembers
   the SHA-256 of the manifest **and** the script; any edit asks again.
-* The script that runs is read from disk by the main process *after* you agreed — the page never supplies
+* The main process reads the script from disk after you agreed. The page never supplies
   code.
 * **JavaScript** plugins run in the same isolated worker as the console: no DOM, no files, no network;
   they can read and change the open analysis through `pn`.

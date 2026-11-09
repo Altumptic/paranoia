@@ -1,5 +1,5 @@
 //! Local workspace store for the desktop app, backed by [redb] (a pure-Rust,
-//! crash-safe embedded key/value store — no C toolchain needed).
+//! crash-safe embedded key/value store that needs no C toolchain).
 //!
 //! Everything is keyed by the SHA-256 of the analyzed file, so annotations
 //! follow a binary regardless of where it lives on disk.

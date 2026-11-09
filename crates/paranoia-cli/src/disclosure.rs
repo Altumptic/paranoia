@@ -1,14 +1,8 @@
-//! Controlled disclosure for `paranoia mcp`: what an AI agent may see, and a record of
-//! what it saw.
+//! What `paranoia mcp` lets an agent see, and a log of what it saw.
 //!
-//! * [`Redactor`] replaces text that came from the analysed file's strings — quoted
-//!   literals in pseudocode, listings and comments, and the auto names derived from them
-//!   (`aHelloWorld`) — with stable placeholders (`"<str#12 len=23>"`, `aRedacted12`). The same
-//!   string always gets the same number within a session, so an agent can still say
-//!   "the function that uses str#12" and a human can look it up.
-//! * [`Ledger`] appends one JSON line per tool call to a file the user chose: time, tool,
-//!   arguments, the analysed file's SHA-256, and the exact text returned with its SHA-256.
-//!   If the line cannot be written, the result is withheld (fail closed).
+//! `Redactor` replaces the file's strings in tool output with numbered placeholders
+//! (`"<str#12 len=23>"`, `aRedacted12`). `Ledger` writes every answer to a JSON-lines file
+//! before it is sent; if the write fails, the answer is not sent.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};

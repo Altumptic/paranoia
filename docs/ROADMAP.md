@@ -1,126 +1,111 @@
 # Roadmap
 
-Paranoia aims to cover the day-to-day workflow of IDA Pro in an open, local-first package. This page is an honest comparison of where it stands today and the order in which the gaps get closed. Why this order: [STRATEGY.md](STRATEGY.md).
+The goal is to cover the everyday IDA Pro workflow in an open tool that runs entirely on your machine. This page lists what works today and what comes next.
 
-Legend: ✅ available · 🟡 partial · ⏳ planned
+## Direction
 
-## Parity with IDA Pro
+Paranoia is aimed at people who analyse files they're not allowed to upload anywhere: incident responders, malware analysts, security engineers. That means it has to work offline, be quick, and be safe to point at hostile files. It also means that when an AI agent helps with the analysis, the analyst decides what the agent sees and can show afterwards what it saw. That's what `--redact-strings` and `--ledger` in [MCP.md](MCP.md) are for.
 
-| Capability | Status | Notes |
+We don't try to match IDA or Ghidra on the number of architectures or on C++ decompilation. The decompiler work concentrates on x86/x64 and AArch64, which cover Windows, Linux servers, Android and Apple silicon.
+
+When two things compete, they're done in this order:
+
+1. crashes or hangs on bad input
+2. readable pseudocode on x86/x64 and AArch64
+3. the agent interface and scripting
+4. Linux and macOS packages
+5. firmware, remote debugging, more architectures
+
+## What works today
+
+✅ done · 🟡 partly · ⏳ not yet
+
+| Feature | | Notes |
 | --- | --- | --- |
-| PE / ELF / Mach-O loading | ✅ | Universal binaries, chained fixups, forwarders, TLS callbacks |
-| Raw binaries, firmware, COFF/OMF objects, DEX, NE/LE | ⏳ | Raw images and firmware first (phase 4 below); COFF/OMF, DEX, NE/LE later |
-| x86 / x86-64 disassembly | ✅ | |
-| AArch64 disassembly | ✅ | ADRP-based data references; calls and jumps through a register built with `adrp` + `add` (`blr x2`) are followed — a stripped Go darwin/arm64 binary went from 1 function to 723 |
-| ARM32 / Thumb-2 disassembly | ✅ | Mixed ARM / Thumb images: the instruction set is tracked per address from ELF mapping symbols (`$a` / `$t`), the mode bit of function symbols, exports and the entry point, and `blx` targets found during analysis; the image default comes from the entry point (Windows on ARM is always Thumb). Literal pools and `adr` as data references. Limit: in a stripped image, code that follows a `blx` target with no symbol of its own is read in the target's mode |
-| RISC-V disassembly | ✅ | RV32 / RV64 IMAFDC + Zicsr, compressed instructions, `auipc`/`lui` pairs resolved to data and call targets |
-| MIPS disassembly | ✅ | MIPS32 / MIPS64, both byte orders, branch delay slots, `lui` + `addiu`/`lw` pairs |
-| PowerPC disassembly | ✅ | 32- and 64-bit, both byte orders (ELF, Mach-O): integer, branches with simplified mnemonics (`beq`, `bdnz`, `blr`, `bctrl`), loads / stores, rotates, SPR moves, floating point, common AltiVec / VSX; `lis` + `addi`/`ori`/loads resolve addresses. Checked on Go-built ppc64 / ppc64le binaries: under 0.01 % of non-zero words undecoded. Not yet: pseudocode, PPC64 TOC-relative references |
-| Auto-analysis, functions, basic blocks | ✅ | Recursive descent seeded by entry, exports, symbols, `.pdata` and, in ELF, the `.eh_frame_hdr` unwind table — so stripped binaries keep their functions (GNU `ls`, stripped: 18 functions without it, 446 with it; all 341 unwind-table starts found); in Mach-O, `LC_FUNCTION_STARTS` (decoder unit-tested; not yet checked on an Apple-linked sample, Go does not write it). Not yet: ELF files with `.eh_frame` but no `.eh_frame_hdr` |
-| Switch/jump-table recovery | ✅ | Absolute tables, MSVC `__ImageBase` RVA tables, PIC relative tables |
-| Listing with labels, jump arrows, comments | ✅ | |
-| Graph view | ✅ | |
-| Cross references (to / from) | ✅ | Code and data |
-| Rename, comments, bookmarks | ✅ | Persisted per SHA-256. Pseudocode variables too: click a variable, press `N` (C identifier; keywords, generated names and names already used in the function are refused) — in the C view; the SSA views and the stack-frame panel keep the generated names |
-| Create function (`P`) / reanalyze | ✅ | |
-| Undefine / define code, data & strings (`U`, `C`, `D`, `A`) | ✅ | Listing covers data: `db/dw/dd/dq`, strings, `offset`, `extrn`, `dup` |
-| Auto names (`aString`, `qword_…`, `off_…`, `loc_…`) | ✅ | From access sizes and references, like IDA |
-| Name demangling | ✅ | MSVC, Itanium, Rust |
-| Search: bytes, text, immediates | ✅ | |
-| Hex view & patching, save patched file | ✅ | |
-| Instruction patches (NOP, invert, force jump) | ✅ | x86/x64 and AArch64 |
-| Assemble arbitrary instructions | ✅ | x86 / x64, Intel syntax (`Edit → Assemble…`): `mov eax, [ebx+ecx*4+8]`, `jz 0x401020`, `lock xadd [rdi], eax`, `db 0x90, 0xcc`; the shortest encoding wins, longer code takes over the following instructions and the rest is NOP-padded. Branch targets and RIP-relative operands are absolute addresses |
-| Pseudocode | 🟡 | x86/x64: typed variables (`a1…`, `v1…` split at independent overwrites, types from API prototypes), expression propagation, `switch`, `while`/`for`/`do-while` with `break`/`continue`, symbolic API constants, struct member access (`Y` types a variable; fields, nesting, arrays render as `ctx->name`), argument/return types that flow across internal calls, and pointer fields that chain (`p = ctx->next` is typed `PKT *`, so lists and trees keep rendering as `p->…`). Pointer arithmetic on typed pointers follows C (`p += 0x60` on a 48-byte `T *` prints `p += 2`; other byte counts keep an explicit `(uint8_t *)` cast). Variables come from reaching definitions over the structured code (an SSA-style web per value, inside branches and loops too), so a register reused for unrelated values becomes separate variables. An **SSA view** (Pseudocode → SSA) shows the same function as an SSA IR: phi nodes placed with dominance frontiers, one definition per value, constant and copy propagation (also through phi nodes), dead definitions marked, calls clobbering the ABI's volatile registers. The C view uses the SSA IR's facts: register assignments SSA proves are never read are left out (liveness is decided before constants are folded; calls read the ABI's argument registers, and in 32-bit code ecx / edx for `thiscall` / `fastcall`; jumps out of the function count as tail calls), and values SSA proves constant through joins are noted (`// = 0x10`). A second C view, **C·SSA**, is generated from the SSA IR itself: phi classes become variables, stack slots are named from the tracked stack pointer (frame pointers and stdcall cleanup included), conditions come from the flags, call arguments from the ABI registers or the pushes, tail jumps become calls, single-use values are written in place, and forward branches / back edges become `if` and `do … while`. On 600 real functions it calls the same functions as the C view in all but two. **AArch64** pseudocode (experimental): the C view, C·SSA and SSA views come from the shared SSA IR — see phase 2 below. Not yet: `else` / `while` / `switch` in C·SSA, types on AArch64, memory SSA, other architectures |
-| Operand representation (`H`, `R`, `B`, `M`) | ✅ | Hex / decimal, character, binary, symbolic constant; built-in Windows / POSIX enums applied to API arguments automatically |
-| Types, structures, enums, local types | ✅ | C declarations (struct / union / enum / typedef, arrays, pointers, natural alignment); apply a struct to data (`Alt+Q`) |
-| Stack frame / local variable view | ✅ | Offsets, sizes, read/write counts; same names as pseudocode |
-| Argument labels from API prototypes | ✅ | ~250 WinAPI / libc prototypes (`; lpFileName`) |
-| FLIRT-style library signatures | ✅ | Reads IDA's binary `.sig` files (versions 5–10, compressed or not, tail bytes checked) and FLAIR `.pat` files, writes `.pat` from any binary with symbols (`sigmake`), built-in MSVC x64 runtime library. Referenced-function checks in `.sig` modules are not used yet |
-| PDB debug info | ✅ | Publics, procedures and globals; GUID check; the PDB next to the binary is picked up automatically |
-| DWARF debug info | ✅ | Function names and bounds, globals and source lines (ELF, Mach-O, MinGW / Rust-gnu PE); struct, union and enum definitions kept as debug-info types (a runtime layer under Local Types, never saved) for `Y` and the decompiler |
-| PDB types | ✅ | Struct, union and enum definitions from the PDB type stream (C-like names only; templates and namespaced C++ types are skipped) join the same debug-info layer; searchable in the Types panel and offered by `Y` |
-| Call graph / proximity view | ✅ | Callers / callees to configurable depth |
-| Navigation band | ✅ | |
-| Xrefs dialog (`X`), token highlight, context menu | ✅ | |
-| Scripting | ✅ | Python (your CPython, IDAPython-style `idc` / `idautils` names) and JavaScript consoles; headless `paranoia script` batch mode |
-| AI assistant | ✅ | Optional; off until you choose a model server: local (Ollama, LM Studio) or cloud (Claude through Anthropic's API; OpenAI / Codex, DeepSeek, Kimi, Gemini, Mistral, OpenRouter through the OpenAI chat API). **Assistant** menu: explain the function under the cursor, suggest a name (applied only on click), flag suspicious behaviour. Requests come from the main process, carry one function's decompiled text, and a non-loopback host needs native consent. Tested against a stub server only; runs against real Ollama / LM Studio models are pending. Not yet: streaming, chat, batch renaming |
-| MCP server for AI agents | ✅ | `paranoia mcp`: stdio only, files confined to `--root` folders, read-only unless `--allow-writes`; 15 read tools (open, info, functions, triage, pseudocode, disassembly, graph, xrefs, callees, strings, imports, exports, search, IDC export) and 3 write tools that stay in the session. Controlled disclosure: `--redact-strings` hides the file's string contents, `--ledger` records every answer before it is sent. Names shared with the desktop app through `--workspace`. See [MCP.md](MCP.md). Not yet: resources, sharing while the app is open |
-| Plugins | ✅ | Folder + `plugin.json` manifest + one `.js` / `.py` script; commands in the **Plugins** menu; native confirmation per version (SHA-256 of manifest + script). See [PLUGINS.md](PLUGINS.md). Not yet: plugin panels, hotkeys, event hooks |
-| Debugger | 🟡 | Local programs of the OS the app runs on: Windows x64 and 32-bit (WOW64) PE, Linux x86-64 ELF (ptrace; PIE base from `/proc/<pid>/maps`, program output in the debugger log). Breakpoints (`F2`), run / step into / step over / run to cursor (`F9`/`F7`/`F8`/`F4`), registers, stack. Not yet: remote targets (gdbserver), Linux 32-bit / ARM, macOS |
-| Export: IDC script | ✅ | Names, comments, user functions |
-| Project files, undo/redo | ✅ | Annotations auto-save per file hash; undo / redo (200 steps) |
-| Collaboration / shared projects | ⏳ | Pro edition |
+| PE, ELF, Mach-O | ✅ | Universal binaries, chained fixups, forwarders, TLS callbacks |
+| Raw images, firmware, COFF/OMF, DEX, NE/LE | ⏳ | Raw images and firmware first |
+| x86, x86-64 | ✅ | |
+| AArch64 | ✅ | `adrp`-based references; calls through `adrp` + `add` + `blr` are followed |
+| ARM32, Thumb-2 | ✅ | Mixed ARM/Thumb images, tracked per address |
+| RISC-V | ✅ | RV32/RV64 IMAFDC, compressed instructions |
+| MIPS | ✅ | 32/64-bit, both byte orders, delay slots. Not tested on a full binary yet |
+| PowerPC | ✅ | 32/64-bit, both byte orders, common AltiVec/VSX. No pseudocode |
+| Function discovery | ✅ | Entry, exports, symbols, `.pdata`, ELF `.eh_frame_hdr`, Mach-O `LC_FUNCTION_STARTS`. A stripped GNU `ls` goes from 18 functions to 446 with the unwind table |
+| Switch tables | ✅ | Absolute, MSVC RVA and PIC relative tables |
+| Listing, graph, cross references | ✅ | |
+| Rename, comments, bookmarks | ✅ | Also pseudocode variables (`N` on a selected variable) |
+| Define code, data, strings; create functions | ✅ | |
+| Auto names, demangling | ✅ | IDA-style names; MSVC, Itanium and Rust demangling |
+| Search | ✅ | Bytes, text, immediates |
+| Hex view, patching, assembler | ✅ | NOP/invert/force-jump on x86 and AArch64; an x86 assembler for anything else |
+| Pseudocode, x86/x64 | 🟡 | Typed variables, API constants, loops and `switch`, struct member access, types across calls. An SSA view and a second C view built from it (C·SSA) |
+| Pseudocode, AArch64 | 🟡 | Experimental, built from the SSA form. No types yet |
+| Operand display (`H` `R` `B` `M`) | ✅ | Windows and POSIX enums applied to API arguments |
+| Local types, structs, enums | ✅ | C declarations; apply a struct to data |
+| Stack frames | ✅ | Same names as the pseudocode |
+| API prototypes | ✅ | About 250 WinAPI and libc functions |
+| FLIRT signatures | ✅ | IDA `.sig` (v5–10) and `.pat`; writes `.pat`. Referenced-function checks not used yet |
+| PDB, DWARF | ✅ | Names, globals, source lines, struct/union/enum types |
+| Call graph | ✅ | |
+| Scripting | ✅ | Python (`idc`/`idautils` names), JavaScript, headless batch mode |
+| Plugins | ✅ | Commands only. See [PLUGINS.md](PLUGINS.md) |
+| AI assistant | ✅ | Local or hosted models. Only tested against a stub server so far |
+| MCP server | ✅ | Read-only by default, string redaction, disclosure log, names shared with the app. See [MCP.md](MCP.md) |
+| Debugger | 🟡 | Local Windows (x64, 32-bit) and Linux x86-64 programs. No remote targets, no macOS |
+| IDC export, undo/redo | ✅ | |
+| Collaboration | ⏳ | |
 
-## Plan
+## Next
 
-Phases run in this order; a phase is done when its exit criteria hold on CI, not when the code is merged. Version numbers are targets, not promises. Work inside a phase can run in parallel.
+Version numbers are targets. A step counts as done when its check passes on CI.
 
-### Phase 1 — Agent-ready (v0.8)
+### 0.8: agent interface
 
-The [key feature](STRATEGY.md#the-key-feature-private-agent-ready-analysis) made usable by people who do not build from source.
+- [x] `paranoia mcp` with redaction, disclosure log, `triage` and `--workspace`
+- [x] `paranoia ledger` checks a disclosure log
+- [x] The CLI is part of the Windows release
+- [ ] Try the AI assistant with real Ollama and LM Studio models and write down what works
+- [ ] Redaction beyond strings: numbers that look like IP addresses, symbol names on request
+- [ ] The same redaction and log for the AI assistant in the app
 
-| Item | Status | Exit criterion |
-| --- | --- | --- |
-| MCP server `paranoia mcp` | ✅ done | Tests in `crates/paranoia-cli/src/mcp.rs`; stdio session against system binaries |
-| CLI in Windows releases | ✅ workflow changed | `paranoia-cli-vX.Y.Z-windows-x64.exe` present, in `SHA256SUMS` and attested on the next release |
-| Pseudocode variable rename (`N` on a variable) | ✅ done | `var_names_in_pseudocode` test |
-| AI assistant against real local models | ⏳ | Explain / name / flag run against Ollama and LM Studio with two open models each; results and failures written down here |
-| MCP names shared with the desktop app | ✅ done | `--workspace`: names, comments and types load from the app's workspace on open and are saved there after each change; the app's lock keeps the two from writing at once (a change made while the app runs is refused and undone). Test `workspace_names_are_shared_with_the_app` |
-| MCP batch tool for triage | ✅ done | `triage`: per function, callees (imports first) and referenced strings, paged; kernel32.dll (2 604 functions) opened and triaged in 1.2 s |
-| Controlled disclosure (the key feature) | ✅ done | `--redact-strings` and `--ledger`; tests `redaction_and_ledger`, `unwritable_ledger_withholds_results` |
-| Ledger check | ✅ done | Lines chained by SHA-256 (`prev`); `paranoia ledger FILE` verifies every text and the chain and summarises what was disclosed; exits 2 on any mismatch. Test `verify_checks_texts_and_the_chain` |
-| Disclosure follow-ups | ⏳ | Redaction profiles beyond strings (numeric constants that look like IPv4 addresses, symbol names on request); the same controls for the desktop AI assistant |
+### 0.9: AArch64 decompiler
 
-### Phase 2 — AArch64 decompiler (v0.9, top priority for the decompiler)
+- [x] Lift AArch64 into the SSA form (arithmetic, moves, shifts, loads/stores, branches, calls)
+- [x] C, C·SSA and SSA views for AArch64. On two Go binaries, 5 700 of 5 720 functions call the same functions as the listing
+- [ ] Check signatures against symbols on Go, Rust and clang binaries (target: 90 % right)
+- [ ] Types for common libc, Apple and Android APIs
+- [ ] A corpus of clang and Rust arm64 binaries on CI
+- [ ] Make C·SSA the default on x86/x64 once it has `else`, `while` and `switch`
 
-AArch64 covers Apple silicon, Android and Linux servers. The SSA IR (`ssa.rs`) is now shared by both ISAs (AArch64 registers are numbered so the return register and the stack pointer sit where `rax` and `rsp` do); the lifter is `ssa/a64.rs` and the C generator (`ssa/c.rs`) is the one x86 uses.
+### 0.10: Linux and macOS builds
 
-| Step | Status | Exit criterion |
-| --- | --- | --- |
-| Lift AArch64 into the SSA IR: data processing, moves and wide immediates, shifts (`lslv`, `ubfm` / `sbfm` as `lsl` / `lsr` / `asr`), `madd` / `msub`, divides, loads / stores (offset, pre / post index, register offset, pairs, literals), `b.cond` / `cbz` / `tbz`, `bl` / `blr` / `br`, `ret`; conditions mapped onto the C generator's comparisons | ✅ done | Unit tests from known encodings; 20 000 random words lift without a panic (`ssa::a64::tests`). Everything else (SIMD, conditional select, exclusive access) stays as an `__asm("…")` statement with the registers it reads and writes |
-| AAPCS64: arguments `x0`–`x7`, result `x0`, `x1`–`x18` and `x30` clobbered by calls, stack slots from `sp` | 🟡 partial | Arguments, result and clobbers done. Not yet measured: signatures against symbols' argument counts on Go, Rust and clang binaries (≥ 90 %) |
-| C output for AArch64 in the app, CLI and MCP | ✅ done (experimental) | The C view, C·SSA and SSA views all work on AArch64. On two Go binaries (linux/arm64 with symbols, darwin/arm64 stripped): 5 720 functions, no panic, the direct calls in the C text match the listing in 5 700 (99.7 %) — test `arm64_pseudocode_on_a_corpus` |
-| Types: API prototypes for libc and common Apple / Android imports | ⏳ | Calls to known APIs render with typed arguments, as on x86 |
-| Corpus | 🟡 partial | Only two Go binaries so far, run locally through `PARANOIA_ARM64_DIR`. Still needed: clang- and Rust-built arm64 ELF / Mach-O from published sources, run on CI |
+- [ ] AppImage and `.deb` built and signed by CI (the electron-builder targets exist but were never built)
+- [ ] Flatpak, submitted to Flathub
+- [ ] Unsigned macOS `.dmg` for arm64 and x64
+- [ ] macOS notarisation. This needs a paid Apple Developer ID, so it waits until there is one
+- [ ] CLI builds for Linux and macOS
 
-Afterwards: make C·SSA the default view on x86 / x64 once it matches the C view's types and structuring (`else` / `while` / `switch` still missing there), memory SSA for stack slots.
+### 0.11: firmware and raw images
 
-### Phase 3 — Linux and macOS builds (v0.10)
+- [ ] Raw loader: pick the architecture, byte order and base address
+- [ ] Intel HEX and Motorola S-record
+- [ ] Cortex-M vector table: handlers become functions automatically
+- [ ] Guess the base address of a raw image
+- [ ] Named memory regions, later SVD files
 
-| Item | Exit criterion | Note |
-| --- | --- | --- |
-| Linux AppImage and `.deb` | Built by CI on `ubuntu-latest` on every tag, checksummed, signed and attested like the Windows files; starts on a clean Ubuntu LTS and opens a file | `electron-builder` targets are already configured but have never been built |
-| Flatpak | Manifest on `org.electronjs.Electron2.BaseApp`, builds in CI; submitted to Flathub | Free; Flathub reviews the submission |
-| macOS `.dmg` (arm64 and x64), unsigned | Built by CI on macOS runners; opens a file on both architectures | Without notarisation Gatekeeper blocks the first launch; the README will say how to allow it |
-| macOS notarisation | Notarised builds | **Needs an Apple Developer ID (paid yearly, held by the maintainer). Deferred until the account exists** |
-| CLI (and MCP) for Linux and macOS | `paranoia-cli-*` for linux-x64, linux-arm64, macos-arm64, macos-x64 in each release | |
+### 0.12: remote debugging
 
-### Phase 4 — Firmware and raw images (v0.11)
+- [ ] GDB remote protocol: `gdbserver` and QEMU's gdbstub, Linux x86-64 and AArch64
+- [ ] This is the first time the engine opens a socket. It will only connect when the user asks, to loopback by default, and the security docs get updated before it ships
 
-| Item | Exit criterion |
-| --- | --- |
-| Raw loader: the user picks architecture, endianness and base address | A raw `.bin` opens with functions found from user-given entry points |
-| Intel HEX and Motorola S-record | Loaded at the addresses they declare; mutation tests like the other loaders |
-| Cortex-M vector table | Initial SP and handler addresses recognised (Thumb bit), handlers seeded as functions without the user typing anything |
-| Base-address recovery for raw images | On a test set of firmware with known bases, the right base ranks first in ≥ 80 % of cases |
-| Memory map | Named regions (flash, RAM, peripherals); SVD files later |
+### Later
 
-### Phase 5 — Remote debugging (v0.12)
-
-| Item | Exit criterion |
-| --- | --- |
-| GDB remote serial protocol client in the engine | Registers, memory, breakpoints, step and continue against `gdbserver` and QEMU's gdbstub |
-| Targets | Linux x86-64 and AArch64 through `gdbserver`; QEMU user and system mode; OpenOCD later |
-| Security first | The engine's first network socket: started only by the user, loopback by default, any other host confirmed natively; [SECURITY-DESIGN.md](SECURITY-DESIGN.md) and [PSB.md](PSB.md) updated **before** it ships |
-
-### Ongoing
-
-- **Signatures & types:** `.sig` referenced-function checks, more built-in libraries.
-- **Plugins:** panels, hotkeys and event hooks.
-- **AI assistant:** batch naming of `sub_` functions, chat about a selection, streaming.
-- **Debugger:** Linux 32-bit and ARM, macOS.
-- **Security baseline:** reviewed before every release ([PSB.md](PSB.md)); an independent audit when funding allows.
+- Signature checks for referenced functions, more built-in libraries
+- Plugin panels, hotkeys and event hooks
+- Batch naming and chat in the AI assistant
+- Debugger for Linux 32-bit, ARM and macOS
+- An independent security audit
 
 ## Editions
 
-The engine, CLI and desktop app described above are and will stay open source (Apache-2.0). A paid Pro edition with collaboration and team features may follow; it will build on, not take away from, the open core.
+The engine, the CLI and the desktop app are open source under Apache-2.0 and will stay that way. A paid edition with team features may come later. It would be built on top of the open version without removing anything from it.

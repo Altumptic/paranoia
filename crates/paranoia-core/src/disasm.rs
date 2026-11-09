@@ -1,8 +1,8 @@
 //! Instruction decoding. Two layers:
 //!
-//! * [`decode`] — fast, allocation-free decoding used by the analysis passes
+//! * [`decode`]: fast, allocation-free decoding used by the analysis passes
 //!   (length, control flow, branch target, referenced memory).
-//! * [`render`] — full formatting into highlighted tokens for the UI, with
+//! * [`render`]: full formatting into highlighted tokens for the UI, with
 //!   addresses resolved to names.
 
 use std::collections::HashMap;
@@ -241,7 +241,7 @@ impl Disassembler {
 ///
 /// iced-x86 measures instructions with pointers truncated to 32 bits, and debug builds check the
 /// subtraction: a buffer that straddles a 4 GiB address boundary makes it panic ("attempt to
-/// subtract with overflow"). This hands out the bytes as they are, or — when they straddle one — a
+/// subtract with overflow"). This hands out the bytes as they are, or, when they straddle one, a
 /// copy placed so that it does not.
 pub(crate) enum Decodable<'a> {
     Borrowed(&'a [u8]),

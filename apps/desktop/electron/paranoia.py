@@ -81,7 +81,7 @@ def functions():
 
 
 def Functions(start=0, end=BADADDR):
-    """Start addresses of functions in [start, end) — like idautils.Functions."""
+    """Start addresses of functions in [start, end), like idautils.Functions."""
     for f in functions():
         if start <= f["address"] < end:
             yield f["address"]
@@ -234,7 +234,7 @@ def jumpto(ea):
 
 
 class _Pn:
-    """`pn.functions()`, `pn.rename(ea, name)`, … — the same names as the JavaScript console."""
+    """`pn.functions()`, `pn.rename(ea, name)`, …: the same names as the JavaScript console."""
 
     call = staticmethod(call)
     info = staticmethod(info)

@@ -1,16 +1,8 @@
-//! `paranoia mcp` — a Model Context Protocol server on stdio, so AI agents (Claude Code,
-//! Claude Desktop, Cursor, any MCP client) can drive the engine: open a binary, list
-//! functions, read disassembly and pseudocode, follow cross references.
+//! `paranoia mcp`: an MCP server on stdio, so AI agents can open binaries and read listings,
+//! pseudocode and cross references.
 //!
-//! Boundaries, in line with the rest of the project:
-//! * stdio only — no sockets, no network;
-//! * files only from the directories given with `--root` (the working directory by default);
-//! * read-only unless started with `--allow-writes`; even then, names and comments live in
-//!   this session's memory, or — with `--workspace` — in the desktop app's workspace store;
-//! * everything taken from the analysed file (strings, symbol names) is data from a possibly
-//!   hostile author — the server says so to the client in its instructions;
-//! * controlled disclosure ([`crate::disclosure`]): `--redact-strings` hides the file's string
-//!   contents from the agent, `--ledger FILE` records every answer before it is sent.
+//! It never opens a socket, only reads files under `--root`, and is read-only unless started
+//! with `--allow-writes`. Redaction and the ledger live in `disclosure.rs`.
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -116,7 +108,7 @@ impl Server {
     }
 
     /// Opens the workspace store for one operation. The desktop app holds the store's lock
-    /// while it runs, so this fails then — by design: the two never write at the same time.
+    /// while it runs, so this fails then. That's on purpose: the two never write at once.
     fn store(&self) -> Result<Option<paranoia_db::Store>, ToolError> {
         let Some(p) = &self.workspace else { return Ok(None) };
         paranoia_db::Store::open(p).map(Some).map_err(|e| {
@@ -424,7 +416,7 @@ impl Server {
                 let b = &self.pick(a)?.bin;
                 let va = resolve(b, str_arg(a, "address")?)?;
                 let g = b.function_graph(va).ok_or_else(|| ToolError(format!("no function at {va:#x}")))?;
-                let mut out = format!("{} — {} blocks\n", g.name, g.blocks.len());
+                let mut out = format!("{}: {} blocks\n", g.name, g.blocks.len());
                 for blk in &g.blocks {
                     let succ: Vec<String> = blk.succs.iter().map(|e| format!("{:?} {:#x}", e.kind, e.to)).collect();
                     out.push_str(&format!(
@@ -513,7 +505,7 @@ impl Server {
                     .iter()
                     .map(|h| {
                         // String hits quote the whole string (the engine's label is cut at 80
-                        // characters), so they read — and redact — like every other literal.
+                        // characters), so they look and get redacted like every other literal.
                         let label = match h.kind.as_str() {
                             "string" => {
                                 let full = b
@@ -834,7 +826,7 @@ fn info_text(b: &Binary) -> String {
     }
     out.push_str("\nmitigations\n");
     for m in &i.mitigations {
-        out.push_str(&format!("  [{}] {} — {}\n", if m.enabled { "x" } else { " " }, m.name, m.detail));
+        out.push_str(&format!("  [{}] {}: {}\n", if m.enabled { "x" } else { " " }, m.name, m.detail));
     }
     for w in &i.warnings {
         out.push_str(&format!("\nwarning: {w}\n"));

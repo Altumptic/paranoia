@@ -1,13 +1,8 @@
-//! AArch64 → SSA statements. The same IR as x86 (see the parent module), so the SSA passes and
-//! the C generator work unchanged; only lifting and the AAPCS64 calling convention live here.
+//! AArch64 lifting into the SSA IR. The passes and the C generator are shared with x86.
 //!
-//! Numbering (see `A64_NAMES`): `xN` is variable N except `x4` (31), and `sp` is variable 4, so
-//! the return register is 0 and the stack pointer is `RSP` on every ISA. `xzr` / `wzr` read as 0.
-//!
-//! Conditions use the x86 condition names the C generator already understands (`eq` → `e`,
-//! `hs` → `ae`, `lt` → `l`, …); `cbz`, `cbnz`, `tbz` and `tbnz` become a comparison plus a branch.
-//! Instructions without a model (SIMD, exclusive access, conditional selects, …) keep their text
-//! with the registers they read and write.
+//! `x0` is variable 0 and `sp` is variable 4, the same slots as `rax` and `rsp`, so nothing
+//! downstream needs to know the ISA (`x4` moves to 31). Conditions use the x86 names the C
+//! generator knows (`eq` is `e`, `hs` is `ae`). Instructions we don't model are kept as text.
 
 use std::collections::BTreeMap;
 

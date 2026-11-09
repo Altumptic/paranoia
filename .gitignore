@@ -2,32 +2,20 @@
 /target/
 **/*.rs.bk
 
-# Node / frontend
+# Node
 node_modules/
 apps/desktop/dist/
-apps/desktop/src-tauri/gen/
-apps/desktop/src-tauri/target/
+apps/desktop/out/
+apps/desktop/release/
+*.tsbuildinfo
 
-# Engine build output (regenerate with `npm run wasm`)
+# Built by `npm run wasm`
 apps/desktop/src/engine/paranoia.wasm
 
-# Editors / OS
+# Editors and OS files
 .idea/
 .vscode/*
 !.vscode/extensions.json
 .DS_Store
 Thumbs.db
 *.log
-
-# Local tooling
-.claude/
-
-# Packaged builds
-apps/desktop/release/
-apps/desktop/out/
-
-# Original design drops (copies live in assets/brand)
-/src/
-
-# Rendered promo video and review frames (rebuild with assets/video/render.mjs)
-/assets/video/out/

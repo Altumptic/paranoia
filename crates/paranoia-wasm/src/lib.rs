@@ -1,4 +1,4 @@
-//! WebAssembly build of the engine with a plain C ABI — no wasm-bindgen, no
+//! WebAssembly build of the engine with a plain C ABI. No wasm-bindgen, no
 //! generated glue, no extra toolchain. The JavaScript side
 //! (`apps/desktop/src/engine/wasm.worker.ts`) copies bytes in with `pn_alloc`,
 //! calls `pn_open` / `pn_call`, and reads the JSON reply via `pn_result_*`.

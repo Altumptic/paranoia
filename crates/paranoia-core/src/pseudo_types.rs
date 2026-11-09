@@ -79,7 +79,7 @@ pub(crate) fn recover_loops(lines: &mut Vec<PseudoLine>) {
         head.extend(c1.clone());
         head.push(tok(") {", TokenKind::Punct));
         lines[i] = PseudoLine { address: addr, indent: ind, tokens: head };
-        lines.remove(w); // `} while (C);` — the if's `}` now closes the while
+        lines.remove(w); // `} while (C);`: the if's `}` now closes the while
         lines.remove(i + 1); // `do {`
         let body_end = w - 1; // index of the closing `}` after removals
         for l in &mut lines[i + 1..body_end] {

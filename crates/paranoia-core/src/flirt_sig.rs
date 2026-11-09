@@ -1,7 +1,7 @@
 //! IDA's binary FLIRT signature files (`.sig`, versions 5–10).
 //!
 //! A `.sig` is a compressed prefix tree of the same patterns a `.pat` file lists: each node holds a
-//! run of pattern bytes (some of them wildcards), the leaves hold modules — CRC16 of the bytes
+//! run of pattern bytes (some of them wildcards), and the leaves hold modules: CRC16 of the bytes
 //! after the pattern, function length, public names, optional "tail" bytes and referenced names.
 //! Flattening the tree gives exactly the [`PatSig`] list the `.pat` matcher already uses, so both
 //! formats share one matcher. Referenced-function checks are not used (they need resolved call

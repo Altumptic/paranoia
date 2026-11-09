@@ -1,7 +1,7 @@
 // Engine client. Two interchangeable backends speak the same method/args
 // protocol defined in crates/paranoia-core/src/api.rs:
-//  * Native — the `paranoia-engine` process driven by the desktop shell, workspace store in redb.
-//  * WASM   — the same engine compiled to WebAssembly in a Web Worker (browser build).
+//  * Native: the `paranoia-engine` process driven by the desktop shell, workspace store in redb.
+//  * WASM: the same engine compiled to WebAssembly in a Web Worker (browser build).
 
 import type { AddressInfo, AnalysisStats, Annotations, BinaryInfo, CallGraph, Callee, Frame, FunctionGraph, FunctionSummary, Hit, InsnPatch, Instruction, ItemKind, NameEntry, PdbReport, Pseudocode, SearchHit, SearchKind, SigReport, StringEntry, StructDef, Symbol, TypeHit, TypeLibrary, Xref } from "./types";
 import type { WorkerRequest, WorkerResponse } from "./wasm.worker";

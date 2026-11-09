@@ -1,4 +1,4 @@
-//! `paranoia-engine` — the native analysis process behind the desktop app.
+//! `paranoia-engine`: the engine process the desktop app talks to.
 //!
 //! Protocol: one JSON object per line on stdin, one reply per line on stdout.
 //!
