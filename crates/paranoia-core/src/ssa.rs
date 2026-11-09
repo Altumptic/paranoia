@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::Edge;
 
+pub(crate) mod a64;
 mod c;
 pub(crate) use c::COptions;
 
@@ -43,7 +44,40 @@ fn var_of(r: Register) -> Option<Var> {
 
 const NAMES64: [&str; 16] = ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
 const NAMES32: [&str; 8] = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"];
+/// AArch64 numbering, chosen so the passes and the C generator need no per-ISA cases: the
+/// return register (`x0`) is 0 like `rax`, the stack pointer is 4 like `rsp`, and `x4` takes 31.
+const A64_NAMES: [&str; 32] = [
+    "x0", "x1", "x2", "x3", "sp", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x18", "x19",
+    "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "x4",
+];
+/// The stack pointer's variable on every ISA.
 const RSP: Var = 4;
+/// Variables per function (the largest register file: AArch64's 31 + sp).
+const VARS: usize = 32;
+
+/// The instruction set a function was lifted from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Isa {
+    X86,
+    A64,
+}
+
+/// How variables are spelled for one function.
+#[derive(Debug, Clone, Copy)]
+struct Names {
+    isa: Isa,
+    bits: u32,
+}
+
+impl Names {
+    fn get(self, v: Var) -> &'static str {
+        match self.isa {
+            Isa::A64 => A64_NAMES.get(v as usize).copied().unwrap_or("x?"),
+            Isa::X86 if self.bits == 32 && (v as usize) < 8 => NAMES32[v as usize],
+            Isa::X86 => NAMES64.get(v as usize).copied().unwrap_or("r?"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum Expr {
@@ -156,6 +190,7 @@ pub struct SsaFacts {
 pub struct SsaFunction {
     blocks: Vec<Block>,
     bits: u32,
+    isa: Isa,
     /// Known constant value of each SSA value (family, version).
     consts: HashMap<(Var, u32), i64>,
     /// Addresses of definitions that are dead in the IR as lifted (before folding), for the C view.
@@ -266,7 +301,7 @@ impl Lifter {
             FlowControl::Call | FlowControl::IndirectCall => {
                 let target = match i.op_kind(0) {
                     OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => format!("sub_{:X}", i.near_branch_target()),
-                    _ => format!("[{}]", Expr::text_plain(&self.operand(i, 0), self.bits)),
+                    _ => format!("[{}]", Expr::text_plain(&self.operand(i, 0), Names { isa: Isa::X86, bits: self.bits })),
                 };
                 let mut args = Vec::new();
                 if matches!(i.op_kind(0), OpKind::Register | OpKind::Memory) {
@@ -431,12 +466,12 @@ impl Expr {
         }
     }
 
-    fn text_plain(e: &Expr, bits: u32) -> String {
-        Self::text(e, bits, &HashMap::new(), false)
+    fn text_plain(e: &Expr, names: Names) -> String {
+        Self::text(e, names, &HashMap::new(), false)
     }
 
-    fn text(e: &Expr, bits: u32, sub: &HashMap<(Var, u32), String>, top: bool) -> String {
-        let name = |v: Var| if bits == 32 && (v as usize) < 8 { NAMES32[v as usize] } else { NAMES64[v as usize] };
+    fn text(e: &Expr, names: Names, sub: &HashMap<(Var, u32), String>, top: bool) -> String {
+        let name = |v: Var| names.get(v);
         match e {
             Expr::Const(c) => hex(*c),
             Expr::Use(v, n) => sub.get(&(*v, *n)).cloned().unwrap_or_else(|| {
@@ -447,15 +482,15 @@ impl Expr {
                 }
             }),
             Expr::Bin(op, a, b) => {
-                let s = format!("{} {} {}", Self::text(a, bits, sub, false), op.trim_end_matches('s'), Self::text(b, bits, sub, false));
+                let s = format!("{} {} {}", Self::text(a, names, sub, false), op.trim_end_matches('s'), Self::text(b, names, sub, false));
                 if top {
                     s
                 } else {
                     format!("({s})")
                 }
             }
-            Expr::Un(op, a) => format!("{op}{}", Self::text(a, bits, sub, false)),
-            Expr::Load(size, a) => format!("*(u{} *){}", *size as u32 * 8, Self::text(a, bits, sub, false)),
+            Expr::Un(op, a) => format!("{op}{}", Self::text(a, names, sub, false)),
+            Expr::Load(size, a) => format!("*(u{} *){}", *size as u32 * 8, Self::text(a, names, sub, false)),
             Expr::Opaque(s) => s.clone(),
         }
     }
@@ -626,35 +661,50 @@ pub(crate) fn build(
         args: args.iter().filter_map(|r| var_of(*r)).collect(),
     };
     let mut info = InstructionInfoFactory::new();
+    let mut lifted: BTreeMap<u64, (Vec<Stmt>, Vec<Edge>)> = BTreeMap::new();
+    for (s, (insns, succs)) in blocks {
+        let mut stmts: Vec<Stmt> = Vec::new();
+        for i in insns {
+            let first = stmts.len();
+            let sets_flags = i.rflags_modified() != 0;
+            let is_push = i.mnemonic() == Mnemonic::Push;
+            for k in lifter.lift(i, &mut info) {
+                stmts.push(Stmt { address: i.ip(), kind: k, dead: false, flags: false, push: false });
+            }
+            let grew = stmts.len() > first;
+            if let Some(last) = stmts.last_mut().filter(|_| grew) {
+                last.flags = sets_flags;
+                last.push = is_push && matches!(last.kind, Kind::Store { .. });
+            }
+        }
+        if bits == 32 {
+            stdcall_cleanup(&mut stmts);
+        }
+        lifted.insert(*s, (stmts, succs.clone()));
+    }
+    build_lifted(entry, lifted, bits, Isa::X86, &lifter.args)
+}
+
+/// Builds the SSA form from blocks already lifted to statements (any ISA). `args` are the
+/// argument registers, which a jump out of the function (a tail call) passes on.
+fn build_lifted(entry: u64, mut blocks: BTreeMap<u64, (Vec<Stmt>, Vec<Edge>)>, bits: u32, isa: Isa, args: &[Var]) -> SsaFunction {
+    let inside: HashSet<u64> = blocks.keys().copied().collect();
+    for (stmts, _) in blocks.values_mut() {
+        for s in stmts.iter_mut() {
+            // A direct jump out of the function is a tail call: it reads the arguments and the return register.
+            if let Kind::Branch { target: Some(t), uses, .. } = &mut s.kind {
+                if !inside.contains(t) {
+                    uses.extend(args.iter().chain(std::iter::once(&0)).map(|v| Expr::Use(*v, 0)));
+                }
+            }
+        }
+    }
     let starts: Vec<u64> = blocks.keys().copied().collect();
     let index: HashMap<u64, usize> = starts.iter().enumerate().map(|(i, s)| (*s, i)).collect();
     let mut bl: Vec<Block> = starts
         .iter()
         .map(|s| {
-            let (insns, succs) = &blocks[s];
-            let mut stmts: Vec<Stmt> = Vec::new();
-            for i in insns {
-                let first = stmts.len();
-                let sets_flags = i.rflags_modified() != 0;
-                let is_push = i.mnemonic() == Mnemonic::Push;
-                for mut k in lifter.lift(i, &mut info) {
-                    // A direct jump out of the function is a tail call: it reads the arguments and rax.
-                    if let Kind::Branch { target: Some(t), uses, .. } = &mut k {
-                        if !blocks.contains_key(t) {
-                            uses.extend(lifter.args.iter().chain(std::iter::once(&0)).map(|v| Expr::Use(*v, 0)));
-                        }
-                    }
-                    stmts.push(Stmt { address: i.ip(), kind: k, dead: false, flags: false, push: false });
-                }
-                let grew = stmts.len() > first;
-                if let Some(last) = stmts.last_mut().filter(|_| grew) {
-                    last.flags = sets_flags;
-                    last.push = is_push && matches!(last.kind, Kind::Store { .. });
-                }
-            }
-            if bits == 32 {
-                stdcall_cleanup(&mut stmts);
-            }
+            let (stmts, succs) = blocks.remove(s).unwrap_or_default();
             use crate::model::EdgeKind as K;
             let taken = succs.iter().find(|e| matches!(e.kind, K::True | K::Uncond)).map(|e| e.to);
             let fall = succs.iter().find(|e| matches!(e.kind, K::False | K::Fall)).map(|e| e.to);
@@ -682,6 +732,7 @@ pub(crate) fn build(
         return SsaFunction {
             blocks: bl,
             bits,
+            isa,
             consts: HashMap::new(),
             unused: HashSet::new(),
             unused_defs: HashSet::new(),
@@ -798,13 +849,14 @@ pub(crate) fn build(
             }
         }
     }
-    let mut counter = [0u32; 16];
-    let mut stacks: Vec<Vec<u32>> = vec![vec![0]; 16]; // version 0 = value on entry
+    let mut counter = [0u32; VARS];
+    let mut stacks: Vec<Vec<u32>> = vec![vec![0]; VARS]; // version 0 = value on entry
     rename(e, &mut bl, &children, &index, &mut counter, &mut stacks);
 
     let mut f = SsaFunction {
         blocks: bl,
         bits,
+        isa,
         consts: HashMap::new(),
         unused: HashSet::new(),
         unused_defs: HashSet::new(),
@@ -821,11 +873,11 @@ fn rename(
     bl: &mut [Block],
     children: &[Vec<usize>],
     index: &HashMap<u64, usize>,
-    counter: &mut [u32; 16],
+    counter: &mut [u32; VARS],
     stacks: &mut Vec<Vec<u32>>,
 ) {
     let mut pushed: Vec<Var> = Vec::new();
-    let fresh = |v: Var, counter: &mut [u32; 16], stacks: &mut Vec<Vec<u32>>, pushed: &mut Vec<Var>| -> u32 {
+    let fresh = |v: Var, counter: &mut [u32; VARS], stacks: &mut Vec<Vec<u32>>, pushed: &mut Vec<Var>| -> u32 {
         counter[v as usize] += 1;
         let n = counter[v as usize];
         stacks[v as usize].push(n);
@@ -992,9 +1044,12 @@ impl SsaFunction {
         }
     }
 
+    fn names(&self) -> Names {
+        Names { isa: self.isa, bits: self.bits }
+    }
+
     fn name(&self, v: Var, n: u32) -> String {
-        let base = if self.bits == 32 && (v as usize) < 8 { NAMES32[v as usize] } else { NAMES64[v as usize] };
-        format!("{base}_{n}")
+        format!("{}_{n}", self.names().get(v))
     }
 
     /// Text of each value as it reads after propagation: constants and copies substituted.
@@ -1056,7 +1111,7 @@ impl SsaFunction {
                     if *def == RSP {
                         continue;
                     }
-                    let name = NAMES64[*def as usize];
+                    let name = self.names().get(*def);
                     if self.unused.contains(&s.address) && self.unused_def(s.address, *def) {
                         f.dead.insert((s.address, name));
                     }
@@ -1072,7 +1127,7 @@ impl SsaFunction {
     /// One text line per block header, phi and statement: `(indent, text, address, dead)`.
     pub fn lines(&self) -> Vec<(u8, String, Option<u64>, bool)> {
         let sub = self.substitutions();
-        let t = |e: &Expr| Expr::text(e, self.bits, &sub, true);
+        let t = |e: &Expr| Expr::text(e, self.names(), &sub, true);
         let mut out = Vec::new();
         for b in &self.blocks {
             let preds = if b.preds.is_empty() {

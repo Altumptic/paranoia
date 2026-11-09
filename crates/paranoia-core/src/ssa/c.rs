@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{Block, Expr, Kind, SsaFunction, Var, NAMES32, NAMES64, RSP};
+use super::{Block, Expr, Kind, SsaFunction, Var, RSP};
 use crate::model::{Token, TokenKind};
 use crate::pseudo::PseudoLine;
 
@@ -113,11 +113,7 @@ struct Gen<'a> {
 
 impl Gen<'_> {
     fn reg_name(&self, v: Var) -> &'static str {
-        if self.f.bits == 32 && (v as usize) < 8 {
-            NAMES32[v as usize]
-        } else {
-            NAMES64[v as usize]
-        }
+        self.f.names().get(v)
     }
 
     /// Stack offset of an address expression `rsp_n ± d`, if it is one.
@@ -161,6 +157,9 @@ impl Gen<'_> {
                     out.push(tok(self.reg_name(*v), TokenKind::Register));
                 }
             }
+            Expr::Bin("+" | "-", ..) if self.const_value(e, 0).is_some() => {
+                out.push(num(self.const_value(e, 0).unwrap_or_default()));
+            }
             Expr::Bin(op, a, b) => {
                 if !top {
                     out.push(tok("(", TokenKind::Punct));
@@ -177,8 +176,9 @@ impl Gen<'_> {
                 self.expr(a, false, out);
             }
             Expr::Load(size, a) => {
-                if let Expr::Const(addr) = &**a {
-                    if let Some(n) = global_name(self.o, *addr, *size) {
+                // A constant address, also one built in steps (`adrp` + `ldr [x1, #0x7c8]`).
+                if let Some(addr) = self.const_value(a, 0) {
+                    if let Some(n) = global_name(self.o, addr, *size) {
                         out.push(tok(n, TokenKind::Symbol));
                         return;
                     }
@@ -193,6 +193,23 @@ impl Gen<'_> {
                 }
             }
             Expr::Opaque(s) => out.push(tok(s.clone(), TokenKind::Text)),
+        }
+    }
+
+    /// The value of an address expression made only of constants, `+` and `-` (through values
+    /// written in place), e.g. an `adrp` page plus a load offset.
+    fn const_value(&self, e: &Expr, depth: u8) -> Option<i64> {
+        if depth > 8 {
+            return None;
+        }
+        match e {
+            Expr::Const(c) => Some(*c),
+            Expr::Use(v, n) => self.inline.get(&(*v, *n)).and_then(|x| self.const_value(x, depth + 1)),
+            Expr::Bin(op @ ("+" | "-"), a, b) => {
+                let (x, y) = (self.const_value(a, depth + 1)?, self.const_value(b, depth + 1)?);
+                Some(if *op == "+" { x.wrapping_add(y) } else { x.wrapping_sub(y) })
+            }
+            _ => None,
         }
     }
 

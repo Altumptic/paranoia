@@ -130,7 +130,15 @@ export function PseudocodeView() {
     <div className="pseudo-wrap">
       <div className="pseudo-bar">
         <span className="pseudo-title mono">{code.name}</span>
-        <span className="badge">{info.arch === "x86" ? "x86 · cdecl" : info.format === "pe" ? "x64 · Microsoft ABI" : "x64 · System V ABI"}</span>
+        <span className="badge">
+          {info.arch === "arm64"
+            ? "AArch64 · AAPCS64 · experimental"
+            : info.arch === "x86"
+              ? "x86 · cdecl"
+              : info.format === "pe"
+                ? "x64 · Microsoft ABI"
+                : "x64 · System V ABI"}
+        </span>
         <span className="muted small">{mode === "ssa" ? (code.note ?? "SSA form") : "Lifted pseudocode — verify against the listing"}</span>
         <span className="flex1" />
         <div className="seg pseudo-seg" role="group" aria-label="View">

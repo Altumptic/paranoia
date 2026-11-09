@@ -644,6 +644,71 @@ fn ssa_facts_in_the_c_view_are_safe() {
     eprintln!("ssa facts: {checked} functions, {removed} lines dropped, {notes} constants noted");
 }
 
+/// AArch64 pseudocode on a corpus (`PARANOIA_ARM64_DIR`: arm64 ELF / Mach-O files): no panics,
+/// balanced braces, every `goto` has its label, and the direct calls in the C text are the
+/// calls the disassembly shows. No-op without the variable.
+#[test]
+fn arm64_pseudocode_on_a_corpus() {
+    let Ok(dir) = std::env::var("PARANOIA_ARM64_DIR") else { return };
+    let take: usize = std::env::var("PARANOIA_ARM64_FUNCS").ok().and_then(|v| v.parse().ok()).unwrap_or(400);
+    let (mut n, mut same, mut files) = (0usize, 0usize, 0usize);
+    let mut differ: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+        let Ok(bytes) = std::fs::read(entry.path()) else { continue };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(mut bin) = Binary::load(&name, bytes) else { continue };
+        if bin.info().arch != Arch::Arm64 {
+            continue;
+        }
+        files += 1;
+        bin.analyze();
+        let funcs: Vec<u64> =
+            bin.functions().iter().filter(|f| f.instructions > 4 && f.instructions < 800).map(|f| f.address).take(take).collect();
+        for va in funcs {
+            let p = bin.pseudocode(va).expect("pseudocode");
+            let t: Vec<String> = p.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect();
+            let depth: i64 = t.iter().map(|l| l.matches('{').count() as i64 - l.matches('}').count() as i64).sum();
+            assert_eq!(depth, 0, "{name} {va:#x}: unbalanced\n{}", t.join("\n"));
+            let labels: Vec<String> = t.iter().filter_map(|l| l.strip_suffix(':').map(str::to_string)).collect();
+            for l in &t {
+                if let Some(target) = l.trim_start().split("goto ").nth(1).map(|r| r.trim_end_matches(';')) {
+                    assert!(
+                        !target.starts_with("loc_") || labels.iter().any(|x| x == target),
+                        "{name} {va:#x}: goto {target} without label"
+                    );
+                }
+            }
+            // Calls in the body (the first line is the function's own signature).
+            let in_c: std::collections::BTreeSet<String> = p
+                .lines
+                .iter()
+                .skip(1)
+                .flat_map(|l| {
+                    l.tokens
+                        .windows(2)
+                        .filter(|w| w[0].k == paranoia_core::TokenKind::Symbol && w[1].t.starts_with('('))
+                        .map(|w| w[0].t.clone())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            let in_asm: std::collections::BTreeSet<String> = bin.callees(va).into_iter().map(|c| c.name).collect();
+            if in_c == in_asm {
+                same += 1;
+            } else if differ.len() < 5 {
+                differ.push(format!("{name} {va:#x}: C {in_c:?} vs listing {in_asm:?}"));
+            }
+            n += 1;
+        }
+    }
+    eprintln!("arm64 pseudocode: {files} files, {n} functions, {same} with the same direct calls as the listing");
+    for d in &differ {
+        eprintln!("  {d}");
+    }
+    if n > 0 {
+        assert!(same * 100 >= n * 95, "only {same} of {n} functions call what the listing calls");
+    }
+}
+
 /// C generated from the SSA form, on real code: no panics, balanced braces, every `goto` has its
 /// label, and it calls the same functions as the line-based C view.
 #[test]
