@@ -7,12 +7,14 @@ const reply = (status, body) => async () => ({ ok: status < 300, status, text: a
 const ok = (content) => reply(200, { choices: [{ message: { content } }] });
 
 test("loopback endpoints are local, everything else is remote", () => {
-  for (const u of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://[::1]:8080/v1", "http://127.1.2.3/v1", "http://ai.localhost/v1"]) {
+  for (const u of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://[::1]:8080/v1", "http://127.1.2.3/v1"]) {
     assert.equal(A.parseEndpoint(u).local, true, u);
   }
-  for (const u of ["https://api.example.com/v1", "https://10.0.0.5/v1", "https://localhost.evil.com/v1", "https://127.0.0.1.evil.com/v1"]) {
+  for (const u of ["https://api.example.com/v1", "https://10.0.0.5/v1", "https://localhost.evil.com/v1", "https://127.0.0.1.evil.com/v1", "https://ai.localhost/v1"]) {
     assert.equal(A.parseEndpoint(u).local, false, u);
   }
+  // A `.localhost` name may resolve anywhere, so plain http to it is refused like any remote host.
+  assert.throws(() => A.parseEndpoint("http://ai.localhost/v1"), /https/);
 });
 
 test("endpoints are validated", () => {

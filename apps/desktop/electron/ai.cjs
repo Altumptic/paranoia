@@ -33,10 +33,13 @@ const TASKS = {
   },
 };
 
-/** Hosts that never leave this machine. */
+/**
+ * Hosts that never leave this machine. Names under `.localhost` are not included: the OS may
+ * resolve them through DNS, so they could point anywhere.
+ */
 function isLoopbackHost(host) {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
-  return h === "localhost" || h.endsWith(".localhost") || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h);
+  return h === "localhost" || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h);
 }
 
 /**

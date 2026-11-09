@@ -10,9 +10,13 @@ const { EngineProcess } = require("./engine.cjs");
 const { PythonRunner } = require("./python.cjs");
 const plugins = require("./plugins.cjs");
 const ai = require("./ai.cjs");
+const policy = require("./policy.cjs");
 
 const isDev = !app.isPackaged && process.env.PARANOIA_DEV_URL;
 const ROOT = path.resolve(__dirname, "..");
+/** The packaged page. Only this exact file gets the bridge; other file:// pages do not. */
+const APP_URL = policy.appUrl(path.join(ROOT, "dist", "index.html"));
+const isOwnPage = (url) => (isDev ? typeof url === "string" && url.startsWith(process.env.PARANOIA_DEV_URL) : policy.isAppPage(url, APP_URL));
 
 app.setAppUserModelId("app.paranoia.desktop");
 
@@ -87,12 +91,16 @@ function createWindow() {
     if (process.argv.includes("--maximized")) win.maximize();
   });
 
-  // Never navigate away from the app or open new windows; http(s) links go to the browser.
+  // Never navigate away from the app's own page or open new windows. A few known https links
+  // go to the system browser; anything else is dropped.
   win.webContents.on("will-navigate", (e, url) => {
-    if (!url.startsWith(isDev ? process.env.PARANOIA_DEV_URL : "file://")) e.preventDefault();
+    if (!isOwnPage(url)) e.preventDefault();
+  });
+  win.webContents.on("will-redirect", (e, url) => {
+    if (!isOwnPage(url)) e.preventDefault();
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    if (policy.externalAllowed(url)) shell.openExternal(url);
     return { action: "deny" };
   });
 
@@ -119,7 +127,7 @@ function createWindow() {
 function trusted(e) {
   const f = e.senderFrame;
   if (!win || !f || e.sender !== win.webContents || f !== win.webContents.mainFrame) return false;
-  return isDev ? f.url.startsWith(process.env.PARANOIA_DEV_URL) : f.url.startsWith("file://");
+  return isOwnPage(f.url);
 }
 
 /** ipcMain.handle with the sender check. */
@@ -158,20 +166,38 @@ async function pathAllowed(p) {
 /** Python runs with the user's permissions: confirmed once per session in a native dialog. */
 let pythonConfirmed = false;
 
+/** Engine session handle → the file it was opened from, for the debugger confirmation. */
+const sessionPaths = new Map();
+
+/** Takes the path picked in the last save dialog. Each pick allows one write. */
+function takeSavePath(p) {
+  if (!p || p !== lastSavePath) return false;
+  lastSavePath = null;
+  writtenPaths.add(normPath(p));
+  return true;
+}
+
 handle("engine:request", async (_e, req) => {
   // Only forward the protocol's known operations.
   if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug"].includes(req.op)) throw new Error("invalid engine request");
   // Exports may only go to a path the user just picked in a save dialog.
-  if (req.op === "export_patched" && req.path !== lastSavePath) throw new Error("export path was not chosen by the user");
+  if (req.op === "export_patched" && !takeSavePath(req.path)) throw new Error("export path was not chosen by the user");
   // Reads only from files the user chose.
   if (["open", "load_pdb", "find_pdb"].includes(req.op) && !(await pathAllowed(req.path))) throw new Error("this file was not opened by the user");
+  // The store is also where the recent-files allow-list lives: the page gets a fixed set of
+  // methods and may only add files it really opened.
+  if (req.op === "store") {
+    if (!policy.storeMethodAllowed(req.method)) throw new Error("invalid store request");
+    if (req.method === "recent_add" && !policy.recentAddAllowed(req.args, (p) => allowedPaths.has(normPath(p)))) throw new Error("this file was not opened by the user");
+  }
   // Starting a debuggee executes it: confirmed here, where the page cannot answer for the user.
+  // The dialog names the program and the arguments, which come from the page.
   if (req.op === "debug" && req.method === "start") {
     const r = await dialog.showMessageBox(win, {
       type: "warning",
       title: "Run and debug",
       message: "Debugging runs this program on your computer.",
-      detail: "Only debug files you trust, or do it inside a virtual machine. Malware will run with your user's permissions.",
+      detail: policy.debugDetail(sessionPaths.get(req.handle), req.args?.cmdline),
       buttons: ["Cancel", "Run and debug"],
       defaultId: 0,
       cancelId: 0,
@@ -180,6 +206,8 @@ handle("engine:request", async (_e, req) => {
     if (r.response !== 1) throw new Error("Debugging cancelled");
   }
   const res = await engine.request(req);
+  if (req.op === "open" && Number.isInteger(res)) sessionPaths.set(res, req.path);
+  if (req.op === "close") sessionPaths.delete(req.handle);
   if (req.op === "find_pdb" && typeof res === "string") allowPath(res);
   return res;
 });
@@ -382,8 +410,10 @@ handle("dialog:open", async () => {
   return r.filePaths[0];
 });
 
-/** The most recent path the user confirmed in a save dialog; file writes are limited to it. */
+/** The most recent path the user confirmed in a save dialog; it allows exactly one write. */
 let lastSavePath = null;
+/** Files written after a save dialog, which the page may later show in the file manager. */
+const writtenPaths = new Set();
 
 handle("dialog:save", async (_e, defaultName, filters) => {
   const r = await dialog.showSaveDialog(win, { defaultPath: String(defaultName ?? "export"), filters: Array.isArray(filters) ? filters : [] });
@@ -392,7 +422,7 @@ handle("dialog:save", async (_e, defaultName, filters) => {
 });
 
 handle("file:write-text", async (_e, p, text) => {
-  if (!p || p !== lastSavePath || typeof text !== "string") throw new Error("write path was not chosen by the user");
+  if (typeof text !== "string" || !takeSavePath(p)) throw new Error("write path was not chosen by the user");
   await fs.promises.writeFile(p, text, "utf8");
 });
 
@@ -419,8 +449,10 @@ ipcMain.on("app:titlebar", (e, c) => {
   }
 });
 
+// Show a file in the file manager: only files the user opened or saved.
 handle("app:reveal", (_e, p) => {
-  if (typeof p === "string" && fs.existsSync(p)) shell.showItemInFolder(p);
+  if (typeof p !== "string" || !(allowedPaths.has(normPath(p)) || writtenPaths.has(normPath(p)))) return;
+  if (fs.existsSync(p)) shell.showItemInFolder(p);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -429,6 +461,9 @@ handle("app:reveal", (_e, p) => {
 // No <webview>, no extra windows, no navigation for any web contents the app creates.
 app.on("web-contents-created", (_e, contents) => {
   contents.on("will-attach-webview", (ev) => ev.preventDefault());
+  contents.on("will-navigate", (ev, url) => {
+    if (!isOwnPage(url)) ev.preventDefault();
+  });
   contents.setWindowOpenHandler(() => ({ action: "deny" }));
 });
 
