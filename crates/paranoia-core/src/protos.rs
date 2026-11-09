@@ -1,6 +1,6 @@
 //! Built-in prototypes for common Windows and C library APIs. Used to label
 //! argument set-up instructions (`; lpFileName`) and to give pseudocode calls
-//! the right number of arguments — IDA does the same with its type libraries.
+//! the right number of arguments, as IDA does with its type libraries.
 
 use crate::model::{Arch, Format, Instruction};
 use crate::Binary;
@@ -17,7 +17,7 @@ macro_rules! protos {
 }
 
 static PROTOS: &[(&str, Proto)] = protos! {
-    // kernel32 — files
+    // kernel32: files
     "CreateFileA" => "HANDLE"("LPCSTR lpFileName", "DWORD dwDesiredAccess", "DWORD dwShareMode", "LPSECURITY_ATTRIBUTES lpSecurityAttributes", "DWORD dwCreationDisposition", "DWORD dwFlagsAndAttributes", "HANDLE hTemplateFile");
     "CreateFileW" => "HANDLE"("LPCWSTR lpFileName", "DWORD dwDesiredAccess", "DWORD dwShareMode", "LPSECURITY_ATTRIBUTES lpSecurityAttributes", "DWORD dwCreationDisposition", "DWORD dwFlagsAndAttributes", "HANDLE hTemplateFile");
     "ReadFile" => "BOOL"("HANDLE hFile", "LPVOID lpBuffer", "DWORD nNumberOfBytesToRead", "LPDWORD lpNumberOfBytesRead", "LPOVERLAPPED lpOverlapped");
@@ -42,7 +42,7 @@ static PROTOS: &[(&str, Proto)] = protos! {
     "MapViewOfFile" => "LPVOID"("HANDLE hFileMappingObject", "DWORD dwDesiredAccess", "DWORD dwFileOffsetHigh", "DWORD dwFileOffsetLow", "SIZE_T dwNumberOfBytesToMap");
     "UnmapViewOfFile" => "BOOL"("LPCVOID lpBaseAddress");
     "DeviceIoControl" => "BOOL"("HANDLE hDevice", "DWORD dwIoControlCode", "LPVOID lpInBuffer", "DWORD nInBufferSize", "LPVOID lpOutBuffer", "DWORD nOutBufferSize", "LPDWORD lpBytesReturned", "LPOVERLAPPED lpOverlapped");
-    // kernel32 — memory
+    // kernel32: memory
     "VirtualAlloc" => "LPVOID"("LPVOID lpAddress", "SIZE_T dwSize", "DWORD flAllocationType", "DWORD flProtect");
     "VirtualAllocEx" => "LPVOID"("HANDLE hProcess", "LPVOID lpAddress", "SIZE_T dwSize", "DWORD flAllocationType", "DWORD flProtect");
     "VirtualFree" => "BOOL"("LPVOID lpAddress", "SIZE_T dwSize", "DWORD dwFreeType");
@@ -57,7 +57,7 @@ static PROTOS: &[(&str, Proto)] = protos! {
     "LocalFree" => "HLOCAL"("HLOCAL hMem");
     "GlobalAlloc" => "HGLOBAL"("UINT uFlags", "SIZE_T dwBytes");
     "GlobalFree" => "HGLOBAL"("HGLOBAL hMem");
-    // kernel32 — processes, threads, modules
+    // kernel32: processes, threads, modules
     "GetProcAddress" => "FARPROC"("HMODULE hModule", "LPCSTR lpProcName");
     "LoadLibraryA" => "HMODULE"("LPCSTR lpLibFileName");
     "LoadLibraryW" => "HMODULE"("LPCWSTR lpLibFileName");

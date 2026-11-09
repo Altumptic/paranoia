@@ -1,10 +1,10 @@
 //! Clean-up passes over lifted pseudocode lines:
 //!
-//! * **expression propagation** — `edx = 0x80000000; … CreateFileW(rcx, rdx, …)`
+//! * expression propagation: `edx = 0x80000000; … CreateFileW(rcx, rdx, …)`
 //!   becomes `CreateFileW(L"a.txt", GENERIC_READ, …)` when the register is used
 //!   exactly once and is dead afterwards;
-//! * **dead call results** — `rax = CloseHandle(rcx);` → `CloseHandle(rcx);`;
-//! * **symbolic arguments** — numbers passed to known APIs become constants.
+//! * dead call results: `rax = CloseHandle(rcx);` → `CloseHandle(rcx);`;
+//! * symbolic arguments: numbers passed to known APIs become constants.
 //!
 //! The passes work on the token lines and are deliberately conservative: any
 //! label, loop or backward jump on the way stops a rewrite.
@@ -404,7 +404,7 @@ fn try_at(lines: &mut Vec<PseudoLine>, i: usize, labels: &HashMap<String, usize>
     if (use_width < 32 || width < 32) && use_width != width {
         return false;
     }
-    // A use on the left of `=` / `+=` is a write through a compound op — leave it.
+    // A use on the left of `=` / `+=` is a write through a compound op, so leave it.
     if pos == 0
         && lines[j]
             .tokens

@@ -476,7 +476,7 @@ impl SsaFunction {
                     has_load(expr, &mut l);
                     l
                 };
-                // Reads of registers the expression uses must not be redefined in between — in SSA they
+                // Reads of registers the expression uses must not be redefined in between. In SSA they
                 // cannot be; memory can.
                 let clobbered = loads
                     && b.stmts[i + 1..j].iter().any(|t| matches!(t.kind, Kind::Store { .. } | Kind::Call { .. } | Kind::Other { .. }));

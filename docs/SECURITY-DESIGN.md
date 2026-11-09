@@ -1,8 +1,8 @@
 # Security design
 
-Paranoia is a reverse-engineering tool: its job is to open files that may be hostile. This note describes what it trusts, what it defends against, what it deliberately does not protect, and where the known limits are. It is written to the [Altumptic Product Security Baseline](PSB.md) (product class **PSB-C**, local-first tooling).
+Paranoia exists to open files that may be hostile. This page says what it trusts, what it protects against, what it doesn't, and where the known gaps are. It follows the [Altumptic Product Security Baseline](PSB.md), class PSB-C (local-first tools).
 
-**Independent audit:** none yet (`AUDIT:NONE`). Everything below is the maintainers' own design and testing.
+There has been no independent audit (`AUDIT:NONE`). Everything here is our own design and testing.
 
 ## Trust boundaries
 
@@ -27,99 +27,101 @@ flowchart LR
   E -- Windows debug API --> D
 ```
 
-| Component | Trusted with | Not trusted with |
+| Component | Trusted to | Not trusted to |
 | --- | --- | --- |
-| **Analysed files** | nothing | everything — every size, offset, name and table is treated as hostile |
-| **Engine** (`paranoia-engine`, Rust) | parsing and analysis | it runs in its own process; if it crashes the app restarts it, and a crash never takes the UI with it |
-| **Renderer** (React UI) | showing results | no Node.js, no file system, no network; it can only call the preload functions |
-| **Script worker** (JS console) | the user's own JavaScript | it has no DOM and no bridge; it reaches the engine only through `pn` requests the page forwards for the open file |
-| **Main process** (Electron) | file dialogs, starting processes | it accepts requests only from the app's own top-level page and limits them as described below |
-| **Python** | the user's own scripts | Python is a normal program with the user's permissions — see non-goals |
-| **Debuggee** | nothing | it is the program being analysed, running for real |
-| **MCP client** (`paranoia mcp`, an AI agent the user started) | asking read-only questions about files under the `--root` folders | opening other files, the network, the analysed file on disk, the desktop app's workspace; writes only with `--allow-writes`, and then only in the server's memory |
+| Analysed file | nothing | anything. Every size, offset, name and table is treated as hostile |
+| Engine (`paranoia-engine`) | parse and analyse | stay up. It runs in its own process, and if it crashes the app restarts it |
+| Renderer (React UI) | show results | touch Node.js, files or the network. It can only call the preload functions |
+| Script worker (JS console) | run the user's JavaScript | reach the DOM or the bridge. It only gets `pn` requests forwarded for the open file |
+| Main process (Electron) | show file dialogs, start processes | take requests from anything but the app's own top-level page |
+| Python | run the user's scripts | be contained. It's a normal program with the user's permissions |
+| Debuggee | nothing | anything. It is the analysed program, running for real |
+| MCP client (an agent using `paranoia mcp`) | ask questions about files under `--root` | open other files, use the network, change the analysed file. Writes need `--allow-writes` |
 
-## Threats and mitigations
+## Threats
 
-| Threat | Mitigation | Evidence |
+| Threat | What we do | Where to check |
 | --- | --- | --- |
-| A crafted file crashes the engine or corrupts memory | Rust with no `unsafe` in the parsers; own bounds-checked parsers where third-party ones panicked (`.pdata`, Mach-O binds, export trie); hard limits on functions and instructions; panics are caught per request; the engine is a separate process | `cargo test` (fuzz tests on random bytes for every decoder; type and `.pat` parsers); `tests/real_binaries.rs` mutates real PE / ELF / Mach-O samples (CI: 500 mutants per OS, release checks: 18 000 across PE, RISC-V ELF and AVR ELF) |
-| A crafted file makes the engine hang | Analysis limits per function and per file; decompiler passes are linear-pass with bounded rounds | Bulk runs over every function of kernel32, shell32 and notepad finish in seconds |
-| Text from the file (names, strings) runs script in the window | React renders text, never HTML; the page CSP is `script-src 'self' 'wasm-unsafe-eval'` without `'unsafe-eval'` or inline scripts; the JS console runs in a separate worker | CSP in `electron/main.cjs` and `vite.config.ts` |
-| A compromised renderer reads arbitrary files | The engine opens only files the user chose (file dialog, command line, drag and drop, recent list); exports and text files are written only to the path picked in the last save dialog | `pathAllowed` / `lastSavePath` in `electron/main.cjs` |
-| A compromised renderer runs programs | Starting the debugger and running Python both require a **native** confirmation shown by the main process; the page cannot answer it | `engine:request` and `python:run` handlers |
-| Another frame sends IPC messages | Every handler checks that the sender is the app's own top-level page; `<webview>`, pop-ups and navigation are blocked; all permission requests are denied | `trusted()` in `electron/main.cjs` |
-| Electron or Node.js used as a launcher for other code | Electron fuses: `RunAsNode`, `NODE_OPTIONS` and `--inspect` disabled; the app loads only from its asar archive, whose integrity is checked | `build.electronFuses` in `apps/desktop/package.json` |
-| Python picks up planted modules | Each run uses a fresh private temporary directory; the interpreter runs with `-E` (ignores `PYTHONPATH`, `PYTHONSTARTUP`, …) and starts in that empty directory, so a stray `python.exe` or module in the current folder is not used | `electron/python.cjs`, `crates/paranoia-cli/src/script.rs` |
-| An AI agent (or text it read) asks the MCP server for files outside the samples folder | `open_binary` canonicalises the path, symbolic links included, and refuses anything outside the `--root` folders; no other tool takes a path | `files_outside_the_roots_are_refused` in `crates/paranoia-cli/src/mcp.rs` |
-| Strings in a sample try to instruct the agent (prompt injection) | The server's instructions tell the client that file content is data; write tools are off by default and never change the file or the app's workspace. Whether a model obeys injected text is outside Paranoia's control — stated in [MCP.md](MCP.md#security) | `tools/list` without `--allow-writes` has no write tools (`handshake_and_tool_list`) |
-| A crafted file crashes the MCP server mid-session | Each tool call runs under a panic guard and returns a tool error; output is capped at 60 000 characters | `crates/paranoia-cli/src/mcp.rs` |
-| A tampered download | Every release ships `SHA256SUMS`, its Sigstore signature, GitHub build-provenance attestations and an SBOM | [VERIFY.md](VERIFY.md) |
-| A vulnerable dependency | `cargo audit` and `npm audit` run in CI and block releases (one packaging-tool advisory is accepted until 2027-01-31, [PSB.md](PSB.md) PSB-EX-4); actions are pinned to commit SHAs; Dependabot proposes updates | `.github/workflows/ci.yml` |
+| A crafted file crashes the engine | No `unsafe` in the parsers; our own bounds-checked parsers where third-party ones panicked (`.pdata`, Mach-O binds, export trie, `.eh_frame_hdr`); hard limits on functions and instructions; panics caught per request; the engine is a separate process | Random-input tests for every decoder; `tests/real_binaries.rs` corrupts real PE, ELF and Mach-O files (500 per OS on CI, 18 000 before a release) |
+| A crafted file makes the engine hang | Limits per function and per file; decompiler passes run a bounded number of rounds | Full runs over kernel32, shell32 and notepad finish in seconds |
+| Names or strings from the file run script in the window | React renders text, never HTML; the CSP is `script-src 'self' 'wasm-unsafe-eval'`, with no `'unsafe-eval'` and no inline scripts; the JS console runs in a worker | CSP in `electron/main.cjs` and `vite.config.ts` |
+| A compromised renderer reads other files | The engine only opens files the user chose (dialog, command line, drag and drop, recent list); exports go only to the path picked in the last save dialog | `pathAllowed` and `lastSavePath` in `electron/main.cjs` |
+| A compromised renderer runs programs | The debugger and Python need a native confirmation from the main process, which the page can't click | `engine:request` and `python:run` handlers |
+| Another frame sends IPC messages | Every handler checks the sender is the app's own page; webviews, pop-ups and navigation are blocked; permission requests are denied | `trusted()` in `electron/main.cjs` |
+| Electron used to launch other code | Fuses turn off `RunAsNode`, `NODE_OPTIONS` and `--inspect`; the app loads only from its asar archive, which is integrity-checked | `build.electronFuses` in `apps/desktop/package.json` |
+| Python picks up planted modules | Each run uses a fresh temp folder and `python -E`, starting in that empty folder | `electron/python.cjs`, `crates/paranoia-cli/src/script.rs` |
+| An agent asks the MCP server for files outside the samples folder | `open_binary` resolves the path, symlinks included, and refuses anything outside `--root`; no other tool takes a path | `files_outside_the_roots_are_refused` in `mcp.rs` |
+| Strings in a sample try to instruct the agent | The server tells the client that file content is data; write tools are off by default; `--redact-strings` keeps strings from the model. Whether a model obeys injected text is outside our control | `handshake_and_tool_list`, `redaction_and_ledger` in `mcp.rs` |
+| A crafted file crashes the MCP server | Each tool call is guarded and returns an error instead; output is capped at 60 000 characters | `mcp.rs` |
+| A tampered download | Each release has `SHA256SUMS`, a Sigstore signature, build provenance attestations and an SBOM | [VERIFY.md](VERIFY.md) |
+| A vulnerable dependency | `cargo audit` and `npm audit` block releases (one accepted packaging-tool advisory, PSB-EX-4); actions pinned to commit hashes; Dependabot | `.github/workflows/ci.yml` |
 
-## Non-goals
+## Not covered
 
-Paranoia does **not** protect against the following. Use a virtual machine for these cases.
+Use a virtual machine for these:
 
-- **Running malware.** The debugger starts the analysed program for real, with your permissions. A native warning says so every time.
-- **Your own scripts.** Python and JavaScript console scripts are your code. Python has full access to your files and network, like any program you run. The JavaScript console is contained in a worker, but it can still change the open file's annotations and patches.
-- **A compromised machine or user account.** Another program running as you can read Paranoia's data or modify its files.
-- **Anti-analysis tricks.** Obfuscated or packed code can mislead the disassembler, the decompiler and the signatures. The results are an aid for a human analyst, not a verdict.
-- **Confidentiality of what you analyse from other local users of the same account.**
+- Running malware. The debugger starts the analysed program for real, with your permissions. You get a warning every time.
+- Your own scripts. Python scripts have full access to your files and network. The JavaScript console is contained in a worker but can still change annotations and patches.
+- A compromised machine or account. Another program running as you can read and change Paranoia's data.
+- Anti-analysis tricks. Packed or obfuscated code can mislead the disassembler, the decompiler and the signatures.
+- Other local users of the same account seeing what you analyse.
 
-## Cryptography and hashes
+## Hashes and crypto
 
-Paranoia does not encrypt anything and has no accounts, keys or secrets.
+Paranoia doesn't encrypt anything and has no accounts or keys of its own.
 
 | Use | Algorithm | Notes |
 | --- | --- | --- |
-| Identity of an analysed file (annotation storage) | SHA-256 | |
-| File hashes shown to the user | SHA-256, SHA-1, MD5, imphash (MD5) | **Identification only** — shown so results match other tools and threat-intel feeds. Not used for any security decision. |
-| Release integrity | SHA-256 (`SHA256SUMS`), Sigstore keyless signature (ECDSA P-256 Fulcio certificate bound to the release workflow), GitHub attestations | See [VERIFY.md](VERIFY.md) |
-| Signature recognition (FLIRT `.pat`) | CRC-16 | Pattern matching, not integrity |
+| Identifying a file for its annotations | SHA-256 | |
+| Hashes shown to the user | SHA-256, SHA-1, MD5, imphash | Only for matching other tools and threat feeds, never for a security decision |
+| Release integrity | SHA-256, Sigstore keyless signature, GitHub attestations | [VERIFY.md](VERIFY.md) |
+| FLIRT signatures | CRC-16 | Pattern matching, not integrity |
 
 ## Network
 
-By default the app and the engine make **no network connections**: no telemetry, no update checks, no crash reports, no fonts or scripts from CDNs. The page CSP restricts connections to the app itself (`connect-src 'self'`). The only programs that can reach the network are your own Python scripts, your own code inside the script worker, and — **only after you configure it** — the AI assistant (below).
+The app and the engine make no network connections by default: no telemetry, update checks, crash reports, fonts or scripts from CDNs. The page CSP limits connections to the app itself. The only things that can reach the network are your own Python scripts, your own code in the script worker, and the AI assistant once you've set it up.
 
-### AI assistant (optional)
+There's no auto-updater. Download new releases yourself and check them ([VERIFY.md](VERIFY.md)).
 
-`Assistant → Settings…` takes an endpoint, a model and an optional API key. Presets cover local servers (Ollama, LM Studio) and hosted ones (Claude via Anthropic's Messages API; OpenAI, DeepSeek, Kimi, Gemini, Mistral, OpenRouter via the OpenAI chat API). Until an endpoint is set nothing is ever sent. Requests are made by the **main process** (the renderer keeps `connect-src 'self'`); they carry only the decompiled text of the one function you asked about (clipped to 12,000 characters) and no file bytes, hashes or names of other functions.
+### AI assistant
 
-* Every change of endpoint is confirmed in a native dialog, so the page cannot quietly redirect the assistant. A loopback endpoint (`127.0.0.1`, `localhost`, `::1`) never leaves the machine. Anything else must be `https://`, is confirmed in a native dialog when you save it, and again once per session before the first request.
-* Redirects are refused, the reply is capped at 256 KB, and a request times out after 300 s or when you close the dialog.
-* The API key is encrypted with the OS keystore (Electron `safeStorage`) and never returned to the page; if the OS cannot encrypt, it is kept in memory only.
-* Answers are shown as text; a suggested name is applied only when you click *Apply name*, and must be a plain C identifier.
+`Assistant → Settings…` takes an endpoint, a model and an optional API key. There are presets for local servers (Ollama, LM Studio) and hosted ones (Claude, OpenAI, DeepSeek, Kimi, Gemini, Mistral, OpenRouter). Nothing is sent until an endpoint is set. Requests come from the main process, not the page, and contain only the pseudocode of the function you asked about (up to 12 000 characters). No file bytes, hashes or other functions.
 
-### MCP server (`paranoia mcp`)
+- Changing the endpoint needs a native confirmation, so the page can't redirect the assistant. Loopback addresses stay on the machine. Anything else has to be `https://` and is confirmed when you save it and again before the first request of each session.
+- Redirects are refused, replies are capped at 256 KB, requests time out after 300 s.
+- The API key is encrypted with the OS keystore (`safeStorage`) and never sent to the page. If the OS can't encrypt, the key is only kept in memory.
+- Answers are shown as text. A suggested name is only applied when you click it, and must be a plain C identifier.
 
-The command-line tool can serve the engine to an AI agent over the Model Context Protocol. It reads JSON-RPC messages on stdin and answers on stdout; it opens **no sockets**. It is a separate program the user starts (or configures in an agent), not part of the desktop app. Files are opened only under the `--root` folders (the working directory by default); write tools exist only with `--allow-writes` and keep their changes in memory. `--redact-strings` replaces the file's string contents in every answer with placeholders; `--ledger FILE` writes every answer to a local file before it is sent and withholds it if that fails (fail closed). `--workspace` reads the desktop app's annotations for the opened file and, with `--allow-writes`, writes them back; it never opens the store while the app holds it, and a failed write undoes the change. The agent's client decides where the returned text goes: with a hosted model, the pseudocode and strings it asked for leave the machine through that client, not through Paranoia. Details: [MCP.md](MCP.md).
+### MCP server
 
-Updates are manual: download a new release and verify it ([VERIFY.md](VERIFY.md)). There is no auto-updater.
+`paranoia mcp` is a separate program the user starts, not part of the desktop app. It talks JSON-RPC over stdin and stdout and opens no sockets. It only opens files under `--root`, and write tools only exist with `--allow-writes`. `--redact-strings` replaces the file's strings with placeholders in every answer. `--ledger FILE` writes each answer to a local file before sending it and holds the answer back if that fails. `--workspace` reads the app's annotations for the file and, with `--allow-writes`, saves changes back; it can't open the store while the app holds it, and a failed save undoes the change.
 
-## Data inventory
+The agent's client decides where the answers go. With a hosted model, the pseudocode and strings the agent reads leave the machine through that client. See [MCP.md](MCP.md).
+
+## Data stored
 
 Everything stays on your machine.
 
-| Data | Where | Why | Kept until |
+| Data | Where | Why | Until |
 | --- | --- | --- | --- |
-| Annotations (names, comments, types, bookmarks, patches) per file | `%APPDATA%\Paranoia\workspace.redb` (desktop) · browser `localStorage` (web build) | so your work survives a restart | you delete the file / clear site data |
-| Plugins you installed (`plugins\<id>\plugin.json` + script) and the list of plugin versions you chose to always run (`plugins-trust.json`, SHA-256 fingerprints only) | `%APPDATA%\Paranoia\plugins` | so your commands survive a restart and a changed plugin asks again | you delete the folder / file |
-| AI assistant settings: endpoint, model, API key encrypted by the OS keystore (`ai-settings.json`) | `%APPDATA%\Paranoia\ai-settings.json` | so the assistant works after a restart | you clear the fields / delete the file |
-| Recent files: name, **full path**, SHA-256, format, size, time | same database | the start screen list | removed from the list, or the database deleted |
-| UI preferences, console scripts | Electron / browser `localStorage` | convenience | cleared with the app data |
-| MCP disclosure ledger: every answer given to an agent, with tool, arguments, the analysed file's SHA-256 and the text's SHA-256 | the file named with `paranoia mcp --ledger` (only when given) | a record of what an AI agent was shown | you delete the file |
-| Python run files (`paranoia.py`, `script.py`) | a fresh `%TEMP%\paranoia-py-*` folder | to run the script | deleted when the script ends |
+| Annotations per file (names, comments, types, bookmarks, patches) | `%APPDATA%\Paranoia\workspace.redb`, or `localStorage` in the browser build | Keep your work across restarts | You delete it |
+| Installed plugins and the versions you chose to always run (fingerprints only) | `%APPDATA%\Paranoia\plugins` | Keep commands; ask again when a plugin changes | You delete it |
+| AI assistant settings, API key encrypted | `%APPDATA%\Paranoia\ai-settings.json` | Keep the assistant set up | You clear it |
+| Recent files: name, full path, SHA-256, format, size, time | the workspace database | The start screen | You remove it |
+| UI preferences, console scripts | `localStorage` | Convenience | Cleared with app data |
+| MCP ledger: each answer given to an agent, with hashes | the file given to `--ledger` | A record of what an agent saw | You delete it |
+| Python run files | a fresh `%TEMP%\paranoia-py-*` folder | Running the script | Deleted when it ends |
 
-To remove everything: close Paranoia and delete `%APPDATA%\Paranoia` (Windows). The analysed files themselves are never copied.
+To remove everything, close Paranoia and delete `%APPDATA%\Paranoia`. Analysed files are never copied.
 
-## Operating-system permissions
+## OS permissions
 
-The app needs no administrator rights and requests no camera, microphone, location or notification access (all such requests are denied). The installer is per-user. The debugger uses the Windows debugging API (`CreateProcess` with `DEBUG_ONLY_THIS_PROCESS`) on a program you start from the app; it does not attach to other processes.
+No administrator rights. Requests for camera, microphone, location or notifications are denied. The installer is per-user. The Windows debugger starts the program itself (`DEBUG_ONLY_THIS_PROCESS`) and never attaches to other processes.
 
-## Known limits
+## Known gaps
 
-- **Windows executables are not Authenticode-signed yet.** Verify downloads with `SHA256SUMS`, its Sigstore signature and the attestations ([VERIFY.md](VERIFY.md)). Tracked as exception PSB-EX-1 in [PSB.md](PSB.md).
-- The page CSP keeps `'wasm-unsafe-eval'` (WebAssembly compilation for the browser build) and Electron's extra `file://` privileges (needed for the app's workers). Both are tracked as exceptions in [PSB.md](PSB.md).
-- Builds are not reproducible bit-for-bit yet; provenance attestations tie each file to the workflow run that built it.
-- No independent security audit has been performed.
-- The JavaScript console worker is not a security boundary against your own code (see non-goals).
+- The Windows executables aren't Authenticode-signed yet. Use the checksums, signature and attestations instead (PSB-EX-1).
+- The CSP allows `'wasm-unsafe-eval'` for the browser build, and Electron's extra `file://` privileges are still on (PSB-EX-2, PSB-EX-3).
+- Builds aren't bit-for-bit reproducible. The provenance attestations tie each file to the CI run that built it.
+- No independent audit yet.
+- The JavaScript console worker isn't a boundary against your own code.

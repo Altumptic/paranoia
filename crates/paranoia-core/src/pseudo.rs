@@ -1,6 +1,6 @@
 //! Pseudocode: a lightweight lifter from x86 / x86-64 to readable C-like text.
 //!
-//! This is deliberately simple — it is not a full decompiler. Each instruction
+//! It is simple on purpose and not a full decompiler. Each instruction
 //! is translated to a statement, flags are folded into the conditional jump that
 //! consumes them, calls receive arguments from the calling convention, strings
 //! and names are inlined, and two structuring passes recover `if { }` regions
@@ -608,7 +608,7 @@ impl Binary {
                 address: f_addr,
                 name,
                 lines,
-                note: Some("AArch64: generated from the SSA form (experimental) — verify against the listing".into()),
+                note: Some("AArch64, generated from the SSA form (experimental). Check it against the listing.".into()),
             });
         }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
@@ -1300,7 +1300,7 @@ fn proto_args(ctx: &Ctx, p: &crate::protos::Proto) -> Expr {
         }
         match conv.get(k) {
             Some(r) => e = e.cat(Expr::reg(&reg_name(*r))),
-            // Win64 passes arguments 5+ at [rsp+0x20], [rsp+0x28], … — the same slots as `var_20`, `var_28`.
+            // Win64 passes arguments 5+ at [rsp+0x20], [rsp+0x28], …, the same slots as `var_20`, `var_28`.
             None if ctx.bin.info.format == Format::Pe => e = e.cat(Expr::tok(format!("var_{:X}", 0x20 + 8 * (k - 4)), TokenKind::Register)),
             None => e = e.cat(Expr::tok(format!("stack_arg{}", k + 1), TokenKind::Register)),
         }

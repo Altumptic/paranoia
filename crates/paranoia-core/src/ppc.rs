@@ -399,7 +399,7 @@ fn decode_31(x: u32) -> Option<Insn> {
     let xo10 = (x >> 1) & 0x3ff;
     let xo9 = (x >> 1) & 0x1ff;
     let oe = if x & 0x400 != 0 { "o" } else { "" };
-    // XO-form arithmetic (rD, rA, rB) — matched on the 9-bit opcode.
+    // XO-form arithmetic (rD, rA, rB), matched on the 9-bit opcode.
     let arith = match xo9 {
         266 => Some("add"),
         40 => Some("subf"),

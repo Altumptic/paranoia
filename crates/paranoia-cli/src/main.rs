@@ -1,4 +1,4 @@
-//! `paranoia` — headless access to the analysis engine, handy for scripting and CI.
+//! The `paranoia` command: the engine without the app, for scripts and CI.
 
 use std::path::PathBuf;
 

@@ -2,7 +2,7 @@
 //!
 //! `mov eax, [ebx+ecx*4+8]`, `jz 0x401020`, `ret 8`, `lock xadd [rdi], eax`, `db 0x90, 0xcc`.
 //! The mnemonic selects every encoding of that mnemonic, the operands are fitted to each one, and the
-//! shortest that encodes wins — the way a patching assembler is expected to behave.
+//! shortest one wins, which is what you want when patching.
 //!
 //! Branch targets are absolute addresses. RIP-relative memory is written with the absolute target
 //! (`[rip+0x140002000]`, the address the instruction reads), not the displacement.

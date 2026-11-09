@@ -13,8 +13,8 @@ Typography: **Source Serif 4** for headings and the wordmark, **Inter** for UI, 
 
 Assets:
 
-- `assets/brand/app-icon.svg` — app icon (clay tile, ivory whale, swell line); PNG/ICO renders live in `apps/desktop/build/`
-- `assets/brand/paranoia-mark.svg` / `paranoia-mark-ivory.svg` — the whale alone
-- `assets/brand/lockup-light.png` / `lockup-dark.png` — whale + wordmark
+- `assets/brand/app-icon.svg`: the app icon (clay tile, ivory whale, swell line). PNG and ICO versions are in `apps/desktop/build/`
+- `assets/brand/paranoia-mark.svg`, `paranoia-mark-ivory.svg`: the whale on its own
+- `assets/brand/lockup-light.png`, `lockup-dark.png`: whale and wordmark
 
-Regenerate the SVGs with `node scripts/brand.mjs`. The design keeps to flat colour — no gradients, glows or outlines.
+Regenerate the SVGs with `node scripts/brand.mjs`. The design uses flat colour only: no gradients, glows or outlines.

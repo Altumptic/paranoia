@@ -498,7 +498,7 @@ fn mixed_arm_elf(symbols: &str) -> Vec<u8> {
     for w in [0xe3a0_0001u32, 0xe12f_ff1e] {
         code.extend(w.to_le_bytes()); // 0x8018 arm2: mov r0, #1; bx lr
     }
-    // (name, value, type) — type 2 = STT_FUNC, 0 = STT_NOTYPE
+    // (name, value, type); type 2 = STT_FUNC, 0 = STT_NOTYPE
     let syms: Vec<(&str, u32, u8)> = match symbols {
         "functions" => vec![("main", 0x8000, 2), ("thumb_fn", 0x8011, 2), ("arm2", 0x8018, 2)],
         "mapping" => vec![("$a", 0x8000, 0), ("$t", 0x8010, 0), ("$a.1", 0x8018, 0)],

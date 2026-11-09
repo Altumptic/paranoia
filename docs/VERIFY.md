@@ -1,19 +1,19 @@
 # Verifying a download
 
-Every release starting with **v0.5.1** ships these files next to the executables:
+Every release since v0.5.1 has these files next to the executables:
 
 | File | What it proves |
 | --- | --- |
 | `SHA256SUMS` | the SHA-256 of each executable |
-| `SHA256SUMS.sigstore.json` | a [Sigstore](https://www.sigstore.dev/) signature over `SHA256SUMS`, made by this repository's release workflow (keyless: no long-lived private key exists) |
+| `SHA256SUMS.sigstore.json` | a [Sigstore](https://www.sigstore.dev/) signature over `SHA256SUMS`, made by this repository's release workflow (keyless, so there is no long-lived private key) |
 | GitHub attestations | build provenance (which workflow run, commit and tag built the file) and the SBOM, both signed through GitHub |
-| `paranoia-vX.Y.Z-rust.cdx.json`, `paranoia-vX.Y.Z-npm.cdx.json` | the SBOMs (CycloneDX): every Rust crate from `Cargo.lock` and every npm package from `package-lock.json`, including build-only tooling (Electron and the UI libraries are development dependencies that are bundled into the app) |
+| `paranoia-vX.Y.Z-rust.cdx.json`, `paranoia-vX.Y.Z-npm.cdx.json` | the SBOMs (CycloneDX): every Rust crate in `Cargo.lock` and every npm package in `package-lock.json`, including development dependencies, because Electron and the UI libraries end up inside the app |
 
-From the first release after v0.7.0, the release also contains `paranoia-cli-vX.Y.Z-windows-x64.exe`: the command-line tool, which is also the MCP server for AI agents ([MCP.md](MCP.md)). It is listed in `SHA256SUMS` and attested like the other executables.
+Releases after v0.7.0 also contain `paranoia-cli-vX.Y.Z-windows-x64.exe`, the command-line tool (which is also the [MCP server](MCP.md)). It's in `SHA256SUMS` and attested like the other executables.
 
-Releases up to and including v0.5.0 were built before this pipeline and have none of these files. **v0.5.1** has a single SBOM, `paranoia-v0.5.1.cdx.json`, which lists the Rust crates but **misses the npm packages** (the scanner skipped development dependencies); from v0.5.2 on there are two complete SBOMs.
+Releases up to v0.5.0 predate this and have none of these files. v0.5.1 has a single SBOM, `paranoia-v0.5.1.cdx.json`, which lists the Rust crates but not the npm packages (the scanner skipped development dependencies). From v0.5.2 there are two complete SBOMs.
 
-The Windows executables are **not Authenticode-signed** yet, so Windows SmartScreen may warn on first launch. The steps below are the way to check a download.
+The Windows executables aren't Authenticode-signed yet, so SmartScreen may warn on first launch. Use the steps below to check a download instead.
 
 ## 1. Check the hashes
 

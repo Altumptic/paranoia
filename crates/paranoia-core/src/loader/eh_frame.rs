@@ -1,11 +1,8 @@
-//! Function starts from `.eh_frame_hdr` (`PT_GNU_EH_FRAME`): the sorted table the C++ /
-//! Rust unwinder searches. Linkers emit it for almost every ELF, stripped or not, so it
-//! finds functions where no symbol table is left.
+//! Function starts from `.eh_frame_hdr`, the unwinder's lookup table. Linkers emit it even
+//! for stripped ELF files, so it still lists every function.
 //!
-//! Layout: `version: u8 = 1`, three pointer encodings (`eh_frame_ptr`, `fde_count`,
-//! `table`), the encoded `.eh_frame` pointer, the encoded FDE count, then `fde_count`
-//! pairs `(initial_location, fde_address)` in `table` encoding. Every field is read with
-//! bounds checks; anything unexpected ends the table instead of guessing.
+//! Layout: version (1), three pointer encodings, the `.eh_frame` pointer, the entry count,
+//! then (start, FDE) pairs. Anything unexpected ends the table.
 
 /// Hard cap on table entries, far above real binaries (a large browser has ~200 k).
 const MAX_ENTRIES: usize = 1_000_000;

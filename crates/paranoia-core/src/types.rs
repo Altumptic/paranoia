@@ -66,7 +66,7 @@ impl TypeSource for TypeLibrary {
 
 /// The user's Local Types layered over the types recovered from debug info (DWARF / PDB):
 /// a user definition wins over a debug-info one with the same name. Debug-info types are
-/// runtime data — thousands of them — and are never saved with the annotations.
+/// runtime data (there can be thousands) and are never saved with the annotations.
 #[derive(Clone, Copy)]
 pub struct TypeView<'a> {
     pub user: &'a TypeLibrary,

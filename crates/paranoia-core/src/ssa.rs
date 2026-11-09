@@ -7,9 +7,9 @@
 //! along the dominator tree, so every value has exactly one definition: `rax_3 = phi(rax_1, rax_2)`.
 //!
 //! On the SSA form three classic passes run:
-//! * **constant propagation** — through expressions and phi nodes whose inputs agree;
-//! * **copy propagation** — `rax_2 = rcx_1` makes `rax_2` an alias of `rcx_1`;
-//! * **dead code** — pure definitions nobody uses are marked dead (iterated).
+//! * constant propagation: through expressions and phi nodes whose inputs agree;
+//! * copy propagation: `rax_2 = rcx_1` makes `rax_2` an alias of `rcx_1`;
+//! * dead code: pure definitions nobody uses are marked dead (iterated).
 //!
 //! Calls clobber the ABI's volatile registers (each clobber is a new, unknown version), so values
 //! are never carried across a call wrongly. Memory is not modelled: loads are opaque values.
@@ -615,7 +615,7 @@ impl Kind {
 }
 
 /// 32-bit calls: when the caller does not pop the pushed arguments itself (`add esp, 4·n` right
-/// after the call, cdecl), the callee did (stdcall, the Windows API) — model that as a stack-pointer
+/// after the call, cdecl), the callee did (stdcall, the Windows API). Model that as a stack-pointer
 /// update after the call, so stack slots keep their names past it.
 fn stdcall_cleanup(stmts: &mut Vec<Stmt>) {
     let mut pushes = 0i64;

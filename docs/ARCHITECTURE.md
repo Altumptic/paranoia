@@ -1,61 +1,59 @@
 # Architecture
 
-Paranoia is split into a pure-Rust analysis engine and thin front-ends that drive it.
+Paranoia is one analysis engine written in Rust, plus a few programs that drive it.
 
 ```
-                    ┌─────────────────────────────── apps/desktop ───────────────────────────────┐
-                    │  React UI (renderer, sandboxed)                                            │
-                    │    engine/client.ts ── Backend interface ──┬── DesktopBackend ─┐           │
-                    │                                            └── WasmBackend ──┐ │           │
-                    │  Electron main (electron/main.cjs)                            │ │           │
-                    │    IPC bridge (preload.cjs) ◄────────────────────────────────┼─┘           │
-                    └───────────────┬──────────────────────────────────────────────┼─────────────┘
-                                    │ stdio, line-delimited JSON                    │ Web Worker
-                         ┌──────────▼───────────┐                       ┌───────────▼────────────┐
-                         │ paranoia-engine.exe  │                       │ paranoia.wasm (C ABI)  │
-                         │  + paranoia-db       │                       │                        │
-                         └──────────┬───────────┘                       └───────────┬────────────┘
-                                    └────────────────► paranoia-core::api ◄─────────┘
-                                                       (one JSON method contract)
+apps/desktop (React UI, Electron)
+   │                        │
+   │ JSON over stdio         │ Web Worker
+   ▼                        ▼
+paranoia-engine          paranoia-wasm
+(+ paranoia-db, debugger)   │
+   │                        │
+   └──────► paranoia-core ◄─┘ ◄── paranoia-cli (CLI, scripts, MCP server)
+            Session::call(method, args)
 ```
+
+Every front end talks to the engine through one function, `Session::call(method, args)` in `crates/paranoia-core/src/api.rs`, with JSON arguments and results. Addresses are JSON numbers, which is exact below 2^53 and covers user-mode images. The native engine and the WebAssembly build expose exactly the same methods.
 
 ## paranoia-core
 
-No I/O, no threads, no C dependencies — the same code runs natively and in WebAssembly.
+The engine. No I/O, threads or C dependencies, so the same code builds natively and for WebAssembly.
 
-| Module | Responsibility |
+| Files | What they do |
 | --- | --- |
-| `loader/` | PE, ELF and Mach-O loaders producing a normalized `Loaded` image: sections, address map, imports, exports, symbols, function seeds, mitigations, headers. Mach-O imports (bind opcodes, chained fixups), the export trie and x64 `.pdata` (including chained unwind entries) are parsed by our own bounds-checked code. |
-| `disasm.rs`, `riscv.rs`, `mips.rs` | Fast decode for analysis (length, flow, targets, data refs) and token rendering for the UI: iced-x86 (x86/x64), yaxpeax-arm (AArch64, ARM32, Thumb-2), own decoders for RISC-V and MIPS. |
-| `analysis.rs`, `switch.rs` | Recursive-descent function discovery with tail-call and no-return handling, basic blocks, jump-table recovery and the cross-reference index. |
-| `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs` | x86/x64 decompiler: lifting, expression propagation, `switch` / loop structuring, typed variables. |
-| `pseudo_structs.rs` | Struct member access: variables typed in the UI (`Y`) render `*(T*)(v + off)` as `v->field`, with nesting, arrays and `&v->field`; the signature and declarations follow. Pointer fields chain (a loaded `struct T *next` is typed `T *`), and rendering a function records typed arguments and typed call results, so callee signatures and other callers adopt the types (cross-call type propagation, a runtime cache). |
-| `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Data items, local C types, operand representation and built-in constants, API prototypes. |
-| `pdbsym.rs`, `dwarf.rs`, `sigs.rs` | Debug information (PDB; DWARF names, globals, source lines and local types) and FLIRT-style `.pat` signatures. |
+| `loader/` | PE, ELF and Mach-O loaders that produce a common `Loaded` image: sections, address map, imports, exports, symbols, function seeds, mitigations. The PE `.pdata` table, Mach-O bind opcodes, chained fixups, the export trie and the ELF `.eh_frame_hdr` table are parsed by our own bounds-checked code. |
+| `disasm.rs`, `riscv.rs`, `mips.rs`, `ppc.rs` | Decoding for analysis (length, flow, targets, data references) and token rendering for the UI. x86 uses iced-x86, ARM uses yaxpeax-arm, RISC-V, MIPS and PowerPC have their own decoders. |
+| `analysis.rs`, `switch.rs` | Recursive-descent function discovery, basic blocks, jump tables, the cross-reference index. |
+| `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs`, `pseudo_ssa.rs` | The x86/x64 decompiler: lifting to C-like lines, expression propagation, loops and `switch`, variables and their types. |
+| `pseudo_structs.rs` | Struct member access for variables typed with `Y`, and types passed along calls. |
+| `ssa.rs`, `ssa/a64.rs`, `ssa/c.rs` | An SSA form (phi nodes, constant and copy propagation, dead code) for x86/x64 and AArch64, and C generated from it. AArch64 pseudocode comes from here. |
+| `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Data items and auto names, local C types, operand display, about 250 API prototypes. |
+| `pdbsym.rs`, `pdbtypes.rs`, `dwarf.rs` | PDB and DWARF symbols, source lines and types. |
+| `sigs.rs`, `flirt_sig.rs` | FLIRT signatures: `.pat` files, IDA `.sig` files, a built-in MSVC x64 library. |
+| `asm_x86.rs` | A small x86 assembler for patching. |
 | `tools.rs`, `nav.rs`, `frame.rs` | Search, patching, call graph, undo, stack frames, IDC export. |
-| `demangle.rs` | MSVC, Itanium and Rust demangling. |
-| `api.rs` | `Session::call(method, args)` — the JSON contract every front-end uses. |
+| `strings.rs`, `metrics.rs`, `demangle.rs` | Strings, hashes and entropy, MSVC/Itanium/Rust demangling. |
+| `api.rs` | `Session::call`, the only way in. |
 
-### Robustness
+### Hostile input
 
-Input files are hostile by default. The loaders never trust sizes or offsets, analysis has hard limits (`MAX_FUNCTIONS`, `MAX_INSNS_PER_FUNCTION`, `MAX_TOTAL_INSNS`), and `tests/real_binaries.rs` mutates real samples (`PARANOIA_FUZZ_ITERS`, `PARANOIA_FUZZ_SEED`, `PARANOIA_FUZZ_FILE`) to make sure nothing panics. Where third-party parsers proved fragile (goblin's `.pdata` iterator, Mach-O bind interpreter and export trie) Paranoia uses its own implementations. As a final layer, the desktop engine runs out of process and the UI recovers if it ever dies.
+Files are treated as hostile. Loaders don't trust any size or offset, analysis has hard limits (`MAX_FUNCTIONS`, `MAX_INSNS_PER_FUNCTION`, `MAX_TOTAL_INSNS`), and `tests/real_binaries.rs` feeds corrupted copies of real binaries to the engine to check that nothing panics. Where a third-party parser turned out to panic on bad input, we replaced it with our own. In the desktop app the engine also runs in a separate process, so a crash doesn't take the UI down.
 
-## Front-ends
+## The other crates
 
-- **Desktop** — Electron shell with a sandboxed renderer (`contextIsolation`, no Node integration, CSP without `eval`, no navigation). Every IPC handler checks its sender; the engine opens only files the user chose and writes only to the path picked in the last save dialog; starting the debugger or a Python script needs a native confirmation. The native engine is bundled under `resources/engine/`. Details: [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
-- **Scripting** — the JavaScript console runs each script in a dedicated Web Worker (`script-worker.ts`) that reaches the engine only through `pn` requests; Python scripts run in the user's CPython (`electron/python.cjs`, `electron/paranoia.py`) and talk to the engine through the main process. `paranoia script` runs the same Python module headless.
-- **Debugger** — Windows x64, inside `paranoia-engine` (`debugger.rs`), using the Win32 debugging API on a process it starts.
-- **Browser** — `paranoia-wasm` exposes `pn_alloc` / `pn_open` / `pn_call` and friends; `wasm.worker.ts` runs it off the UI thread. No wasm-bindgen or extra tooling is needed.
-- **CLI** — `paranoia` for scripting and CI.
+- **paranoia-engine** is the process the desktop app starts. It reads JSON requests on stdin, keeps the workspace store (`paranoia-db`, a redb file keyed by each file's SHA-256), and contains the debuggers: `debugger.rs` for Windows (x64 and WOW64) and `debugger_linux.rs` for Linux x86-64 (ptrace).
+- **paranoia-cli** is the `paranoia` command. `script.rs` runs Python scripts without the app, `mcp.rs` is the MCP server and `disclosure.rs` has its string redaction and disclosure log.
+- **paranoia-wasm** exports `pn_alloc`, `pn_open`, `pn_call` and a few more as a plain C ABI. No wasm-bindgen.
 
-## Workspace storage
+## The desktop app
 
-Annotations (names, comments, user functions, bookmarks, patches) and the recent-files list are keyed by the file's SHA-256 and stored in a redb database in the user's app-data folder (desktop) or `localStorage` (browser).
+- `apps/desktop/src` is the React UI. `engine/client.ts` wraps the engine API with types and works with both backends.
+- `apps/desktop/electron` is the Electron main process, which is the security boundary: it checks the sender of every IPC message, only lets the engine open files the user picked, and asks before starting the debugger or a Python script. `ai.cjs` makes the AI assistant's requests and `plugins.cjs` validates plugins. See [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
+- The JavaScript console runs scripts in a Web Worker that can only reach the engine through `pn` calls. Python scripts run in the user's own interpreter.
 
 ## Adding an engine method
 
-1. Implement it on `Binary` in `paranoia-core`.
-2. Expose it in `api.rs` (`Session::call`).
-3. Add a typed wrapper to `Session` in `apps/desktop/src/engine/client.ts` and any new types to `types.ts`.
-
-Both backends pick it up automatically.
+1. Implement it on `Binary`, with a test.
+2. Add it to `Session::call` in `api.rs`.
+3. Add a typed wrapper to `apps/desktop/src/engine/client.ts` and any new types to `types.ts`.

@@ -1,8 +1,7 @@
 //! Struct member access in pseudocode (IDA's `->field`).
 //!
-//! A variable typed `NAME *` — set with `Y` in the pseudocode view, or propagated
-//! through single-assignment copies (`v3 = a1;`) — turns `*(uint32_t *)(v + 0x1c)`
-//! into `v->lpFileName`: direct and nested fields, array elements, and
+//! A variable typed `NAME *` (with `Y` in the pseudocode view, or through a copy such as
+//! `v3 = a1;`) turns `*(uint32_t *)(v + 0x1c)` into `v->lpFileName`: direct and nested fields, array elements, and
 //! `&v->field` for lea results passed to calls. The pass runs after variable
 //! recovery, so it works on the final names (`a1`, `v3`, `var_8`) and rewrites
 //! the signature and declarations to match.
@@ -218,7 +217,7 @@ fn close_of(toks: &[Token], open: usize) -> Option<usize> {
 fn rewrite_deref(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<(Vec<Token>, usize)> {
     let size = cast_size(&toks[p].t)?;
     let (inner, end): (&[Token], usize) = match toks.get(p + 1) {
-        // `*(uint32_t *)a1` — offset zero, no parentheses.
+        // `*(uint32_t *)a1`: offset zero, no parentheses.
         Some(t) if t.k == TokenKind::Register => (&toks[p + 1..p + 2], p + 2),
         Some(t) if t.k == TokenKind::Punct && t.t == "(" => {
             let close = close_of(toks, p + 1)?;
@@ -306,7 +305,7 @@ fn loaded_ptr_type(expr: &[Token], types: &HashMap<String, String>, lib: &dyn Ty
             let close = close_of(expr, 1)?;
             &expr[2..close]
         }
-        // `*(uint64_t *)v` — a field at offset zero.
+        // `*(uint64_t *)v`: a field at offset zero.
         Some(t) if t.k == TokenKind::Register => &expr[1..2],
         _ => return None,
     };

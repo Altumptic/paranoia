@@ -34,7 +34,7 @@ interface Entry {
   disabled?: boolean;
 }
 
-/** Right-click menu for listing / graph lines — the IDA command set in one place. */
+/** Right-click menu for listing and graph lines, with the IDA commands in one place. */
 export function ContextMenu() {
   const menu = useStore((s) => s.contextMenu);
   const info = useStore((s) => s.info);
