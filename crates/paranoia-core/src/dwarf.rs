@@ -46,7 +46,7 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
     while let Ok(Some(header)) = units.next() {
         let Ok(unit) = dwarf.unit(header) else { continue };
         out.units += 1;
-        let name_of = |e: &gimli::DebuggingInformationEntry<EndianSlice<RunTimeEndian>>| -> Option<String> {
+        let name_of = |e: &gimli::DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>>| -> Option<String> {
             for at in [gimli::DW_AT_linkage_name, gimli::DW_AT_MIPS_linkage_name, gimli::DW_AT_name] {
                 if let Ok(Some(v)) = e.attr_value(at) {
                     if let Ok(s) = dwarf.attr_string(&unit, v) {
@@ -250,7 +250,7 @@ const MAX_TYPE_DEPTH: u32 = 6;
 type Reader<'a> = EndianSlice<'a, RunTimeEndian>;
 
 /// A DWARF attribute as an unsigned integer (any integer form).
-fn udata(e: &gimli::DebuggingInformationEntry<Reader>, at: gimli::DwAt) -> Option<u64> {
+fn udata(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>, at: gimli::DwAt) -> Option<u64> {
     match e.attr_value(at).ok().flatten()? {
         AttributeValue::Udata(v) | AttributeValue::Data8(v) => Some(v),
         AttributeValue::Data1(v) => Some(v as u64),
@@ -262,7 +262,7 @@ fn udata(e: &gimli::DebuggingInformationEntry<Reader>, at: gimli::DwAt) -> Optio
 }
 
 /// A DWARF attribute as a signed integer (any integer form).
-fn sdata(e: &gimli::DebuggingInformationEntry<Reader>, at: gimli::DwAt) -> Option<i64> {
+fn sdata(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>, at: gimli::DwAt) -> Option<i64> {
     match e.attr_value(at).ok().flatten()? {
         AttributeValue::Udata(v) | AttributeValue::Data8(v) => Some(v as i64),
         AttributeValue::Data1(v) => Some(v as i64),
@@ -276,14 +276,14 @@ fn sdata(e: &gimli::DebuggingInformationEntry<Reader>, at: gimli::DwAt) -> Optio
 fn die_name<'a>(
     dwarf: &gimli::Dwarf<Reader<'a>>,
     unit: &gimli::Unit<Reader<'a>>,
-    e: &gimli::DebuggingInformationEntry<Reader<'a>>,
+    e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'a>>,
 ) -> Option<String> {
     let v = e.attr_value(gimli::DW_AT_name).ok().flatten()?;
     dwarf.attr_string(unit, v).ok().map(|s| s.to_string_lossy().into_owned())
 }
 
 /// `DW_AT_data_member_location` in both the constant and `DW_OP_plus_uconst` forms.
-fn member_offset(e: &gimli::DebuggingInformationEntry<Reader>) -> Option<u64> {
+fn member_offset(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>) -> Option<u64> {
     match e.attr_value(gimli::DW_AT_data_member_location).ok().flatten()? {
         AttributeValue::Exprloc(expr) => {
             let bytes = expr.0.slice();
@@ -322,7 +322,7 @@ fn pointee_name<'a>(
     c: &TypeCollect,
     dwarf: &gimli::Dwarf<Reader<'a>>,
     unit: &gimli::Unit<Reader<'a>>,
-    pointer: &gimli::DebuggingInformationEntry<Reader<'a>>,
+    pointer: &gimli::DebuggingInformationEntry<'_, '_, Reader<'a>>,
     depth: u32,
 ) -> Option<String> {
     let Some(AttributeValue::UnitRef(off)) = pointer.attr_value(gimli::DW_AT_type).ok().flatten() else {

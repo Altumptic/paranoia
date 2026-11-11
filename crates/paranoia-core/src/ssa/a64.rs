@@ -478,7 +478,7 @@ mod tests {
 
     type Spec<'a> = (u64, &'a [u32], &'a [(u64, EdgeKind)]);
 
-    fn blocks(list: &[Spec]) -> Blocks {
+    fn blocks(list: &[Spec<'_>]) -> Blocks {
         list.iter().map(|(s, w, e)| (*s, (decode(w, *s), e.iter().map(|(to, kind)| Edge { to: *to, kind: *kind }).collect()))).collect()
     }
 

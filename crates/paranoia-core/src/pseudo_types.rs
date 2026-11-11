@@ -479,7 +479,7 @@ impl Seg {
 
 /// Renames registers to `a1…`/`v1…`, infers types and writes declarations + signature.
 /// `webs` selects reaching-definition variables over the older conservative splitting.
-pub(crate) fn type_variables_with(lines: &mut Vec<PseudoLine>, sig: &Signature, webs: bool) {
+pub(crate) fn type_variables_with(lines: &mut Vec<PseudoLine>, sig: &Signature<'_>, webs: bool) {
     let seg = Seg::new(lines, webs);
     let reg_key = |f: &str, line: usize, tok: usize| seg.key(f, line, tok);
     let starts_segment = |f: &str, line: usize, tok: usize| seg.starts(f, line, tok);

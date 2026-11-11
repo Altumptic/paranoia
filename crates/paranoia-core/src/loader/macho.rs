@@ -49,7 +49,7 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     }
 }
 
-fn load_single(bytes: &[u8], m: &MachO) -> goblin::error::Result<Loaded> {
+fn load_single(bytes: &[u8], m: &MachO<'_>) -> goblin::error::Result<Loaded> {
     let mut out = Loaded::default();
     let h = &m.header;
     out.arch = Some(match h.cputype {

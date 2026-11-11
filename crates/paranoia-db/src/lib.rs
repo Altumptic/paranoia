@@ -11,8 +11,8 @@ use std::path::Path;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde_json::Value;
 
-const ANNOTATIONS: TableDefinition<&str, &str> = TableDefinition::new("annotations");
-const RECENT: TableDefinition<&str, &str> = TableDefinition::new("recent");
+const ANNOTATIONS: TableDefinition<'_, &str, &str> = TableDefinition::new("annotations");
+const RECENT: TableDefinition<'_, &str, &str> = TableDefinition::new("recent");
 
 const MAX_RECENT: usize = 30;
 
@@ -55,7 +55,7 @@ impl Store {
         Ok(Store { db })
     }
 
-    fn get(&self, table: TableDefinition<&str, &str>, key: &str) -> Result<Option<Value>> {
+    fn get(&self, table: TableDefinition<'_, &str, &str>, key: &str) -> Result<Option<Value>> {
         let tx = self.db.begin_read()?;
         let t = tx.open_table(table)?;
         match t.get(key)? {
@@ -64,7 +64,7 @@ impl Store {
         }
     }
 
-    fn put(&self, table: TableDefinition<&str, &str>, key: &str, value: &Value) -> Result<()> {
+    fn put(&self, table: TableDefinition<'_, &str, &str>, key: &str, value: &Value) -> Result<()> {
         let text = serde_json::to_string(value)?;
         let tx = self.db.begin_write()?;
         tx.open_table(table)?.insert(key, text.as_str())?;

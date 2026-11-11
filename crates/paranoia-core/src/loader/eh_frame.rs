@@ -106,14 +106,14 @@ impl Reader<'_> {
 /// search table.
 pub fn function_starts(hdr: &[u8], hdr_va: u64, big_endian: bool, bits: u8) -> Vec<u64> {
     let mut r = Reader { bytes: hdr, pos: 0, big_endian };
-    let parse = |r: &mut Reader| -> Option<Vec<u64>> {
+    let parse = |r: &mut Reader<'_>| -> Option<Vec<u64>> {
         if r.u8()? != 1 {
             return None;
         }
         let ptr_enc = r.u8()?;
         let count_enc = r.u8()?;
         let table_enc = r.u8()?;
-        let at = |r: &Reader| hdr_va.wrapping_add(r.pos as u64);
+        let at = |r: &Reader<'_>| hdr_va.wrapping_add(r.pos as u64);
         let field = at(r);
         if ptr_enc != DW_EH_PE_OMIT {
             r.encoded(ptr_enc, bits, field, hdr_va)?;
