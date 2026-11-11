@@ -51,9 +51,10 @@ Comparing two files runs in passes, from certain to likely. A function matched b
 4. the same set of anchors;
 5. the call graph: callers and callees of matched pairs are matched among themselves, scored on the code and on how many of their neighbours already agree;
 6. similar code: candidates that share a band of their sketches, best score first, neighbours breaking ties;
-7. the call graph again.
+7. the call graph again;
+8. identical copies left on both sides in equal numbers are paired in address order, then the call graph once more.
 
-Functions that occur more than once with identical code (small wrappers, compiler-generated helpers) are never matched on code alone; only their callers and callees can tell the copies apart.
+Functions that occur more than once with identical code (small wrappers, compiler-generated helpers) aren't matched on code alone in the early passes; their callers and callees tell the copies apart, and whatever is left is paired by position.
 
 Recognising from the database works the same way without a second file. Candidates come from an index of exact hashes and sketch bands. A first round accepts unambiguous matches on code alone. Later rounds use what the database remembers about each function's calls: once a caller is recognised, the functions it is known to call become candidates for its callees, and agreeing neighbours raise a candidate's score. A name is never offered when two different names score about the same, and one name goes to at most one function.
 
