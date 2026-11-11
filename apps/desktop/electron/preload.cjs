@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("paranoia", {
     set: (s) => ipcRenderer.invoke("ai:set", s),
     ask: (req) => ipcRenderer.invoke("ai:ask", req),
     cancel: () => ipcRenderer.invoke("ai:cancel"),
+    models: () => ipcRenderer.invoke("ai:models"),
+    test: () => ipcRenderer.invoke("ai:test"),
   },
   plugins: {
     list: () => ipcRenderer.invoke("plugins:list"),

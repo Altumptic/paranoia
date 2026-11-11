@@ -173,6 +173,10 @@ export interface DesktopBridge {
     set(s: { endpoint: string; model: string; key?: string }): Promise<AiSettings>;
     ask(req: { task: "explain" | "name" | "suspicious"; name: string; address: string; arch: string; format: string; code: string }): Promise<AiAnswer>;
     cancel(): Promise<void>;
+    /** Model ids the saved endpoint offers. */
+    models(): Promise<string[]>;
+    /** A fixed one-line prompt to the saved endpoint and model; sends no code. */
+    test(): Promise<{ text: string; millis: number; host: string; local: boolean }>;
   };
   plugins: {
     list(): Promise<{ dir: string; plugins: PluginInfo[]; errors: { id: string; error: string }[] }>;

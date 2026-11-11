@@ -320,6 +320,29 @@ handle("ai:set", async (_e, input) => {
   return aiPublic(next);
 });
 handle("ai:cancel", () => aiCancel?.abort());
+
+/** The saved endpoint, refused if it is remote and its host was not approved when it was saved. */
+function aiApprovedEndpoint() {
+  const s = aiRead();
+  if (!s.endpoint) throw new Error("Set an endpoint first");
+  const ep = ai.parseEndpoint(s.endpoint);
+  if (!ep.local && s.approvedHost !== ep.host) throw new Error(`Save the settings and allow ${ep.host} first`);
+  return { s, ep };
+}
+
+// The models a server offers. Sends only the API key.
+handle("ai:models", async () => {
+  const { s } = aiApprovedEndpoint();
+  return ai.listModels({ endpoint: s.endpoint, key: aiKey(s) });
+});
+
+// A fixed one-line prompt that proves endpoint, key and model work. Sends no code.
+handle("ai:test", async () => {
+  const { s, ep } = aiApprovedEndpoint();
+  const started = Date.now();
+  const text = await ai.chat({ endpoint: s.endpoint, key: aiKey(s), model: s.model, messages: ai.TEST_MESSAGES });
+  return { text: text.slice(0, 300), millis: Date.now() - started, host: ep.host, local: ep.local };
+});
 handle("ai:ask", async (_e, req) => {
   if (!req || typeof req !== "object" || typeof req.task !== "string" || typeof req.code !== "string") throw new Error("invalid assistant request");
   if (req.code.length > 400000) throw new Error("The function is too large to send");

@@ -29,7 +29,32 @@ Claude Desktop (`claude_desktop_config.json`), Cursor (`~/.cursor/mcp.json`) and
 }
 ```
 
+Gemini CLI (`~/.gemini/settings.json`) uses the same `mcpServers` format.
+
+OpenCode (`opencode.json`, or `~/.config/opencode/opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "paranoia": { "type": "local", "command": ["paranoia", "mcp", "--root", "/path/to/samples"] }
+    }
+  }
+}
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.paranoia]
+command = "paranoia"
+args = ["mcp", "--root", "/path/to/samples"]
+```
+
 Then ask something like "open D:\samples\invoice_update.exe, find the functions that call CreateFileW and explain what they write".
+
+The model behind the agent is the agent's business: any model your client supports, hosted or local, can use these tools. For the AI assistant built into the desktop app, see [ASSISTANT.md](ASSISTANT.md).
 
 ## Options
 
