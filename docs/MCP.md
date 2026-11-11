@@ -4,7 +4,7 @@
 
 ## Getting it
 
-On Windows, download `paranoia-cli-vX.Y.Z-windows-x64.exe` from [Releases](https://github.com/Altumptic/paranoia/releases/latest) (the first release after v0.7.0) and rename it to `paranoia.exe` if you like. On any OS you can build it with `cargo install --path crates/paranoia-cli`.
+Download it from [Releases](https://github.com/Altumptic/paranoia/releases/latest): `paranoia-cli-vX.Y.Z-windows-x64.exe` (rename it to `paranoia.exe` if you like), or `paranoia-cli-vX.Y.Z-<linux|macos>-<arch>.tar.gz` for Linux (x64, ARM64) and macOS (ARM64, x64) from v0.8.0 on. You can also build it with `cargo install --path crates/paranoia-cli`.
 
 ## Connecting a client
 

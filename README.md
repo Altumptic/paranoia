@@ -47,7 +47,7 @@ Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analy
 - Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental: types come only from known library calls, and it has been measured on Go binaries only. Other architectures have disassembly and graphs only.
 - MIPS has only been tested on known instruction encodings, not on a full binary.
 - The debugger runs local programs only. Remote debugging is planned.
-- Release builds are Windows only. On Linux, run the app from source. macOS and Linux packages are planned.
+- The desktop app is released for Windows only; on Linux and macOS, run it from source. The command-line tool (with `diff`, function memory and the MCP server) is released for Windows, Linux and macOS.
 - Raw firmware images without a PE/ELF/Mach-O header can't be loaded yet.
 - The Windows executables aren't Authenticode-signed yet.
 
@@ -69,6 +69,15 @@ gh attestation verify Paranoia-<version>-portable.exe --repo Altumptic/paranoia
 ```
 
 More in [docs/VERIFY.md](docs/VERIFY.md).
+
+The command-line tool for Linux and macOS is in the same release, as `paranoia-cli-<version>-<os>-<arch>.tar.gz` (Linux x64 and ARM64, macOS ARM64 and x64), checked the same way:
+
+```bash
+tar -xzf paranoia-cli-v0.8.0-linux-x64.tar.gz
+./paranoia-cli-v0.8.0-linux-x64/paranoia --version
+```
+
+On macOS, a file downloaded with a browser is quarantined because it isn't notarised; `xattr -d com.apple.quarantine paranoia` clears that after you've checked the checksum.
 
 ## Privacy and security
 

@@ -4,7 +4,10 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+## 0.8.0 — 2026-11-12
+
 ### Added
+- Command-line builds for Linux (x64 and ARM64, static, any distribution) and macOS (Apple Silicon and Intel), in every release next to the Windows files, covered by the same signed checksums and attestations.
 - C·SSA (and so AArch64 pseudocode) uses the prototypes of called functions: the right number of arguments, no result for `void` functions, and parameter and variable types (`HANDLE v1`, `const char *a2`). A parameter a function passes on in another argument register is now recognised as a parameter.
 - Go's function table is read, so stripped Go programs keep all their functions and names (ELF, PE and Mach-O; Go 1.2 to current). A stripped `gofmt` goes from 721 functions to 3 078.
 - `paranoia query FILE inventory|function|xrefs`: one JSON answer per run, with the file's SHA-256, for other tools. See docs/QUERY.md.
@@ -34,6 +37,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ### Fixed
 - Declaration comments in 32-bit pseudocode named 64-bit registers (`rdx` instead of `edx`).
+- Creating a `.pat` signature file could panic on x86 instructions whose first operand isn't an immediate.
 
 ## 0.7.0 — 2026-11-06
 
