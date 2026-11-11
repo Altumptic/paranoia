@@ -32,6 +32,38 @@ pub(crate) struct COptions<'a> {
     pub names: &'a dyn Fn(u64) -> Option<String>,
 }
 
+/// The C type part of a prototype parameter: `const char *s` → `const char *`.
+/// `None` for `...` and for function-pointer parameters, which don't split that way.
+fn param_type(p: &str) -> Option<String> {
+    if p == "..." || p.contains('(') {
+        return None;
+    }
+    let name = crate::protos::param_name(p);
+    let ty = p.strip_suffix(name)?.trim_end();
+    (!ty.is_empty()).then(|| ty.to_string())
+}
+
+/// Records that variable `name` holds a value of type `ty`. A variable seen with two
+/// different types keeps neither (`None`).
+fn note_type(types: &mut HashMap<String, Option<String>>, name: &str, ty: &str) {
+    types
+        .entry(name.to_string())
+        .and_modify(|t| {
+            if t.as_deref() != Some(ty) {
+                *t = None;
+            }
+        })
+        .or_insert_with(|| Some(ty.to_string()));
+}
+
+/// The variable an expression's tokens name, when it is just one variable.
+fn lone_var(t: &[Token]) -> Option<&str> {
+    match t {
+        [v] if v.k == TokenKind::Register && !v.t.contains(['[', '*', ' ']) => Some(v.t.as_str()),
+        _ => None,
+    }
+}
+
 /// A global's name: its symbol, or IDA's size-based auto name (`dword_42AC2C`).
 fn global_name(o: &COptions<'_>, addr: i64, size: u8) -> Option<String> {
     let a = u64::try_from(addr).ok().filter(|a| *a >= 0x1000)?;
@@ -501,6 +533,20 @@ impl SsaFunction {
                     }
                 }
             }
+            // But an entry value passed in another argument slot (`r8 = rdx` before the call)
+            // is a real use: the function hands its own argument on.
+            for s in b.stmts.iter().filter(|s| !s.dead) {
+                if let Kind::Call { target, args, .. } = &s.kind {
+                    let abi = &args[usize::from(target.starts_with('[')).min(args.len())..];
+                    for (k, e) in abi.iter().enumerate() {
+                        if let Expr::Use(v, 0) = e {
+                            if o.args.get(k) != Some(v) && o.args.contains(v) && !used_entry.contains(v) {
+                                used_entry.push(*v);
+                            }
+                        }
+                    }
+                }
+            }
         }
         let mut param_regs: Vec<Var> = o.args.iter().copied().filter(|a| used_entry.contains(a)).collect();
         // An argument implies the ones before it.
@@ -601,6 +647,8 @@ impl SsaFunction {
         };
 
         let mut out: Vec<PseudoLine> = Vec::new();
+        // Variable types learned from the prototypes of called functions.
+        let mut types: HashMap<String, Option<String>> = HashMap::new();
         for (bi, b) in f.blocks.iter().enumerate() {
             if labels.contains(&b.start) {
                 out.push(line(0, Some(b.start), vec![tok(lbl(b.start), TokenKind::Symbol), tok(":", TokenKind::Punct)]));
@@ -678,14 +726,6 @@ impl SsaFunction {
                     }
                     Kind::Call { target, args, ret, .. } => {
                         let indirect = target.starts_with('[');
-                        let mut t = Vec::new();
-                        let ret_live = ret.is_some_and(|r| uses.get(&r).copied().unwrap_or(0) > 0 || phi_use.contains(&r));
-                        if let (Some(r), true) = (ret, ret_live) {
-                            if !g.inline.contains_key(r) {
-                                t.push(tok(g.names.get(r).cloned().unwrap_or_else(|| g.reg_name(r.0).into()), TokenKind::Register));
-                                t.push(tok(" = ", TokenKind::Punct));
-                            }
-                        }
                         let slot_name = match &args.first() {
                             Some(Expr::Load(size, a)) if indirect => match &**a {
                                 Expr::Const(addr) => global_name(o, *addr, *size),
@@ -693,15 +733,34 @@ impl SsaFunction {
                             },
                             _ => None,
                         };
+                        let callee = if slot_name.is_some() || indirect {
+                            None
+                        } else {
+                            let addr = u64::from_str_radix(target.trim_start_matches("sub_"), 16).ok();
+                            Some(addr.and_then(|a| (o.names)(a)).unwrap_or_else(|| target.clone()))
+                        };
+                        let proto = slot_name.as_deref().or(callee.as_deref()).and_then(crate::protos::lookup);
+                        let mut t = Vec::new();
+                        let ret_live = ret.is_some_and(|r| uses.get(&r).copied().unwrap_or(0) > 0 || phi_use.contains(&r));
+                        let returns_void = proto.is_some_and(|p| p.ret == "void");
+                        if let (Some(r), true, false) = (ret, ret_live, returns_void) {
+                            if !g.inline.contains_key(r) {
+                                let name = g.names.get(r).cloned().unwrap_or_else(|| g.reg_name(r.0).into());
+                                if let Some(p) = proto {
+                                    note_type(&mut types, &name, p.ret);
+                                }
+                                t.push(tok(name, TokenKind::Register));
+                                t.push(tok(" = ", TokenKind::Punct));
+                            }
+                        }
                         if let Some(n) = slot_name {
                             t.push(tok(n, TokenKind::Symbol));
-                        } else if indirect {
+                        } else if let Some(n) = callee {
+                            t.push(tok(n, TokenKind::Symbol));
+                        } else {
                             t.push(tok("(*", TokenKind::Punct));
                             t.extend(g.e(&args[0]));
                             t.push(tok(")", TokenKind::Punct));
-                        } else {
-                            let addr = u64::from_str_radix(target.trim_start_matches("sub_"), 16).ok();
-                            t.push(tok(addr.and_then(|a| (o.names)(a)).unwrap_or_else(|| target.clone()), TokenKind::Symbol));
                         }
                         t.push(tok("(", TokenKind::Punct));
                         let mut list: Vec<Vec<Token>> = Vec::new();
@@ -713,9 +772,27 @@ impl SsaFunction {
                             }
                         } else {
                             let abi = &args[usize::from(indirect)..];
-                            let count = o.args.iter().rposition(|a| set_since.contains(a)).map_or(0, |p| p + 1);
-                            for e in abi.iter().take(count) {
-                                list.push(g.e(e));
+                            let set = o.args.iter().rposition(|a| set_since.contains(a)).map_or(0, |p| p + 1);
+                            // A known prototype says how many arguments there are; a variadic one
+                            // takes at least its fixed ones.
+                            let count = match proto {
+                                Some(p) => {
+                                    let fixed = p.params.iter().filter(|q| **q != "...").count();
+                                    if p.params.contains(&"...") {
+                                        fixed.max(set)
+                                    } else {
+                                        fixed
+                                    }
+                                }
+                                None => set,
+                            };
+                            for (k, e) in abi.iter().take(count).enumerate() {
+                                let a = g.e(e);
+                                if let (Some(v), Some(ty)) = (lone_var(&a), proto.and_then(|p| p.params.get(k)).and_then(|q| param_type(q)))
+                                {
+                                    note_type(&mut types, v, &ty);
+                                }
+                                list.push(a);
                             }
                         }
                         for (k, a) in list.into_iter().enumerate() {
@@ -890,6 +967,16 @@ impl SsaFunction {
         let mut locals: Vec<String> = renum.values().cloned().collect();
         locals.sort_by_key(|n| n[1..].parse::<usize>().unwrap_or(0));
         g.locals = locals;
+        let types: HashMap<String, String> =
+            types.into_iter().filter_map(|(k, v)| Some((renum.get(&k).cloned().unwrap_or(k), v?))).collect();
+        let decl = |v: &str| -> Vec<Token> {
+            match types.get(v) {
+                // `char *` reads as `char *v1`, other types as `size_t v1`.
+                Some(ty) if ty.ends_with('*') => vec![tok(ty.clone(), TokenKind::Keyword)],
+                Some(ty) => vec![tok(ty.clone(), TokenKind::Keyword), tok(" ", TokenKind::Text)],
+                None => vec![tok("int ", TokenKind::Keyword)],
+            }
+        };
 
         // Signature and declarations.
         let mut sig = vec![
@@ -902,7 +989,7 @@ impl SsaFunction {
             if k > 0 {
                 sig.push(tok(", ", TokenKind::Punct));
             }
-            sig.push(tok("int ", TokenKind::Keyword));
+            sig.extend(decl(p));
             sig.push(tok(p.clone(), TokenKind::Register));
         }
         sig.push(tok(")", TokenKind::Punct));
@@ -923,16 +1010,10 @@ impl SsaFunction {
             .filter(|v| body_text.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == v.as_str()))
             .chain(slots.iter())
         {
-            head.push(line(
-                1,
-                None,
-                vec![
-                    tok("int", TokenKind::Keyword),
-                    tok(" ", TokenKind::Text),
-                    tok(v.clone(), TokenKind::Register),
-                    tok(";", TokenKind::Punct),
-                ],
-            ));
+            let mut t = decl(v);
+            t.push(tok(v.clone(), TokenKind::Register));
+            t.push(tok(";", TokenKind::Punct));
+            head.push(line(1, None, t));
         }
         if head.len() > 2 {
             head.push(line(1, None, Vec::new()));
@@ -1131,7 +1212,12 @@ mod tests {
         let args: &[Register] = if bits == 64 { &[R::RCX, R::RDX, R::R8, R::R9] } else { &[R::ECX, R::EDX] };
         let entry = *b.keys().next().unwrap();
         let s = build(entry, b, bits, vol, args);
-        let names = |a: u64| (a == 0x500).then(|| "puts".to_string());
+        let names = |a: u64| match a {
+            0x500 => Some("puts".to_string()),
+            0x600 => Some("strlen".to_string()),
+            0x700 => Some("free".to_string()),
+            _ => None,
+        };
         let o = COptions { name: "f", entry, returns, args: if bits == 64 { vec![1, 2, 8, 9] } else { vec![] }, names: &names };
         s.to_c(&o)
             .iter()
@@ -1148,6 +1234,32 @@ mod tests {
         assert!(t.contains("__int64 f(int a1, int a2)"), "{t}");
         assert!(t.contains("puts(a1 + (a2 * 4))"), "{t}");
         assert!(t.contains("return v") && t.contains(" + 1"), "{t}");
+    }
+
+    #[test]
+    fn prototypes_type_variables_and_drop_void_results() {
+        // n = strlen(a2); free(a1);
+        let b = func(
+            64,
+            &[(
+                0x100,
+                &["mov rbx, rcx", "mov rcx, rdx", "call 0x600", "mov rsi, rax", "mov rcx, rbx", "call 0x700", "mov rax, rsi", "ret"],
+                &[],
+            )],
+        );
+        let t = c(64, &b, true);
+        assert!(t.contains("f(void *a1, const char *a2)"), "{t}");
+        assert!(t.contains("size_t v1;") && t.contains("v1 = strlen(a2);"), "{t}");
+        assert!(t.contains("    free(a1);"), "free returns nothing: {t}");
+    }
+
+    #[test]
+    fn an_argument_passed_on_in_another_slot_is_a_parameter() {
+        // f(a1, a2) { return puts2(0, a2); }: rdx moves to r8, so a2 is read.
+        let b = func(64, &[(0x100, &["mov r8, rdx", "xor edx, edx", "call 0x800", "ret"], &[])]);
+        let t = c(64, &b, true);
+        assert!(t.contains("f(int a1, int a2)"), "{t}");
+        assert!(!t.contains("rdx"), "{t}");
     }
 
     #[test]

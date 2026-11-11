@@ -5,6 +5,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 ## Unreleased
 
 ### Added
+- C·SSA (and so AArch64 pseudocode) uses the prototypes of called functions: the right number of arguments, no result for `void` functions, and parameter and variable types (`HANDLE v1`, `const char *a2`). A parameter a function passes on in another argument register is now recognised as a parameter.
 - Go's function table is read, so stripped Go programs keep all their functions and names (ELF, PE and Mach-O; Go 1.2 to current). A stripped `gofmt` goes from 721 functions to 3 078.
 - `paranoia mcp`: `compare_binaries`, and `recognize_functions` with `--memory`.
 - Function memory. `paranoia diff A B` matches the functions of two binaries (identical bytes, same instructions, same imports/strings/constants, call graph, then fuzzy MinHash matching) and lists what changed, was added or removed. `paranoia memory learn/recall` keeps a local knowledge base of named functions and recognises them in other files, using the call graph as context; nothing leaves the machine. In the app: Analysis → Function memory and Analysis → Compare with another file, with the two versions of a function side by side. Measured on `gofmt` builds with names hidden: GOAMD64 v1 vs v3, 100 % of functions with 16+ instructions matched right by `diff`, 88.7 % recalled with no wrong names.
