@@ -211,6 +211,22 @@ impl Binary {
         v
     }
 
+    /// Every direct call in the binary as (calling function's start, call target), sorted and
+    /// without duplicates. Targets are function starts or import slots. One pass over the
+    /// references, so it is cheap even with tens of thousands of functions.
+    pub fn call_edges(&self) -> Vec<(u64, u64)> {
+        let Some(a) = &self.analysis else { return Vec::new() };
+        let mut edges: Vec<(u64, u64)> = a
+            .xrefs
+            .iter()
+            .flat_map(|(target, refs)| refs.iter().filter(|r| r.kind == XrefKind::Call).map(move |r| (r.from, *target)))
+            .filter_map(|(from, target)| a.function_containing(from).map(|f| (f.address, target)))
+            .collect();
+        edges.sort_unstable();
+        edges.dedup();
+        edges
+    }
+
     /// Defines a function at `va` (IDA's `P`) and re-runs auto-analysis.
     pub fn make_function(&mut self, va: u64) -> Result<(), String> {
         if !self.is_executable(va) {

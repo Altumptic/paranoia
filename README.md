@@ -109,6 +109,7 @@ paranoia diff old.exe new.exe              # which functions changed between two
 paranoia memory learn sample-a.exe         # remember the names you gave in the app
 paranoia memory recall sample-b.exe        # recognise them in another file
 paranoia mcp --root ./samples              # MCP server for AI agents
+paranoia query sample.exe inventory        # JSON for other tools (docs/QUERY.md)
 ```
 
 ## Building
