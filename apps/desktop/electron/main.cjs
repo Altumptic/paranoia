@@ -179,7 +179,9 @@ function takeSavePath(p) {
 
 handle("engine:request", async (_e, req) => {
   // Only forward the protocol's known operations.
-  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug"].includes(req.op)) throw new Error("invalid engine request");
+  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug", "diff", "memory"].includes(req.op)) throw new Error("invalid engine request");
+  // The function knowledge base: no paths, a fixed set of methods.
+  if (req.op === "memory" && !policy.memoryMethodAllowed(req.method)) throw new Error("invalid memory request");
   // Exports may only go to a path the user just picked in a save dialog.
   if (req.op === "export_patched" && !takeSavePath(req.path)) throw new Error("export path was not chosen by the user");
   // Reads only from files the user chose.

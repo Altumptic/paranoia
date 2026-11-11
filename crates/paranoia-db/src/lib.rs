@@ -6,10 +6,14 @@
 
 #![forbid(unsafe_code)]
 
+mod knowledge;
+
 use std::path::Path;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde_json::Value;
+
+pub use knowledge::{Knowledge, KnowledgeStats, LearnStats, SourceInfo};
 
 const ANNOTATIONS: TableDefinition<'_, &str, &str> = TableDefinition::new("annotations");
 const RECENT: TableDefinition<'_, &str, &str> = TableDefinition::new("recent");

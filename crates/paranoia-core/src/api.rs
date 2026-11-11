@@ -234,6 +234,38 @@ impl Session {
                 Ok(Value::Null)
             }
             "annotations" => to(b.annotations()),
+            "fingerprint" => to(b.fingerprint_at(args::<Va>(args_v)?.va)),
+            "renameMany" => {
+                // Names carried over from a compared file. One undo step for the batch.
+                #[derive(Deserialize)]
+                struct Items {
+                    items: Vec<Rename>,
+                }
+                let a: Items = args(args_v)?;
+                b.checkpoint();
+                for r in &a.items {
+                    b.rename(r.va, &r.text);
+                }
+                Ok(json!(a.items.len()))
+            }
+            "applyKnown" => {
+                // Remembered functions chosen by the user, as `recall` returned them. One undo step.
+                #[derive(Deserialize)]
+                struct Items {
+                    items: Vec<crate::memory::Recall>,
+                }
+                let a: Items = args(args_v)?;
+                b.checkpoint();
+                let mut total = crate::memory::Applied::default();
+                for r in &a.items {
+                    let d = b.apply_known(r.address, &r.known, r.exact);
+                    total.renamed |= d.renamed;
+                    total.comments += d.comments;
+                    total.variables += d.variables;
+                }
+                let renamed = a.items.iter().filter(|r| b.annotations().names.get(&r.address) == Some(&r.known.name)).count();
+                Ok(json!({ "renamed": renamed, "comments": total.comments, "variables": total.variables }))
+            }
             "setAnnotations" => {
                 let a: Annotations = args(args_v)?;
                 b.set_annotations(a);

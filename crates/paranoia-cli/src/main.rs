@@ -10,6 +10,7 @@ use paranoia_core::{Binary, Instruction};
 
 mod disclosure;
 mod mcp;
+mod memory;
 mod script;
 
 #[derive(Parser)]
@@ -95,6 +96,28 @@ enum Cmd {
         #[arg(long)]
         at: Option<String>,
     },
+    /// Match the functions of two binaries: what changed, what was added and removed.
+    Diff {
+        a: PathBuf,
+        b: PathBuf,
+        /// Don't match functions by name, only by code.
+        #[arg(long)]
+        no_names: bool,
+        /// Measure the matcher: match by code only, then compare with the names both files carry.
+        #[arg(long)]
+        check_names: bool,
+        /// How many changed, added and removed functions to list.
+        #[arg(short = 'n', long, default_value_t = 25)]
+        limit: usize,
+    },
+    /// The function knowledge base: remember named functions, recognise them in other files.
+    Memory {
+        /// Knowledge base file (default: memory.redb next to the app's workspace).
+        #[arg(long, global = true)]
+        db: Option<PathBuf>,
+        #[command(subcommand)]
+        cmd: MemoryCmd,
+    },
     /// Check a disclosure ledger written by `paranoia mcp --ledger` and summarise what was disclosed.
     Ledger { file: PathBuf },
     /// Serve the engine to AI agents over the Model Context Protocol (stdio, read-only by default).
@@ -116,6 +139,48 @@ enum Cmd {
         #[arg(long, value_name = "FILE", num_args = 0..=1, default_missing_value = "")]
         workspace: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum MemoryCmd {
+    /// Remember the named functions of these files (names from the app's workspace).
+    Learn {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Also learn names from symbols, exports and debug info.
+        #[arg(long)]
+        symbols: bool,
+        /// Workspace to read the names from (default: the app's, if it exists).
+        #[arg(long, value_name = "FILE")]
+        workspace: Option<PathBuf>,
+    },
+    /// Find remembered functions in a file.
+    Recall {
+        file: PathBuf,
+        /// Lowest similarity to report, 0 to 1.
+        #[arg(long, default_value_t = paranoia_core::memory::RECALL_MIN_SCORE)]
+        min_score: f32,
+        /// Write the names and comments into the workspace (close the app first).
+        #[arg(long)]
+        apply: bool,
+        /// Workspace for --apply (default: the app's).
+        #[arg(long, value_name = "FILE")]
+        workspace: Option<PathBuf>,
+        /// How many results to list (0 for all).
+        #[arg(short = 'n', long, default_value_t = 50)]
+        limit: usize,
+        /// Measure recall: hide the file's own names, recall, then compare with them.
+        #[arg(long)]
+        check_names: bool,
+    },
+    /// What the knowledge base holds.
+    Stats,
+    /// Write every remembered function to a JSON-lines file, to share or back up.
+    Export { output: PathBuf },
+    /// Add the functions from a file written by `export`.
+    Import { input: PathBuf },
+    /// Remove everything learned from the file with this SHA-256.
+    Forget { sha256: String },
 }
 
 fn open(path: &PathBuf) -> Result<Binary> {
@@ -267,6 +332,22 @@ fn main() -> Result<()> {
             let cursor = at.map(|a| u64::from_str_radix(a.trim_start_matches("0x"), 16)).transpose()?.unwrap_or(0);
             let code = script::run(&file, &script, python.as_deref(), cursor)?;
             std::process::exit(code);
+        }
+        Cmd::Diff { a, b, no_names, check_names, limit } => {
+            memory::diff_command(memory::DiffArgs { a: &a, b: &b, use_names: !no_names, check: check_names, limit, json: cli.json })?;
+        }
+        Cmd::Memory { db, cmd } => {
+            let action = match cmd {
+                MemoryCmd::Learn { files, symbols, workspace } => memory::MemoryAction::Learn { files, symbols, workspace },
+                MemoryCmd::Recall { file, min_score, apply, workspace, limit, check_names } => {
+                    memory::MemoryAction::Recall { file, min_score, apply, workspace, limit, check: check_names }
+                }
+                MemoryCmd::Stats => memory::MemoryAction::Stats,
+                MemoryCmd::Export { output } => memory::MemoryAction::Export { output },
+                MemoryCmd::Import { input } => memory::MemoryAction::Import { input },
+                MemoryCmd::Forget { sha256 } => memory::MemoryAction::Forget { sha256 },
+            };
+            memory::memory_command(db, action, cli.json)?;
         }
         Cmd::Ledger { file } => {
             let text = std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;

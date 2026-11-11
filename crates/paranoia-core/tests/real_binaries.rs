@@ -770,3 +770,35 @@ fn c_from_ssa_on_real_code() {
         assert!(same_calls * 10 >= n * 9, "only {same_calls} of {n} functions call the same functions");
     }
 }
+
+/// A file matched against itself, and against a copy with one instruction replaced by NOPs.
+#[test]
+fn function_matching_finds_one_edit() {
+    use paranoia_core::memory::{diff, DiffOptions};
+    let Some((p, bytes)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
+    let mut a = Binary::load(&p, bytes.clone()).unwrap();
+    a.analyze();
+    let prints_a = a.fingerprints();
+    let opts = DiffOptions { use_names: false, ..DiffOptions::default() };
+
+    let same = diff(&prints_a, &prints_a, opts);
+    assert!(same.matches.iter().all(|m| m.a == m.b && !m.changed), "{p}: a file must match itself exactly");
+    assert!(same.similarity > 0.999);
+
+    if !matches!(a.info().arch, Arch::X86 | Arch::X86_64) {
+        return;
+    }
+    // The fifth instruction of the largest function becomes NOPs.
+    let f = a.functions().into_iter().filter(|f| !f.is_import_thunk).max_by_key(|f| f.instructions).unwrap();
+    let ins = &a.disassemble(f.address, 5).unwrap()[4];
+    let off = a.va_to_offset(ins.address).unwrap() as usize;
+    let mut edited = bytes;
+    edited[off..off + ins.size as usize].fill(0x90);
+    let mut b = Binary::load(&p, edited).unwrap();
+    b.analyze();
+    let report = diff(&prints_a, &b.fingerprints(), opts);
+    let changed: Vec<_> = report.matches.iter().filter(|m| m.changed).collect();
+    assert_eq!(changed.len(), 1, "{p}: exactly the edited function changes, got {changed:?}");
+    assert_eq!((changed[0].a, changed[0].b), (f.address, f.address));
+    assert!(changed[0].score > 0.6 && changed[0].score < 1.0);
+}

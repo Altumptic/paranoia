@@ -31,6 +31,13 @@ function externalAllowed(url) {
 /** Store methods the page may call. `recent_add` is checked separately (see recentAddAllowed). */
 const STORE_METHODS = new Set(["annotations_get", "annotations_set", "recent_list", "recent_add", "recent_remove"]);
 
+// Function knowledge base. Export and import take file paths and stay in the CLI.
+const MEMORY_METHODS = new Set(["stats", "learn", "recall", "forget"]);
+
+function memoryMethodAllowed(method) {
+  return typeof method === "string" && MEMORY_METHODS.has(method);
+}
+
 function storeMethodAllowed(method) {
   return typeof method === "string" && STORE_METHODS.has(method);
 }
@@ -55,4 +62,4 @@ function debugDetail(file, cmdline) {
   );
 }
 
-module.exports = { appUrl, isAppPage, externalAllowed, storeMethodAllowed, recentAddAllowed, debugDetail };
+module.exports = { appUrl, isAppPage, externalAllowed, storeMethodAllowed, memoryMethodAllowed, recentAddAllowed, debugDetail };

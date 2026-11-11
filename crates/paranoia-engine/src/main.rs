@@ -29,7 +29,8 @@ mod debugger;
 mod debugger;
 
 use paranoia_core::api::Session;
-use paranoia_db::Store;
+use paranoia_core::memory::{self, DiffOptions, LearnFrom};
+use paranoia_db::{Knowledge, Store};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -54,6 +55,9 @@ struct Engine {
     debugger: Option<debugger::Debugger>,
     next: u32,
     store: Option<Store>,
+    /// Function knowledge base, next to the workspace. Opened per request so the
+    /// `paranoia` command can use it while the app runs.
+    memory_path: Option<std::path::PathBuf>,
 }
 
 impl Engine {
@@ -108,6 +112,17 @@ impl Engine {
             }
             "debug" => self.debug_op(r.handle, r.method.as_deref().unwrap_or(""), r.args),
             "store" => self.store_op(r.method.as_deref().unwrap_or(""), r.args),
+            "diff" => {
+                // Function matching between two open files.
+                let h = r.handle.ok_or("missing handle")?;
+                let other = r.args.get("other").and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok()).ok_or("missing other")?;
+                let names = r.args.get("names").and_then(Value::as_bool).unwrap_or(true);
+                let prints = |h: u32| self.sessions.get(&h).map(|s| s.binary().fingerprints()).ok_or_else(|| format!("no session {h}"));
+                let (a, b) = (prints(h)?, prints(other)?);
+                let report = memory::diff(&a, &b, DiffOptions { use_names: names, ..DiffOptions::default() });
+                serde_json::to_value(report).map_err(|e| e.to_string())
+            }
+            "memory" => self.memory_op(r.handle, r.method.as_deref().unwrap_or(""), r.args),
             "ping" => Ok(json!({ "version": env!("CARGO_PKG_VERSION") })),
             other => Err(format!("unknown op `{other}`")),
         }
@@ -181,6 +196,36 @@ impl Engine {
         }
     }
 
+    fn memory_op(&self, handle: Option<u32>, method: &str, args: Value) -> Result<Value, String> {
+        let path = self.memory_path.as_ref().ok_or("the function knowledge base needs the workspace folder")?;
+        let kb = Knowledge::open(path).map_err(|e| format!("{e} (is `paranoia memory` running?)"))?;
+        let e = |e: paranoia_db::Error| e.to_string();
+        let session = || {
+            let h = handle.ok_or("missing handle")?;
+            self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))
+        };
+        match method {
+            "learn" => {
+                let symbols = args.get("symbols").and_then(Value::as_bool).unwrap_or(false);
+                let from = if symbols { LearnFrom::UserAndSymbols } else { LearnFrom::User };
+                let known = session()?.binary().knowledge(from);
+                serde_json::to_value(kb.learn(&known).map_err(e)?).map_err(|e| e.to_string())
+            }
+            "recall" => {
+                let min = args.get("min_score").and_then(Value::as_f64).map_or(memory::RECALL_MIN_SCORE, |v| v.clamp(0.3, 1.0) as f32);
+                let bin = session()?.binary();
+                let recalls = kb.recall(&bin.fingerprints(), &bin.info().hashes.sha256, min).map_err(e)?;
+                serde_json::to_value(recalls).map_err(|e| e.to_string())
+            }
+            "stats" => serde_json::to_value(kb.stats().map_err(e)?).map_err(|e| e.to_string()),
+            "forget" => {
+                let sha = args.get("sha256").and_then(Value::as_str).ok_or("missing sha256")?;
+                Ok(json!(kb.forget_source(sha).map_err(e)?))
+            }
+            _ => Err(format!("unknown memory method `{method}`")),
+        }
+    }
+
     fn store_op(&self, method: &str, args: Value) -> Result<Value, String> {
         let Some(store) = &self.store else {
             // Without a store the app still works; it just forgets annotations.
@@ -236,6 +281,7 @@ fn main() {
             return;
         }
     }
+    let memory_path = store_path.as_ref().map(|p| std::path::Path::new(p).with_file_name("memory.redb"));
     let store = store_path.and_then(|p| Store::open(&p).map_err(|e| eprintln!("workspace store disabled: {e}")).ok());
     let mut engine = Engine {
         sessions: HashMap::new(),
@@ -244,6 +290,7 @@ fn main() {
         debugger: None,
         next: 0,
         store,
+        memory_path,
     };
 
     let stdin = std::io::stdin();

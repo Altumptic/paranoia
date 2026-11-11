@@ -1560,3 +1560,180 @@
 .ai-presets-head {
   margin-top: 6px;
 }
+
+/* ---- Function memory ---- */
+.mem-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+.mem-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.mem-sources {
+  max-height: 160px;
+  overflow: auto;
+  margin: 4px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.mem-source {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 10px;
+}
+.mem-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mem-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.mem-head {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.mem-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.mem-row {
+  display: grid;
+  grid-template-columns: 22px 104px minmax(90px, 1fr) minmax(140px, 1.6fr) 72px minmax(80px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+  padding: 3px 8px;
+}
+.mem-row-head {
+  color: var(--faint);
+  border-bottom: 1px solid var(--line);
+}
+.mem-list {
+  max-height: 38vh;
+  overflow: auto;
+}
+.mem-list .mem-row:hover {
+  background: var(--bg-hover);
+  border-radius: 6px;
+}
+.mem-score {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mem-score.exact {
+  color: var(--ok);
+}
+.mem-note {
+  margin-top: 8px;
+}
+
+/* ---- Compare ---- */
+.cmp-veil {
+  padding-top: 4vh;
+}
+.cmp-modal {
+  width: min(1280px, calc(100vw - 32px));
+  height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.cmp-modal .modal-title {
+  justify-content: space-between;
+  min-width: 0;
+}
+.cmp-summary {
+  margin: -6px 0 10px;
+}
+.cmp-tabs {
+  flex: none;
+}
+.cmp-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 12px;
+}
+.cmp-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.cmp-list {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.cmp-row {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cmp-row:hover {
+  background: var(--bg-hover);
+}
+.cmp-row.sel {
+  background: var(--bg-active);
+}
+.cmp-score {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.cmp-more,
+.cmp-empty {
+  padding: 10px;
+}
+.cmp-right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  min-width: 0;
+}
+.cmp-pair,
+.cmp-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.cmp-sides {
+  flex: 1;
+  min-height: 0;
+}
+.cmp-code {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 0;
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--bg);
+  user-select: text;
+}
+.cmp-line {
+  padding: 0 10px;
+  white-space: pre;
+}
+.cmp-line.cmp-a {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.cmp-line.cmp-b {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}

@@ -157,7 +157,7 @@ fn hex_byte(b: Option<u8>) -> String {
 impl Binary {
     /// Bytes of the function at `start` that vary between builds (relocations, calls,
     /// references into the image), over the contiguous range `len`.
-    fn variable_mask(&self, start: u64, len: usize) -> Option<Vec<bool>> {
+    pub(crate) fn variable_mask(&self, start: u64, len: usize) -> Option<Vec<bool>> {
         let bytes = self.bytes_at(start)?;
         let len = len.min(bytes.len());
         let mut mask = vec![false; len];
@@ -199,7 +199,11 @@ impl Binary {
                             mark(co.displacement_offset(), co.displacement_size());
                         }
                     }
-                    if co.has_immediate() && !near && co.immediate_size() >= 4 && in_image(ins.immediate(0).max(ins.immediate32() as u64)) {
+                    if co.has_immediate()
+                        && !near
+                        && co.immediate_size() >= 4
+                        && (0..ins.op_count()).any(|i| is_immediate(ins.op_kind(i)) && in_image(ins.immediate(i)))
+                    {
                         mark(co.immediate_offset(), co.immediate_size());
                     }
                 }
@@ -262,7 +266,7 @@ impl Binary {
     }
 
     /// Original (unpatched) bytes, so signatures never capture local patches.
-    fn original_bytes_at(&self, va: u64, len: usize) -> Option<Vec<u8>> {
+    pub(crate) fn original_bytes_at(&self, va: u64, len: usize) -> Option<Vec<u8>> {
         let mut v = self.bytes_at(va)?.get(..len)?.to_vec();
         for (i, b) in v.iter_mut().enumerate() {
             if let Some(off) = self.va_to_offset(va + i as u64) {
@@ -420,6 +424,22 @@ impl Binary {
     pub(crate) fn library_name(&self, va: u64) -> Option<&String> {
         self.annotations.library.get(&va).or_else(|| self.lib_names.get(&va))
     }
+}
+
+/// The operand holds an immediate value (so `Instruction::immediate` may be called on it).
+fn is_immediate(k: OpKind) -> bool {
+    matches!(
+        k,
+        OpKind::Immediate8
+            | OpKind::Immediate8_2nd
+            | OpKind::Immediate16
+            | OpKind::Immediate32
+            | OpKind::Immediate64
+            | OpKind::Immediate8to16
+            | OpKind::Immediate8to32
+            | OpKind::Immediate8to64
+            | OpKind::Immediate32to64
+    )
 }
 
 #[cfg(test)]
