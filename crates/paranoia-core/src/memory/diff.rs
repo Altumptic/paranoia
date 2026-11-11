@@ -9,7 +9,10 @@
 //! 4. identical set of anchors (imports, strings, constants), unique on both sides;
 //! 5. the call graph: callees and callers of matched pairs are matched among themselves;
 //! 6. fuzzy: candidates from LSH buckets over the MinHash sketches, best pairs first;
-//! 7. the call graph again, from the pairs pass 6 found.
+//! 7. the call graph again, from the pairs pass 6 found;
+//! 8. copies: when both binaries still have the same number of unmatched,
+//!    identical copies of some code, they are paired in address order (the
+//!    linker keeps the order of the objects), then the call graph once more.
 //!
 //! Uniqueness matters more than score in the early passes: two identical copies
 //! of a small helper can't be told apart by their code, so they're left for the
@@ -30,6 +33,8 @@ pub enum MatchKind {
     Anchors,
     CallGraph,
     Fuzzy,
+    /// Identical copies paired by their order in the file.
+    Order,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +210,24 @@ impl State<'_> {
     }
 
     /// Candidates from shared LSH buckets, matched best score first.
+    /// Pairs identical copies left over on both sides, in address order, when both
+    /// sides have the same number of them.
+    fn copies(&mut self) {
+        let key = |p: &FunctionPrint| Some(p.print.exact ^ p.print.size as u64);
+        let ia = index_by(self.a, &self.a_of, &key);
+        let ib = index_by(self.b, &self.b_of, &key);
+        let mut groups: Vec<(Vec<usize>, Vec<usize>)> =
+            ia.into_iter().filter_map(|(k, xs)| ib.get(&k).filter(|ys| ys.len() == xs.len()).map(|ys| (xs, ys.clone()))).collect();
+        groups.sort();
+        for (mut xs, mut ys) in groups {
+            xs.sort_by_key(|&i| self.a[i].address);
+            ys.sort_by_key(|&j| self.b[j].address);
+            for (i, j) in xs.into_iter().zip(ys) {
+                self.add(i, j, 1.0, MatchKind::Order);
+            }
+        }
+    }
+
     fn fuzzy(&mut self, min_score: f32) {
         let eligible = |p: &FunctionPrint| p.print.instructions >= MIN_INSTRUCTIONS;
         let mut buckets: HashMap<u64, (Vec<usize>, Vec<usize>)> = HashMap::new();
@@ -300,6 +323,8 @@ pub fn diff(a: &[FunctionPrint], b: &[FunctionPrint], opts: DiffOptions) -> Diff
     st.unique_pass(MatchKind::Anchors, 0.5, &anchor_key);
     st.propagate(&callers_a, &callers_b, &idx_a, &idx_b);
     st.fuzzy(opts.min_score);
+    st.propagate(&callers_a, &callers_b, &idx_a, &idx_b);
+    st.copies();
     st.propagate(&callers_a, &callers_b, &idx_a, &idx_b);
 
     let mut matches: Vec<FunctionMatch> = st

@@ -60,6 +60,7 @@ fn label(k: MatchKind) -> &'static str {
         MatchKind::Anchors => "anchors",
         MatchKind::CallGraph => "callgraph",
         MatchKind::Fuzzy => "fuzzy",
+        MatchKind::Order => "order",
     }
 }
 

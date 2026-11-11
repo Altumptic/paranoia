@@ -3,7 +3,7 @@
 
 import { getBackend, type Session } from "./client";
 
-export type MatchKind = "name" | "exact" | "shape" | "anchors" | "call_graph" | "fuzzy";
+export type MatchKind = "name" | "exact" | "shape" | "anchors" | "call_graph" | "fuzzy" | "order";
 
 export interface FunctionMatch {
   a: number;
@@ -86,4 +86,5 @@ export const kindLabel: Record<MatchKind, string> = {
   anchors: "same imports/strings",
   call_graph: "call graph",
   fuzzy: "similar code",
+  order: "identical copy, by position",
 };

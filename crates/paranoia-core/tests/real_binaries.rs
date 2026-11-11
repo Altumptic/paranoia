@@ -784,6 +784,7 @@ fn function_matching_finds_one_edit() {
     let same = diff(&prints_a, &prints_a, opts);
     assert!(same.matches.iter().all(|m| m.a == m.b && !m.changed), "{p}: a file must match itself exactly");
     assert!(same.similarity > 0.999);
+    assert!(same.only_a.is_empty() && same.only_b.is_empty(), "{p}: identical copies must pair up too");
 
     if !matches!(a.info().arch, Arch::X86 | Arch::X86_64) {
         return;
