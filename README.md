@@ -37,7 +37,7 @@ Paranoia does disassembly, control-flow graphs, decompilation, debugging and scr
 - **Debug info:** PDB and DWARF names and types, FLIRT signatures (`.sig` and `.pat`).
 - **Debugger:** local Windows (x64 and 32-bit) and Linux x86-64 programs.
 - **Scripting:** Python in your own interpreter (`idc` and `idautils` work for common calls), JavaScript, plugins, and a headless batch mode.
-- **AI:** an optional assistant in the app (local or hosted model), and `paranoia mcp` for agents such as Claude Code, which can hide the sample's strings from the model and keep a log of everything the agent was shown. See [docs/MCP.md](docs/MCP.md).
+- **AI:** an optional assistant in the app ([local or hosted model](docs/ASSISTANT.md): Ollama, LM Studio, llama.cpp, Claude, OpenAI, OpenCode and others), and `paranoia mcp` for agents such as Claude Code, which can hide the sample's strings from the model and keep a log of everything the agent was shown. See [docs/MCP.md](docs/MCP.md).
 
 Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analysed in 45 ms, `shell32.dll` (7.7 MB, 24 449 functions) in about a second.
 

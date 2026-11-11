@@ -49,7 +49,7 @@ When two things compete, they're done in this order:
 | Call graph | ✅ | |
 | Scripting | ✅ | Python (`idc`/`idautils` names), JavaScript, headless batch mode |
 | Plugins | ✅ | Commands only. See [PLUGINS.md](PLUGINS.md) |
-| AI assistant | ✅ | Local or hosted models. Only tested against a stub server so far |
+| AI assistant | ✅ | Local or hosted models, with a model list and a connection test. Tested live with llama.cpp and a small local model; see [ASSISTANT.md](ASSISTANT.md) |
 | MCP server | ✅ | Read-only by default, string redaction, disclosure log, names shared with the app. See [MCP.md](MCP.md) |
 | Debugger | 🟡 | Local Windows (x64, 32-bit) and Linux x86-64 programs. No remote targets, no macOS |
 | IDC export, undo/redo | ✅ | |
@@ -64,7 +64,7 @@ Version numbers are targets. A step counts as done when its check passes on CI.
 - [x] `paranoia mcp` with redaction, disclosure log, `triage` and `--workspace`
 - [x] `paranoia ledger` checks a disclosure log
 - [x] The CLI is part of the Windows release
-- [ ] Try the AI assistant with real Ollama and LM Studio models and write down what works
+- [x] Try the AI assistant against a real local model server and write down what works ([ASSISTANT.md](ASSISTANT.md))
 - [ ] Redaction beyond strings: numbers that look like IP addresses, symbol names on request
 - [ ] The same redaction and log for the AI assistant in the app
 

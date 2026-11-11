@@ -86,7 +86,7 @@ There's no auto-updater. Download new releases yourself and check them ([VERIFY.
 
 ### AI assistant
 
-`Assistant → Settings…` takes an endpoint, a model and an optional API key. There are presets for local servers (Ollama, LM Studio) and hosted ones (Claude, OpenAI, DeepSeek, Kimi, Gemini, Mistral, OpenRouter). Nothing is sent until an endpoint is set. Requests come from the main process, not the page, and contain only the pseudocode of the function you asked about (up to 12 000 characters). No file bytes, hashes or other functions.
+`Assistant → Settings…` takes an endpoint, a model and an optional API key. There are presets for local servers (Ollama, LM Studio, llama.cpp, Jan, vLLM) and hosted ones (Claude, OpenAI, OpenCode, DeepSeek, Kimi, Gemini, Mistral, Grok, Groq, Together, OpenRouter). **Load models** sends only the API key (to `GET /models`) and **Test** a fixed one-line prompt; both work only for a host already allowed. Nothing is sent until an endpoint is set. Requests come from the main process, not the page, and contain only the pseudocode of the function you asked about (up to 12 000 characters). No file bytes, hashes or other functions.
 
 - Changing the endpoint needs a native confirmation, so the page can't redirect the assistant. Only `localhost`, `127.x.x.x` and `::1` count as local; names like `ai.localhost` don't, because DNS could send them anywhere. Anything else has to be `https://` and is confirmed when you save it and again before the first request of each session.
 - Redirects are refused, replies are capped at 256 KB, requests time out after 300 s.

@@ -15,6 +15,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 - The release workflow also builds the command-line tool for Windows.
 
 ### Changed
+- AI assistant: presets for llama.cpp, Jan, vLLM, OpenCode, Grok, Groq and Together; **Load models** reads the model list from the server; **Test** checks endpoint, key and model with a one-line prompt. Tested live against llama.cpp ([docs/ASSISTANT.md](docs/ASSISTANT.md)).
 - The AI assistant no longer treats `*.localhost` names as local.
 - Docs, README and code comments rewritten; the roadmap now has the direction and priorities.
 

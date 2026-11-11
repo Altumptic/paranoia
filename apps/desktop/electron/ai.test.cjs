@@ -124,6 +124,29 @@ test("name answers are parsed from JSON wrapped in chatter and validated", () =>
   assert.throws(() => A.parseName('{"name": "a;system(\\"x\\")"}'), /not a usable/);
 });
 
+test("model lists come from GET /models, for OpenAI-style and Anthropic servers", async () => {
+  let seen;
+  const list = (body) => async (url, init) => ((seen = { url, init }), { ok: true, status: 200, text: async () => JSON.stringify(body) });
+  const ids = await A.listModels({ endpoint: "http://127.0.0.1:11434/v1", fetchImpl: list({ data: [{ id: "qwen2.5:0.5b" }, { id: "llama3.1" }, { id: "llama3.1" }, { id: 7 }] }) });
+  assert.deepEqual(ids, ["llama3.1", "qwen2.5:0.5b"]);
+  assert.equal(seen.url, "http://127.0.0.1:11434/v1/models");
+  assert.equal(seen.init.method, "GET");
+  assert.equal(seen.init.redirect, "error");
+  assert.equal("Authorization" in seen.init.headers, false);
+  await A.listModels({ endpoint: "https://api.openai.com/v1", key: "sk", fetchImpl: list({ data: [] }) });
+  assert.equal(seen.init.headers.Authorization, "Bearer sk");
+  await A.listModels({ endpoint: "https://api.anthropic.com/v1", key: "sk-ant", fetchImpl: list({ data: [{ id: "claude-opus-5-5" }] }) });
+  assert.equal(seen.init.headers["x-api-key"], "sk-ant");
+  assert.equal(seen.init.headers["anthropic-version"], "2026-10-21");
+  await assert.rejects(A.listModels({ endpoint: "http://127.0.0.1:1/v1", fetchImpl: reply(404, "nope") }), /404/);
+  await assert.rejects(A.listModels({ endpoint: "http://127.0.0.1:1/v1", fetchImpl: reply(200, "<html>") }), /model list/);
+  await assert.rejects(A.listModels({ endpoint: "http://127.0.0.1:1/v1", fetchImpl: reply(200, "x".repeat(3 * 1024 * 1024)) }), /unexpectedly large/);
+});
+
+test("the connection test sends no code", () => {
+  assert.ok(A.TEST_MESSAGES.every((m) => !/```/.test(m.content)));
+});
+
 test("public settings never include the key", () => {
   const p = A.publicSettings({ endpoint: "https://api.example.com/v1", model: "m", keyEnc: "SECRET" });
   assert.deepEqual(p, { endpoint: "https://api.example.com/v1", model: "m", hasKey: true, local: false, host: "api.example.com" });

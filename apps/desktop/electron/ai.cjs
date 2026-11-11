@@ -165,6 +165,50 @@ async function chat({ endpoint, key, model, messages, fetchImpl, signal }) {
   return content.trim();
 }
 
+const MAX_MODELS_BYTES = 2 * 1024 * 1024;
+const MODELS_TIMEOUT_MS = 20000;
+
+/**
+ * The model ids a server offers (`GET {endpoint}/models`). Ollama, LM Studio, llama.cpp, vLLM,
+ * OpenAI-compatible clouds and Anthropic all answer with `{ data: [{ id }] }`. Only the API key
+ * is sent; no code.
+ */
+async function listModels({ endpoint, key, fetchImpl, signal }) {
+  const f = fetchImpl ?? globalThis.fetch;
+  const ep = parseEndpoint(endpoint);
+  const headers =
+    protocolFor(ep) === "anthropic"
+      ? { "anthropic-version": ANTHROPIC_VERSION, ...(key ? { "x-api-key": key } : {}) }
+      : key
+        ? { Authorization: `Bearer ${key}` }
+        : {};
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), MODELS_TIMEOUT_MS);
+  signal?.addEventListener("abort", () => ctl.abort(), { once: true });
+  let res;
+  let text;
+  try {
+    res = await f(`${ep.url}/models`, { method: "GET", headers, signal: ctl.signal, redirect: "error" });
+    text = await res.text();
+  } catch (e) {
+    if (ctl.signal.aborted) throw new Error(`${ep.host} did not answer in time`);
+    throw new Error(`Cannot reach ${ep.host}: ${e instanceof Error ? e.message : e}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (text.length > MAX_MODELS_BYTES) throw new Error("The model list is unexpectedly large");
+  if (!res.ok) throw new Error(`${ep.host} answered ${res.status} to the model list request`);
+  let j;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    throw new Error(`${ep.host} did not return a model list (is this an OpenAI-compatible /v1 endpoint?)`);
+  }
+  const rows = Array.isArray(j?.data) ? j.data : Array.isArray(j?.models) ? j.models : [];
+  const ids = rows.map((m) => (typeof m === "string" ? m : m?.id ?? m?.name)).filter((id) => typeof id === "string" && id.trim() && id.length <= 200);
+  return [...new Set(ids.map((id) => id.trim()))].sort((a, b) => a.localeCompare(b)).slice(0, 500);
+}
+
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 /** Reads the `{name, reason}` answer, tolerating code fences and chatter around the JSON. */
@@ -193,4 +237,23 @@ function publicSettings(s) {
   return { endpoint: ep?.url ?? "", model: s.model ?? "", hasKey: Boolean(s.keyEnc), local: ep?.local ?? true, host: ep?.host ?? "" };
 }
 
-module.exports = { TASKS, protocolFor, buildRequest, parseEndpoint, isLoopbackHost, buildMessages, chat, parseName, publicSettings, MAX_CODE_CHARS };
+/** A fixed prompt for "Test": proves the endpoint, key and model work without sending any code. */
+const TEST_MESSAGES = [
+  { role: "system", content: "You are a connection test. Answer with one short sentence." },
+  { role: "user", content: "Reply with the word OK and the name of your model if you know it." },
+];
+
+module.exports = {
+  TASKS,
+  TEST_MESSAGES,
+  protocolFor,
+  buildRequest,
+  parseEndpoint,
+  isLoopbackHost,
+  buildMessages,
+  chat,
+  listModels,
+  parseName,
+  publicSettings,
+  MAX_CODE_CHARS,
+};
