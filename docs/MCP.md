@@ -72,6 +72,20 @@ Results are plain text and capped at 60 000 characters. Long lists say how many 
 
 With `--redact-strings`, every answer is filtered before it goes out. Quoted strings in pseudocode, listings, comments and lists become `"<str#N len=L>"`, and auto names made from strings (`aHelloWorld`) become `aRedactedN` with the same `N`. The numbers follow the file's string order, so the same string has the same number for the whole session. To find out what `str#N` is, look at the file in the app.
 
+For example, the same function from `notepad.exe` as the agent sees it, first as is and then with `--redact-strings`:
+
+```c
+v6 = GetModuleHandleW(L"ntdll.dll");
+v6 = GetProcAddress(v6, "RtlDisownModuleHeapAllocation");
+```
+
+```c
+v6 = GetModuleHandleW(L"<str#35 len=9>");
+v6 = GetProcAddress(v6, "<str#36 len=29>");
+```
+
+The agent can still see that two strings are passed to these calls and how long they are, but not what they say.
+
 It doesn't hide function, import, export or section names, numbers in the code (an IP address stored as an integer, for example), or what the agent itself searches for: a `search` for a word tells the agent whether the file contains it. `export_idc` output is redacted too, so it isn't a usable IDC script in this mode.
 
 ## Ledger
