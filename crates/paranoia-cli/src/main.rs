@@ -11,6 +11,7 @@ use paranoia_core::{Binary, Instruction};
 mod disclosure;
 mod mcp;
 mod memory;
+mod query;
 mod script;
 
 #[derive(Parser)]
@@ -118,6 +119,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: MemoryCmd,
     },
+    /// Machine-readable answers for other tools, one JSON object per run (format paranoia-query/1).
+    Query {
+        file: PathBuf,
+        #[command(subcommand)]
+        what: QueryCmd,
+    },
     /// Check a disclosure ledger written by `paranoia mcp --ledger` and summarise what was disclosed.
     Ledger { file: PathBuf },
     /// Serve the engine to AI agents over the Model Context Protocol (stdio, read-only by default).
@@ -143,6 +150,16 @@ enum Cmd {
         #[arg(long, value_name = "FILE", num_args = 0..=1, default_missing_value = "")]
         memory: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum QueryCmd {
+    /// Functions, imports, strings and direct call edges.
+    Inventory,
+    /// Pseudocode and assembly of the function at `0x…` or with this name.
+    Function { selector: String },
+    /// References to `0x…` or to the named function, export or import.
+    Xrefs { selector: String },
 }
 
 #[derive(Subcommand)]
@@ -352,6 +369,14 @@ fn main() -> Result<()> {
                 MemoryCmd::Forget { sha256 } => memory::MemoryAction::Forget { sha256 },
             };
             memory::memory_command(db, action, cli.json)?;
+        }
+        Cmd::Query { file, what } => {
+            let what = match what {
+                QueryCmd::Inventory => query::What::Inventory,
+                QueryCmd::Function { selector } => query::What::Function(selector),
+                QueryCmd::Xrefs { selector } => query::What::Xrefs(selector),
+            };
+            query::run(&file, what)?;
         }
         Cmd::Ledger { file } => {
             let text = std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
