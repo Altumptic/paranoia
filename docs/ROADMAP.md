@@ -4,7 +4,7 @@ The goal is to cover the everyday IDA Pro workflow in an open tool that runs ent
 
 ## Direction
 
-Paranoia is aimed at people who analyse files they're not allowed to upload anywhere: incident responders, malware analysts, security engineers. That means it has to work offline, be quick, and be safe to point at hostile files. It also means that when an AI agent helps with the analysis, the analyst decides what the agent sees and can show afterwards what it saw. That's what `--redact-strings` and `--ledger` in [MCP.md](MCP.md) are for.
+Paranoia is aimed at people who analyse files they're not allowed to upload anywhere: incident responders, malware analysts, security engineers. That means it has to work offline, be quick, and be safe to point at hostile files. Work done on one sample should not be lost on the next: function memory carries names and comments to new versions and related samples, from a database that stays on the analyst's machine. It also means that when an AI agent helps with the analysis, the analyst decides what the agent sees and can show afterwards what it saw. That's what `--redact-strings` and `--ledger` in [MCP.md](MCP.md) are for.
 
 We don't try to match IDA or Ghidra on the number of architectures or on C++ decompilation. The decompiler work concentrates on x86/x64 and AArch64, which cover Windows, Linux servers, Android and Apple silicon.
 
@@ -30,7 +30,8 @@ When two things compete, they're done in this order:
 | RISC-V | ✅ | RV32/RV64 IMAFDC, compressed instructions |
 | MIPS | ✅ | 32/64-bit, both byte orders, delay slots. Not tested on a full binary yet |
 | PowerPC | ✅ | 32/64-bit, both byte orders, common AltiVec/VSX. No pseudocode |
-| Function discovery | ✅ | Entry, exports, symbols, `.pdata`, ELF `.eh_frame_hdr`, Mach-O `LC_FUNCTION_STARTS`. A stripped GNU `ls` goes from 18 functions to 446 with the unwind table |
+| Function discovery | ✅ | Entry, exports, symbols, `.pdata`, ELF `.eh_frame_hdr`, Mach-O `LC_FUNCTION_STARTS`, Go's function table. A stripped GNU `ls` goes from 18 functions to 446 with the unwind table; a stripped Go program keeps all its functions and names |
+| Function memory | ✅ | Binary diff and a local knowledge base of named functions, with measured accuracy. See [FUNCTION-MEMORY.md](FUNCTION-MEMORY.md) |
 | Switch tables | ✅ | Absolute, MSVC RVA and PIC relative tables |
 | Listing, graph, cross references | ✅ | |
 | Rename, comments, bookmarks | ✅ | Also pseudocode variables (`N` on a selected variable) |
@@ -97,6 +98,12 @@ Version numbers are targets. A step counts as done when its check passes on CI.
 
 - [ ] GDB remote protocol: `gdbserver` and QEMU's gdbstub, Linux x86-64 and AArch64
 - [ ] This is the first time the engine opens a socket. It will only connect when the user asks, to loopback by default, and the security docs get updated before it ships
+
+### Function memory, next steps
+
+- [ ] Recognise C runtime and standard library functions from a database built from debug builds, shipped as an optional download
+- [ ] Measure on more pairs: real version updates of open-source programs, clang and MSVC builds
+- [ ] Carry struct types and function prototypes along with names
 
 ### Later
 

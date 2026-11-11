@@ -138,6 +138,10 @@ enum Cmd {
         /// --allow-writes, save changes there. Without a value, the app's own workspace.
         #[arg(long, value_name = "FILE", num_args = 0..=1, default_missing_value = "")]
         workspace: Option<PathBuf>,
+        /// Offer recognize_functions from the function knowledge base. Without a value, the
+        /// app's own (memory.redb next to its workspace).
+        #[arg(long, value_name = "FILE", num_args = 0..=1, default_missing_value = "")]
+        memory: Option<PathBuf>,
     },
 }
 
@@ -378,14 +382,20 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         }
-        Cmd::Mcp { roots, allow_writes, redact_strings, ledger, workspace } => {
+        Cmd::Mcp { roots, allow_writes, redact_strings, ledger, workspace, memory } => {
             let workspace = match workspace {
                 Some(p) if p.as_os_str().is_empty() => {
                     Some(mcp::default_workspace().context("cannot tell where the app's workspace is; pass a path")?)
                 }
                 other => other,
             };
-            mcp::run(mcp::Config { roots, allow_writes, redact_strings, ledger, workspace })?
+            let memory = match memory {
+                Some(p) if p.as_os_str().is_empty() => {
+                    Some(memory::default_db().context("cannot tell where the app's knowledge base is; pass a path")?)
+                }
+                other => other,
+            };
+            mcp::run(mcp::Config { roots, allow_writes, redact_strings, ledger, workspace, memory })?
         }
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;

@@ -51,6 +51,7 @@ flowchart LR
 | Another frame sends IPC messages | Every handler checks the sender is the app's own main frame; webviews, pop-ups and navigation are blocked; permission requests are denied | `trusted()` in `electron/main.cjs` |
 | Electron used to launch other code | Fuses turn off `RunAsNode`, `NODE_OPTIONS` and `--inspect`; the app loads only from its asar archive, which is integrity-checked | `build.electronFuses` in `apps/desktop/package.json` |
 | Python picks up planted modules | Each run uses a fresh temp folder and `python -E`, starting in that empty folder | `electron/python.cjs`, `crates/paranoia-cli/src/script.rs` |
+| A compromised renderer misuses the knowledge base | The page gets four methods (stats, learn, recall, forget) and no file paths; export and import exist only in the CLI | `policy.memoryMethodAllowed` |
 | An agent asks the MCP server for files outside the samples folder | `open_binary` resolves the path, symlinks included, and refuses anything outside `--root`; no other tool takes a path | `files_outside_the_roots_are_refused` in `mcp.rs` |
 | Strings in a sample try to instruct the agent | The server tells the client that file content is data; write tools are off by default; `--redact-strings` keeps strings from the model. Whether a model obeys injected text is outside our control | `handshake_and_tool_list`, `redaction_and_ledger` in `mcp.rs` |
 | A crafted file crashes the MCP server | Each tool call is guarded and returns an error instead; output is capped at 60 000 characters | `mcp.rs` |
@@ -107,6 +108,7 @@ Everything stays on your machine.
 | --- | --- | --- | --- |
 | Annotations per file (names, comments, types, bookmarks, patches) | `%APPDATA%\Paranoia\workspace.redb`, or `localStorage` in the browser build | Keep your work across restarts | You delete it |
 | Installed plugins and the versions you chose to always run (fingerprints only) | `%APPDATA%\Paranoia\plugins` | Keep commands; ask again when a plugin changes | You delete it |
+| Function knowledge base: names, comments and variable names you chose to remember, with code fingerprints and the name and SHA-256 of each source file | `%APPDATA%\Paranoia\memory.redb` | Recognise known functions in other files | You remove it (`paranoia memory forget`, or delete the file) |
 | AI assistant settings, API key encrypted | `%APPDATA%\Paranoia\ai-settings.json` | Keep the assistant set up | You clear it |
 | Recent files: name, full path, SHA-256, format, size, time | the workspace database | The start screen | You remove it |
 | UI preferences, console scripts | `localStorage` | Convenience | Cleared with app data |

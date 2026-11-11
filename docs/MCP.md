@@ -62,6 +62,7 @@ The model behind the agent is the agent's business: any model your client suppor
 - `--allow-writes`: also offer `rename`, `set_comment` and `rename_variable`. Changes are kept in memory for the session; `export_idc` returns them as an IDC script.
 - `--redact-strings`: the file's string contents never reach the agent (see below).
 - `--ledger FILE`: write every answer to `FILE` before sending it. If that fails, the answer isn't sent.
+- `--memory [FILE]`: offer `recognize_functions`, which looks the open file up in the function knowledge base ([FUNCTION-MEMORY.md](FUNCTION-MEMORY.md)). Without a path it uses the app's own `memory.redb`. With `--allow-writes` the tool can also apply the names it finds.
 - `--workspace [FILE]`: share names with the desktop app. Names, comments and types are loaded from the app's workspace when a file is opened, and with `--allow-writes` each change is saved back. Without a path it uses the app's own workspace (`%APPDATA%\Paranoia\workspace.redb` on Windows, `~/.config/Paranoia/` on Linux, `~/Library/Application Support/Paranoia/` on macOS). The app locks the workspace while it's open, so close it first.
 
 For a confidential sample and a hosted model:
@@ -88,6 +89,8 @@ Every tool takes an optional `binary`, the id `open_binary` returned (default: t
 | `callees` | What a function calls |
 | `list_strings`, `list_imports`, `list_exports` | Lists, with `filter`, `offset` and `limit` |
 | `search` | Functions, names and strings matching a query |
+| `compare_binaries` | Matches the functions of two open binaries: shared code, changed functions (least similar first), functions in only one of them |
+| `recognize_functions` | Only with `--memory`: functions the knowledge base knows from other files, with the remembered name and how similar the code is |
 | `export_idc` | The session's names and comments as an IDC script |
 | `rename`, `set_comment`, `rename_variable` | Only with `--allow-writes` |
 

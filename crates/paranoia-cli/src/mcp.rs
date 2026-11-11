@@ -38,6 +38,8 @@ pub struct Config {
     /// The desktop app's workspace store: names are read from it on open and, with
     /// `allow_writes`, written back after every change.
     pub workspace: Option<PathBuf>,
+    /// The function knowledge base (`paranoia memory`), for `recognize_functions`.
+    pub memory: Option<PathBuf>,
 }
 
 /// Where the desktop app keeps its workspace (Electron's `appData` + `Paranoia`).
@@ -67,6 +69,7 @@ pub struct Server {
     redact: bool,
     ledger: Option<Ledger>,
     workspace: Option<PathBuf>,
+    memory: Option<PathBuf>,
     bins: Vec<Loaded>,
     current: Option<usize>,
 }
@@ -102,6 +105,7 @@ impl Server {
             redact: cfg.redact_strings,
             ledger,
             workspace: cfg.workspace,
+            memory: cfg.memory,
             bins: Vec::new(),
             current: None,
         })
@@ -332,6 +336,31 @@ impl Server {
                 &read,
             ),
         ];
+        v.push(tool(
+            "compare_binaries",
+            "Compare two binaries",
+            "Match the functions of two open binaries by their code (another version, build or related sample): \
+             how much code they share, which functions changed (least similar first), which exist in only one of them.",
+            json!({
+                "binary": bin,
+                "other": { "type": "string", "description": "Id of the second binary from open_binary" },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "Rows per list (default 40)" }
+            }),
+            &["other"],
+            &read,
+        ));
+        if self.memory.is_some() {
+            let mut props = json!({ "binary": bin, "min_score": { "type": "number", "minimum": 0.3, "maximum": 1.0 } });
+            let mut desc = String::from(
+                "Functions of this binary the analyst's local knowledge base already knows from other files, with the remembered name, \
+                 how similar the code is and which file it was learned from.",
+            );
+            if self.allow_writes {
+                props["apply"] = json!({ "type": "boolean", "description": "Also apply the names and comments (functions that already have a user name keep it)" });
+                desc.push_str(" With apply, the names and comments are applied.");
+            }
+            v.push(tool("recognize_functions", "Recognise functions", &desc, props, &[], if self.allow_writes { &write } else { &read }));
+        }
         if self.allow_writes {
             v.push(tool(
                 "rename",
@@ -524,6 +553,48 @@ impl Server {
             }
             "export_idc" => Ok(self.pick(a)?.bin.export_idc()),
             "triage" => Ok(triage(&self.pick(a)?.bin, a)),
+            "compare_binaries" => {
+                let ia = self.index(a)?;
+                let other = str_arg(a, "other")?;
+                let ib = self.index(&json!({ "binary": other }))?;
+                let limit = a.get("limit").and_then(Value::as_u64).unwrap_or(40).clamp(1, 2000) as usize;
+                let (x, y) = (&self.bins[ia], &self.bins[ib]);
+                let r = paranoia_core::memory::diff(&x.bin.fingerprints(), &y.bin.fingerprints(), Default::default());
+                Ok(compare_text(&x.id, &y.id, &r, limit))
+            }
+            "recognize_functions" => {
+                let path = self.memory.clone().ok_or_else(|| ToolError("no knowledge base; start the server with --memory".into()))?;
+                let kb = paranoia_db::Knowledge::open(&path).map_err(|e| {
+                    ToolError(format!(
+                        "the knowledge base {} is not available ({e}); close the app or `paranoia memory` and try again",
+                        shown(&path)
+                    ))
+                })?;
+                let i = self.index(a)?;
+                let min = a
+                    .get("min_score")
+                    .and_then(Value::as_f64)
+                    .map_or(paranoia_core::memory::RECALL_MIN_SCORE, |v| v.clamp(0.3, 1.0) as f32);
+                let b = &self.bins[i].bin;
+                let mut found = kb.recall(&b.fingerprints(), &b.info().hashes.sha256, min)?;
+                drop(kb);
+                found.sort_by(|x, y| y.score.total_cmp(&x.score).then(x.address.cmp(&y.address)));
+                let apply = self.allow_writes && a.get("apply").and_then(Value::as_bool).unwrap_or(false);
+                let mut out = format!("{} functions recognised.\n", found.len());
+                for r in &found {
+                    let how = if r.exact { "identical".to_string() } else { format!("{:.0}%", r.score * 100.0) };
+                    out.push_str(&format!("{:#x}  {} -> {}  ({how}, from {})\n", r.address, r.current, r.known.name, r.known.source));
+                }
+                if apply && !found.is_empty() {
+                    let before = self.bins[i].bin.annotations().clone();
+                    let b = &mut self.bins[i].bin;
+                    b.checkpoint();
+                    let renamed = found.iter().filter(|r| b.apply_known(r.address, &r.known, r.exact).renamed).count();
+                    self.persist(i, before)?;
+                    out.push_str(&format!("Applied: {renamed} functions renamed.\n"));
+                }
+                Ok(out)
+            }
             "rename" | "set_comment" | "rename_variable" => {
                 let i = self.index(a)?;
                 let before = self.bins[i].bin.annotations().clone();
@@ -652,6 +723,40 @@ impl Server {
         let i = self.index(a)?;
         Ok(&mut self.bins[i])
     }
+}
+
+/// `compare_binaries` output: a summary, then the changed, removed and added functions.
+fn compare_text(a: &str, b: &str, r: &paranoia_core::memory::DiffReport, limit: usize) -> String {
+    let identical = r.matches.iter().filter(|m| !m.changed).count();
+    let mut changed: Vec<_> = r.matches.iter().filter(|m| m.changed).collect();
+    changed.sort_by(|x, y| x.score.total_cmp(&y.score).then(x.a.cmp(&y.a)));
+    let mut out = format!(
+        "{a} vs {b}: {:.1}% shared code. {} functions matched ({identical} identical, {} changed); {} only in {a}; {} only in {b}.\n",
+        r.similarity * 100.0,
+        r.matches.len(),
+        changed.len(),
+        r.only_a.len(),
+        r.only_b.len()
+    );
+    if !changed.is_empty() {
+        out.push_str(&format!("\nChanged, least similar first ({a} address, {b} address):\n"));
+        for m in changed.iter().take(limit) {
+            let name = if m.a_name == m.b_name { m.a_name.clone() } else { format!("{} / {}", m.a_name, m.b_name) };
+            out.push_str(&format!("{:.0}%  {:#x}  {:#x}  {name}\n", m.score * 100.0, m.a, m.b));
+        }
+    }
+    for (title, list) in [(format!("Only in {a}"), &r.only_a), (format!("Only in {b}"), &r.only_b)] {
+        if list.is_empty() {
+            continue;
+        }
+        let mut v: Vec<_> = list.iter().collect();
+        v.sort_by(|x, y| y.instructions.cmp(&x.instructions).then(x.address.cmp(&y.address)));
+        out.push_str(&format!("\n{title}, largest first:\n"));
+        for u in v.iter().take(limit) {
+            out.push_str(&format!("{:#x}  {} instructions  {}\n", u.address, u.instructions, u.name));
+        }
+    }
+    out
 }
 
 /// Serves MCP on stdin / stdout until the client closes stdin.
@@ -1001,6 +1106,49 @@ mod tests {
         let (_, d) = call(&mut again, "disassemble", json!({ "address": "agent_named_this", "count": 1 }));
         assert!(d.contains("agent_named_this"), "{d}");
         drop(again);
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compare_and_recognise() {
+        let (_, exe) = server(true);
+        let dir = std::env::temp_dir().join(format!("paranoia-mcp-mem-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let kb_path = dir.join("memory.redb");
+        let root = exe.parent().unwrap().to_path_buf();
+
+        // Without --memory there is no recognize tool; comparing always works.
+        let (mut s, _) = server(false);
+        call(&mut s, "open_binary", json!({ "path": exe.to_string_lossy() }));
+        // A file against itself: everything matches and nothing changed.
+        let id = s.bins[0].id.clone();
+        let (err, t) = call(&mut s, "compare_binaries", json!({ "binary": id, "other": id }));
+        assert!(!err && t.contains("100.0% shared code") && t.contains(", 0 changed)"), "{t}");
+        assert!(!s.tools().iter().any(|t| t["name"] == "recognize_functions"));
+
+        // Teach the knowledge base one name, as if learned from another file.
+        let mut s =
+            Server::new(Config { roots: vec![root.clone()], allow_writes: true, memory: Some(kb_path.clone()), ..Config::default() })
+                .unwrap();
+        call(&mut s, "open_binary", json!({ "path": exe.to_string_lossy() }));
+        let f = s.bins[0].bin.functions().into_iter().filter(|f| !f.is_import_thunk).max_by_key(|f| f.instructions).unwrap();
+        s.bins[0].bin.rename(f.address, "remembered_function");
+        let mut known = s.bins[0].bin.knowledge(paranoia_core::memory::LearnFrom::User);
+        for k in &mut known {
+            k.source = "older.exe".into();
+            k.source_sha256 = "elsewhere".into();
+        }
+        paranoia_db::Knowledge::open(&kb_path).unwrap().learn(&known).unwrap();
+
+        let mut s =
+            Server::new(Config { roots: vec![root], allow_writes: true, memory: Some(kb_path.clone()), ..Config::default() }).unwrap();
+        call(&mut s, "open_binary", json!({ "path": exe.to_string_lossy() }));
+        let (err, t) = call(&mut s, "recognize_functions", json!({}));
+        assert!(!err && t.contains("-> remembered_function  (identical, from older.exe)"), "{t}");
+        let (err, t) = call(&mut s, "recognize_functions", json!({ "apply": true }));
+        assert!(!err && t.contains("Applied: 1 functions renamed"), "{t}");
+        assert_eq!(s.bins[0].bin.annotations().names.get(&f.address).map(String::as_str), Some("remembered_function"));
         drop(s);
         let _ = std::fs::remove_dir_all(&dir);
     }

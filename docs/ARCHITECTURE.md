@@ -22,7 +22,7 @@ The engine. No I/O, threads or C dependencies, so the same code builds natively 
 
 | Files | What they do |
 | --- | --- |
-| `loader/` | PE, ELF and Mach-O loaders that produce a common `Loaded` image: sections, address map, imports, exports, symbols, function seeds, mitigations. The PE `.pdata` table, Mach-O bind opcodes, chained fixups, the export trie and the ELF `.eh_frame_hdr` table are parsed by our own bounds-checked code. |
+| `loader/` | PE, ELF and Mach-O loaders that produce a common `Loaded` image: sections, address map, imports, exports, symbols, function seeds, mitigations. The PE `.pdata` table, Mach-O bind opcodes, chained fixups, the export trie and the ELF `.eh_frame_hdr` table and Go's function table (`gopclntab.rs`) are parsed by our own bounds-checked code. |
 | `disasm.rs`, `riscv.rs`, `mips.rs`, `ppc.rs` | Decoding for analysis (length, flow, targets, data references) and token rendering for the UI. x86 uses iced-x86, ARM uses yaxpeax-arm, RISC-V, MIPS and PowerPC have their own decoders. |
 | `analysis.rs`, `switch.rs` | Recursive-descent function discovery, basic blocks, jump tables, the cross-reference index. |
 | `pseudo.rs`, `pseudo_opt.rs`, `pseudo_types.rs`, `pseudo_ssa.rs` | The x86/x64 decompiler: lifting to C-like lines, expression propagation, loops and `switch`, variables and their types. |
@@ -31,6 +31,7 @@ The engine. No I/O, threads or C dependencies, so the same code builds natively 
 | `items.rs`, `types.rs`, `operands.rs`, `protos.rs` | Data items and auto names, local C types, operand display, about 250 API prototypes. |
 | `pdbsym.rs`, `pdbtypes.rs`, `dwarf.rs` | PDB and DWARF symbols, source lines and types. |
 | `sigs.rs`, `flirt_sig.rs` | FLIRT signatures: `.pat` files, IDA `.sig` files, a built-in MSVC x64 library. |
+| `memory/` | Function memory: per-function fingerprints (`print.rs`), matching two binaries (`diff.rs`), and what the knowledge base stores and how recalled functions are chosen and applied (`knowledge.rs`). Storage is in `paranoia-db`. |
 | `asm_x86.rs` | A small x86 assembler for patching. |
 | `tools.rs`, `nav.rs`, `frame.rs` | Search, patching, call graph, undo, stack frames, IDC export. |
 | `strings.rs`, `metrics.rs`, `demangle.rs` | Strings, hashes and entropy, MSVC/Itanium/Rust demangling. |
