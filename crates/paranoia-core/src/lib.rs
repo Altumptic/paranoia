@@ -279,6 +279,38 @@ impl Binary {
             debug_types = d.types;
         }
 
+        // Go: the runtime's function table survives stripping and gives every function with its name.
+        let named_table = info
+            .sections
+            .iter()
+            .find(|s| matches!(s.name.as_str(), ".gopclntab" | "__gopclntab"))
+            .map(|s| (s.offset as usize, s.raw_size as usize));
+        let looks_like_go = named_table.is_some() || data.windows(14).any(|w| w == b"\xff Go buildinf:");
+        if looks_like_go && arch.disassembly_supported() {
+            let executable = |va: u64| ranges.iter().any(|r| r.perms.x && va >= r.vaddr && va < r.vaddr + r.vsize);
+            let readable: Vec<(usize, usize)> =
+                info.sections.iter().filter(|s| !s.perms.x && s.raw_size > 0).map(|s| (s.offset as usize, s.raw_size as usize)).collect();
+            if let Some(funcs) = loader::gopclntab::find(data, &readable, named_table, info.endian == Endian::Big, &executable) {
+                let known: HashSet<u64> = seeds.iter().map(|s| s.address).collect();
+                let mut added = 0usize;
+                let mut names = 0usize;
+                for f in &funcs {
+                    if !known.contains(&f.entry) {
+                        seeds.push(Seed { address: f.entry, source: FunctionSource::Symbol, end: (f.end > f.entry).then_some(f.end) });
+                        added += 1;
+                    }
+                    if !f.name.starts_with("go_func_") && !static_names.contains_key(&f.entry) {
+                        static_names.insert(f.entry, f.name.clone());
+                        names += 1;
+                    }
+                }
+                info.headers.push(KeyValue {
+                    key: "Go function table".into(),
+                    value: format!("{} functions ({} new, {} names added)", funcs.len(), added, names),
+                });
+            }
+        }
+
         Ok(Binary {
             file: bytes,
             slice,
