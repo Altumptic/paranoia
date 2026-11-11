@@ -35,6 +35,11 @@ impl Redactor {
             let id = r.id_for(s.escape_debug().to_string());
             if s.chars().count() >= MIN_NAMED {
                 let name = paranoia_core::string_name(s);
+                // A string like "1   " is named `a1`, which is also what the decompiler calls
+                // the first parameter. Replacing it would rename a variable, not hide a string.
+                if name.strip_prefix('a').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())) {
+                    continue;
+                }
                 // Two strings can share an auto name; the first keeps it.
                 r.names.entry(name).or_insert(id);
             }
@@ -245,6 +250,16 @@ mod tests {
         // Parts of longer identifiers and unclosed quotes are left alone.
         let (t, n) = r.apply("xaHelloWorld don't");
         assert_eq!((t.as_str(), n), ("xaHelloWorld don't", 0));
+    }
+
+    #[test]
+    fn parameter_names_are_not_mistaken_for_string_names() {
+        // "1   " is auto-named `a1`, the same as the first parameter in pseudocode.
+        let mut r = Redactor::new(["1   ", "ntdll.dll"].into_iter());
+        let (t, n) = r.apply("f(int a1, int a2) { g(a1, aNtdllDll, \"ntdll.dll\"); }");
+        assert!(t.contains("int a1,") && t.contains("g(a1,"), "{t}");
+        assert!(!t.contains("aNtdllDll") && !t.contains("\"ntdll.dll\""), "{t}");
+        assert_eq!(n, 2, "{t}");
     }
 
     #[test]
