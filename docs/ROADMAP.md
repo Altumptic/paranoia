@@ -60,14 +60,16 @@ When two things compete, they're done in this order:
 
 Version numbers are targets. A step counts as done when its check passes on CI.
 
-### 0.8: agent interface
+### 0.8: agent interface and function memory (released)
 
 - [x] `paranoia mcp` with redaction, disclosure log, `triage` and `--workspace`
 - [x] `paranoia ledger` checks a disclosure log
-- [x] The CLI is part of the Windows release
+- [x] The CLI is part of the release, for Windows, Linux and macOS
 - [x] Try the AI assistant against a real local model server and write down what works ([ASSISTANT.md](ASSISTANT.md))
-- [ ] Redaction beyond strings: numbers that look like IP addresses, symbol names on request
-- [ ] The same redaction and log for the AI assistant in the app
+- [x] Function memory: binary diff and a local knowledge base ([FUNCTION-MEMORY.md](FUNCTION-MEMORY.md))
+- [x] Go's function table; `paranoia query` for other tools ([QUERY.md](QUERY.md)), used by the REA provider
+
+Moved to the next releases: redaction beyond strings (symbol names on request; numbers that look like IP addresses need a way to tell them from other constants first), and the same redaction and log for the AI assistant in the app.
 
 ### 0.9: AArch64 decompiler
 
@@ -85,7 +87,7 @@ Version numbers are targets. A step counts as done when its check passes on CI.
 - [ ] Flatpak, submitted to Flathub
 - [ ] Unsigned macOS `.dmg` for arm64 and x64
 - [ ] macOS notarisation. This needs a paid Apple Developer ID, so it waits until there is one
-- [ ] CLI builds for Linux and macOS
+- [x] CLI builds for Linux and macOS (since 0.8.0)
 
 ### 0.11: firmware and raw images
 

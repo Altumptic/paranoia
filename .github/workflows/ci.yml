@@ -5,6 +5,8 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  # Runs everything except publishing, to check the release builds before tagging.
+  workflow_dispatch:
 
 # Least privilege by default; the release job asks for exactly what it needs.
 permissions:
@@ -84,10 +86,58 @@ jobs:
         working-directory: apps/desktop
         run: node ../../scripts/npm-audit-gate.mjs
 
+  # The command-line tool for Linux and macOS, built natively on each platform. Linux builds
+  # are static (musl), so they run on any distribution. Pure Rust, no C toolchain needed.
+  cli:
+    name: CLI (${{ matrix.name }})
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [engine]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macos-x64, os: macos-latest, target: x86_64-apple-darwin }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: musl linker
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        run: cargo build --release --locked -p paranoia-cli --target ${{ matrix.target }}
+      # Smoke test where the binary runs natively (not the Intel build on an Apple Silicon runner).
+      - name: Check
+        if: matrix.name != 'macos-x64'
+        run: |
+          ./target/${{ matrix.target }}/release/paranoia --version
+          ./target/${{ matrix.target }}/release/paranoia query ./target/${{ matrix.target }}/release/paranoia inventory > /dev/null
+      - name: Package
+        shell: bash
+        run: |
+          name="paranoia-cli-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/paranoia" LICENSE "$name/"
+          tar -czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.name }}
+          path: paranoia-cli-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Windows release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [engine, frontend, audit]
+    needs: [engine, frontend, audit, cli]
     runs-on: windows-latest
     permissions:
       contents: write # upload release assets
@@ -136,8 +186,17 @@ jobs:
           mkdir release
           cp apps/desktop/out/Paranoia-Setup-*.exe apps/desktop/out/Paranoia-*-portable.exe release/
           cp target/release/paranoia.exe "release/paranoia-cli-${GITHUB_REF_NAME}-windows-x64.exe"
+      - name: Linux and macOS CLI
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cli-*
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        shell: bash
+        run: |
           cd release
-          sha256sum -- *.exe > SHA256SUMS
+          sha256sum -- *.exe *.tar.gz > SHA256SUMS
           cat SHA256SUMS
       # Two SBOMs: Rust crates from Cargo.lock, and npm packages from the lockfile. The npm
       # one includes development dependencies on purpose: Electron and the UI libraries are
@@ -166,11 +225,14 @@ jobs:
         with:
           subject-path: |
             release/*.exe
+            release/*.tar.gz
             release/SHA256SUMS
       - name: SBOM attestation (Rust)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          subject-path: release/*.exe
+          subject-path: |
+            release/*.exe
+            release/*.tar.gz
           sbom-path: release/paranoia-${{ github.ref_name }}-rust.cdx.json
       - name: SBOM attestation (npm)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
@@ -181,6 +243,7 @@ jobs:
         with:
           files: |
             release/*.exe
+            release/*.tar.gz
             release/SHA256SUMS
             release/SHA256SUMS.sigstore.json
             release/paranoia-*.cdx.json

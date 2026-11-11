@@ -9,7 +9,7 @@ Every release since v0.5.1 has these files next to the executables:
 | GitHub attestations | build provenance (which workflow run, commit and tag built the file) and the SBOM, both signed through GitHub |
 | `paranoia-vX.Y.Z-rust.cdx.json`, `paranoia-vX.Y.Z-npm.cdx.json` | the SBOMs (CycloneDX): every Rust crate in `Cargo.lock` and every npm package in `package-lock.json`, including development dependencies, because Electron and the UI libraries end up inside the app |
 
-Releases after v0.7.0 also contain `paranoia-cli-vX.Y.Z-windows-x64.exe`, the command-line tool (which is also the [MCP server](MCP.md)). It's in `SHA256SUMS` and attested like the other executables.
+From v0.8.0, releases also contain the command-line tool (which is also the [MCP server](MCP.md)): `paranoia-cli-vX.Y.Z-windows-x64.exe`, and `paranoia-cli-vX.Y.Z-<os>-<arch>.tar.gz` for Linux (x64, ARM64) and macOS (ARM64, x64). They're in `SHA256SUMS` and attested like the other files; check a `.tar.gz` before unpacking it.
 
 Releases up to v0.5.0 predate this and have none of these files. v0.5.1 has a single SBOM, `paranoia-v0.5.1.cdx.json`, which lists the Rust crates but not the npm packages (the scanner skipped development dependencies). From v0.6.0 there are two complete SBOMs.
 
