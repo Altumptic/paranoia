@@ -329,10 +329,11 @@ impl Binary {
                                 let n = crate::analysis::strip_decoration(&self.info.imports[i].name);
                                 anchors.insert(anchor(1, n.as_bytes()));
                             }
-                            None if ins.flow == Flow::Call || ins.flow == Flow::Jump && (target < f.address || target >= f.end) => {
-                                if target != f.address {
-                                    callees.insert(target);
-                                }
+                            // Calls, and tail jumps that leave the function; recursion doesn't count.
+                            None if target != f.address
+                                && (ins.flow == Flow::Call || ins.flow == Flow::Jump && (target < f.address || target >= f.end)) =>
+                            {
+                                callees.insert(target);
                             }
                             None => {}
                         }
