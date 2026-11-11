@@ -3,6 +3,7 @@
 
 mod eh_frame;
 mod elf;
+pub(crate) mod gopclntab;
 mod macho;
 mod macho_bind;
 mod pe;
