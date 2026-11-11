@@ -24,13 +24,14 @@ A local-first reverse-engineering tool for PE, ELF and Mach-O.
   <img src="docs/screenshots/overview-dark.png" alt="File overview" width="49%" />
 </p>
 
-Paranoia does disassembly, control-flow graphs, decompilation, debugging and scripting, with keys and scripting names that IDA users will recognise. It runs entirely on your machine: no account, no telemetry, no update checks. The engine is written in Rust and the same engine is used by the desktop app, the command-line tool, a browser build (WebAssembly) and an MCP server for AI agents.
+Paranoia does disassembly, control-flow graphs, decompilation, debugging and scripting, with keys and scripting names that IDA users will recognise. It remembers the functions you name and recognises them in the next file you open, and it compares two versions of a program function by function. It runs entirely on your machine: no account, no telemetry, no update checks. The engine is written in Rust and the same engine is used by the desktop app, the command-line tool, a browser build (WebAssembly) and an MCP server for AI agents.
 
 ## Features
 
 - **Formats:** PE/PE32+ (forwarders, TLS callbacks, `.pdata`, .NET detection), ELF (PIE, PLT/GOT, symbol versions), Mach-O (universal binaries, bind opcodes, chained fixups, export trie).
 - **Architectures:** x86, x86-64, AArch64, ARM32/Thumb-2, RISC-V, MIPS, PowerPC.
-- **Analysis:** functions from entry points, exports, symbols and unwind tables (so stripped ELF and Mach-O files keep their functions), switch tables, cross references, auto names in the IDA style.
+- **Analysis:** functions from entry points, exports, symbols and unwind tables (so stripped ELF and Mach-O files keep their functions), Go's function table (stripped Go programs keep their functions and names), switch tables, cross references, auto names in the IDA style.
+- **Function memory:** compare two binaries (what changed, was added or removed, both versions side by side) and keep a local database of the functions you named, so their names and comments carry over to new versions and related samples. Nothing leaves your machine. See [docs/FUNCTION-MEMORY.md](docs/FUNCTION-MEMORY.md).
 - **Decompiler:** x86 and x64, with typed variables, API constants, loops and `switch`, struct member access (`Y` on a variable) and types that follow calls. AArch64 is experimental.
 - **Editing:** rename, comments, bookmarks, define code/data/strings, create functions, local C types, undo and redo. Everything is saved per file hash.
 - **Patching:** hex view, byte patches, NOP/invert/force-jump, an x86 assembler, save the patched file.
@@ -104,6 +105,9 @@ paranoia xrefs sample.exe CreateFileW
 paranoia strings --referenced sample.exe --json
 paranoia script sample.exe analyse.py      # run a Python script without the app
 paranoia sigapply app.exe libc.sig         # IDA .sig or .pat signatures
+paranoia diff old.exe new.exe              # which functions changed between two versions
+paranoia memory learn sample-a.exe         # remember the names you gave in the app
+paranoia memory recall sample-b.exe        # recognise them in another file
 paranoia mcp --root ./samples              # MCP server for AI agents
 ```
 
