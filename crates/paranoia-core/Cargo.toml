@@ -8,6 +8,9 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 cpp_demangle = "0.5.1"
 gimli = { version = "0.32.3", default-features = false, features = ["read", "std"] }

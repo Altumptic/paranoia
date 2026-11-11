@@ -4,6 +4,8 @@
 //! Everything is keyed by the SHA-256 of the analyzed file, so annotations
 //! follow a binary regardless of where it lives on disk.
 
+#![forbid(unsafe_code)]
+
 use std::path::Path;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};

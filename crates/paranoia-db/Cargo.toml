@@ -8,6 +8,9 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 redb = "4.4.0"
 serde = { workspace = true, features = ["derive"] }

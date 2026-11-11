@@ -9,6 +9,7 @@
 
 // The initializers below are already `const`; clippy misreports them through the macro.
 #![allow(clippy::missing_const_for_thread_local)]
+#![deny(clippy::undocumented_unsafe_blocks, unsafe_op_in_unsafe_fn)]
 
 use std::cell::RefCell;
 
@@ -29,7 +30,8 @@ unsafe fn slice<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
     if len == 0 {
         &[]
     } else {
-        std::slice::from_raw_parts(ptr, len)
+        // SAFETY: the caller promises `ptr..ptr+len` came from `pn_alloc` and is still live.
+        unsafe { std::slice::from_raw_parts(ptr, len) }
     }
 }
 
@@ -43,14 +45,17 @@ pub extern "C" fn pn_alloc(len: usize) -> *mut u8 {
 /// # Safety
 /// `ptr`/`len` must come from a matching [`pn_alloc`] call.
 unsafe fn take(ptr: *mut u8, len: usize) -> Vec<u8> {
-    Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)).into_vec()
+    // SAFETY: the caller promises `ptr`/`len` are the exact pair `pn_alloc` returned (a boxed
+    // slice), and ownership moves here, so the box is rebuilt once and freed once.
+    unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)) }.into_vec()
 }
 
 /// # Safety
 /// `ptr`/`len` must come from a matching [`pn_alloc`] call.
 #[no_mangle]
 pub unsafe extern "C" fn pn_free(ptr: *mut u8, len: usize) {
-    drop(take(ptr, len));
+    // SAFETY: same contract as `pn_free` itself.
+    drop(unsafe { take(ptr, len) });
 }
 
 #[no_mangle]
@@ -70,8 +75,10 @@ pub extern "C" fn pn_result_len() -> usize {
 /// Ownership of the data buffer moves into the engine.
 #[no_mangle]
 pub unsafe extern "C" fn pn_open(name_ptr: *const u8, name_len: usize, data_ptr: *mut u8, data_len: usize) -> u32 {
-    let name = String::from_utf8_lossy(slice(name_ptr, name_len)).into_owned();
-    let data = take(data_ptr, data_len);
+    // SAFETY: the caller upholds the contract in this function's `# Safety` section.
+    let name = String::from_utf8_lossy(unsafe { slice(name_ptr, name_len) }).into_owned();
+    // SAFETY: same contract; `data_ptr` comes from `pn_alloc` and is not used again by the caller.
+    let data = unsafe { take(data_ptr, data_len) };
     match Session::open(&name, data) {
         Ok(s) => {
             let handle = SESSIONS.with(|ss| {
@@ -95,8 +102,10 @@ pub unsafe extern "C" fn pn_open(name_ptr: *const u8, name_len: usize, data_ptr:
 /// Pointers must reference valid UTF-8 buffers allocated with [`pn_alloc`].
 #[no_mangle]
 pub unsafe extern "C" fn pn_call(handle: u32, method_ptr: *const u8, method_len: usize, args_ptr: *const u8, args_len: usize) -> u32 {
-    let method = String::from_utf8_lossy(slice(method_ptr, method_len)).into_owned();
-    let args = match serde_json::from_slice(slice(args_ptr, args_len)) {
+    // SAFETY: the caller upholds the contract in this function's `# Safety` section.
+    let method = String::from_utf8_lossy(unsafe { slice(method_ptr, method_len) }).into_owned();
+    // SAFETY: as above.
+    let args = match serde_json::from_slice(unsafe { slice(args_ptr, args_len) }) {
         Ok(v) => v,
         Err(_) if args_len == 0 => serde_json::Value::Null,
         Err(e) => {

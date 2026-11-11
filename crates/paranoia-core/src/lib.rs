@@ -15,6 +15,8 @@
 //! }
 //! ```
 
+#![forbid(unsafe_code)]
+
 mod analysis;
 pub mod api;
 mod asm_x86;

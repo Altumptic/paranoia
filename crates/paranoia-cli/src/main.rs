@@ -1,5 +1,7 @@
 //! The `paranoia` command: the engine without the app, for scripts and CI.
 
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
