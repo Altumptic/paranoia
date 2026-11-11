@@ -155,6 +155,13 @@ function useMenus(): Menu[] {
         items: [
           { label: "Re-run auto-analysis", disabled: noFile, run: () => st().reanalyze() },
           { label: "Load PDB symbols…", disabled: noFile, run: () => st().loadPdb() },
+          ...(desktop
+            ? [
+                sep,
+                { label: "Function memory…", disabled: noFile, run: () => st().set("memoryOpen", true) } as Item,
+                { label: "Compare with another file…", disabled: noFile, run: () => st().compareWith() } as Item,
+              ]
+            : []),
           sep,
           { label: "Search byte pattern…", keys: "Alt+B", disabled: noFile, run: () => st().set("search", "bytes") },
           { label: "Search text…", keys: "Alt+T", disabled: noFile, run: () => st().set("search", "text") },

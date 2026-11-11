@@ -165,7 +165,7 @@ fn priority(s: FunctionSource) -> u8 {
 }
 
 /// Removes leading underscores / `__imp_` so `_exit` and `exit` compare loosely.
-fn strip_decoration(n: &str) -> &str {
+pub(crate) fn strip_decoration(n: &str) -> &str {
     let n = n.strip_prefix("__imp_").unwrap_or(n);
     n.split('@').next().unwrap_or(n)
 }

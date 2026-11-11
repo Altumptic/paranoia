@@ -5,6 +5,8 @@ import { EditDialog } from "./components/EditDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { AboutDialog } from "./components/AboutDialog";
 import { AiSettingsDialog, AssistantDialog } from "./components/AssistantDialog";
+import { CompareDialog } from "./components/CompareDialog";
+import { MemoryDialog } from "./components/MemoryDialog";
 import { ContextMenu } from "./components/ContextMenu";
 import { XrefsDialog } from "./components/XrefsDialog";
 import { Toasts } from "./components/Toasts";
@@ -85,7 +87,7 @@ export function App() {
       } else if (mod && e.key === "`") {
         e.preventDefault();
         st.set("consoleOpen", !st.consoleOpen);
-      } else if (typing || st.dialog || st.paletteOpen || st.search || st.xrefsFor != null || !st.session) {
+      } else if (typing || st.dialog || st.paletteOpen || st.search || st.xrefsFor != null || st.memoryOpen || st.compare || !st.session) {
         return;
       } else if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -182,6 +184,8 @@ export function App() {
       <AboutDialog />
       <AssistantDialog />
       <AiSettingsDialog />
+      <MemoryDialog />
+      <CompareDialog />
       <Toasts />
     </>
   );

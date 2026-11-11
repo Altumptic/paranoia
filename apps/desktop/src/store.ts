@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import type { DebugSnapshot } from "./debug";
 import { desktop, getBackend, Session, type OpenSource, type PluginInfo, type RecentFile } from "./engine/client";
+import { memory, type DiffReport } from "./engine/memory";
+import { pickFile } from "./files";
 import { runScript } from "./scripting";
 import type { AnalysisStats, Annotations, BinaryInfo, FunctionSummary, InsnPatch, Instruction, SearchKind } from "./engine/types";
 
@@ -44,6 +46,10 @@ interface State {
   menuOpen: boolean;
   aboutOpen: boolean;
   aiSettingsOpen: boolean;
+  /** Analysis → Function memory dialog. */
+  memoryOpen: boolean;
+  /** Analysis → Compare with another file: the second file and the match report. */
+  compare: null | { other: Session; name: string; report: DiffReport };
   assistant: null | { title: string; fn: string; va: number | null; state: "busy" | "done" | "error"; text: string; name: { name: string; reason: string } | null; host: string; local: boolean };
   plugins: { dir: string; list: PluginInfo[]; errors: { id: string; error: string }[] };
   /** Token text highlighted across views (IDA's yellow highlight). */
@@ -87,6 +93,9 @@ interface State {
   /** Refreshes derived state after an engine-side edit. */
   afterEdit(reanalyzed: boolean): Promise<void>;
   askAssistant(task: "explain" | "name" | "suspicious"): Promise<void>;
+  /** Opens a second file and matches its functions against the open one. */
+  compareWith(): Promise<void>;
+  closeCompare(): Promise<void>;
   loadPlugins(): Promise<void>;
   runPlugin(id: string, commandId: string): Promise<void>;
   print(text: string, kind?: "info" | "error" | "out"): void;
@@ -121,6 +130,8 @@ export const useStore = create<State>((set, get) => ({
   menuOpen: false,
   aboutOpen: false,
   aiSettingsOpen: false,
+  memoryOpen: false,
+  compare: null,
   assistant: null,
   plugins: { dir: "", list: [], errors: [] },
   highlight: null,
@@ -189,6 +200,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async close() {
+    await get().closeCompare();
     const s = get().session;
     set({ session: null, info: null, stats: null, functions: [], cursor: null, history: [], historyIndex: -1, path: null, debug: null, debugOpen: false, breakpoints: new Set() });
     await s?.close().catch(() => {});
@@ -302,6 +314,39 @@ export const useStore = create<State>((set, get) => ({
     const [annotations, undoDepth] = await Promise.all([persist(session, info), session.history()]);
     const extra = reanalyzed ? { functions: await session.functions(), stats: await session.stats() } : {};
     set({ annotations, undoDepth, revision: get().revision + 1, ...extra });
+  },
+
+  async compareWith() {
+    const { session } = get();
+    if (!session || !desktop) return;
+    const src = await pickFile();
+    if (!src) return;
+    const name = src.kind === "bytes" ? src.name : (src.path.split(/[\\/]/).pop() ?? src.path);
+    set({ loading: { name, phase: "Analyzing the second file…" } });
+    let other: Session | null = null;
+    try {
+      other = await Session.open(src);
+      const info = await other.info();
+      // Its names from the workspace, so they can be carried over.
+      const saved = await getBackend().loadAnnotations(info.hashes.sha256).catch(() => null);
+      if (saved) await other.setAnnotations(saved);
+      await other.stats();
+      set({ loading: { name, phase: "Matching functions…" } });
+      const report = await memory.diff(session, other);
+      await get().closeCompare();
+      set({ loading: null, compare: { other, name: info.file_name, report } });
+    } catch (e) {
+      set({ loading: null });
+      other?.close().catch(() => {});
+      get().toast(`Compare failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  },
+
+  async closeCompare() {
+    const c = get().compare;
+    if (!c) return;
+    set({ compare: null });
+    await c.other.close().catch(() => {});
   },
 
   async askAssistant(task) {

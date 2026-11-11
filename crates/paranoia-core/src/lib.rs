@@ -27,6 +27,7 @@ mod flirt_sig;
 mod frame;
 mod items;
 mod loader;
+pub mod memory;
 mod metrics;
 mod mips;
 pub mod model;

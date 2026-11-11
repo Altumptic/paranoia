@@ -39,6 +39,11 @@ test("the page may use a fixed set of store methods", () => {
   for (const m of ["", "drop_all", "__proto__", undefined, 42]) assert.ok(!policy.storeMethodAllowed(m));
 });
 
+test("the page gets a fixed set of knowledge-base methods", () => {
+  for (const m of ["stats", "learn", "recall", "forget"]) assert.ok(policy.memoryMethodAllowed(m));
+  for (const m of ["export", "import", "", "constructor", undefined, null]) assert.ok(!policy.memoryMethodAllowed(m));
+});
+
 test("recent_add cannot smuggle a path into the allow-list", () => {
   const opened = new Set(["c:\\samples\\a.exe"]);
   const isAllowed = (p) => opened.has(p.toLowerCase());

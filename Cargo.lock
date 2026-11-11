@@ -366,6 +366,7 @@ dependencies = [
 name = "paranoia-db"
 version = "0.7.0"
 dependencies = [
+ "paranoia-core",
  "redb",
  "serde",
  "serde_json",
