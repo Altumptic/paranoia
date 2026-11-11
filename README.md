@@ -44,7 +44,7 @@ Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analy
 
 ## Limits
 
-- Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental (no types, tested on Go binaries only). Other architectures have disassembly and graphs only.
+- Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental: types come only from known library calls, and it has been measured on Go binaries only. Other architectures have disassembly and graphs only.
 - MIPS has only been tested on known instruction encodings, not on a full binary.
 - The debugger runs local programs only. Remote debugging is planned.
 - Release builds are Windows only. On Linux, run the app from source. macOS and Linux packages are planned.
