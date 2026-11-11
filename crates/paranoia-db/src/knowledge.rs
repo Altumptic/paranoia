@@ -239,7 +239,7 @@ impl Knowledge {
                 sources.push(s);
             }
         }
-        sources.sort_by(|a, b| b.time.cmp(&a.time));
+        sources.sort_by_key(|s| std::cmp::Reverse(s.time));
         Ok(KnowledgeStats { functions, sources })
     }
 
