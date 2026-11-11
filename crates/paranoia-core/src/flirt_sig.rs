@@ -100,7 +100,7 @@ struct Parser {
 }
 
 impl Parser {
-    fn offset(&self, r: &mut Reader) -> Result<u32, String> {
+    fn offset(&self, r: &mut Reader<'_>) -> Result<u32, String> {
         if self.version >= 9 {
             r.multi()
         } else {
@@ -108,7 +108,7 @@ impl Parser {
         }
     }
 
-    fn tree(&mut self, r: &mut Reader, prefix: &mut Vec<Option<u8>>, depth: usize) -> Result<(), String> {
+    fn tree(&mut self, r: &mut Reader<'_>, prefix: &mut Vec<Option<u8>>, depth: usize) -> Result<(), String> {
         if depth > MAX_DEPTH {
             return Err("the .sig tree is nested too deeply".into());
         }
@@ -142,7 +142,7 @@ impl Parser {
         Ok(())
     }
 
-    fn leaf(&mut self, r: &mut Reader, pattern: &[Option<u8>]) -> Result<(), String> {
+    fn leaf(&mut self, r: &mut Reader<'_>, pattern: &[Option<u8>]) -> Result<(), String> {
         loop {
             let crc_len = r.u8()? as usize;
             let crc = r.be16()?;

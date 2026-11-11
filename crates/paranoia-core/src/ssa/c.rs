@@ -33,7 +33,7 @@ pub(crate) struct COptions<'a> {
 }
 
 /// A global's name: its symbol, or IDA's size-based auto name (`dword_42AC2C`).
-fn global_name(o: &COptions, addr: i64, size: u8) -> Option<String> {
+fn global_name(o: &COptions<'_>, addr: i64, size: u8) -> Option<String> {
     let a = u64::try_from(addr).ok().filter(|a| *a >= 0x1000)?;
     (o.names)(a).or_else(|| {
         let prefix = match size {
@@ -343,7 +343,7 @@ fn negate(c: &[Token]) -> Vec<Token> {
 
 impl SsaFunction {
     /// The function as C-like lines generated from this SSA form.
-    pub(crate) fn to_c(&self, o: &COptions) -> Vec<PseudoLine> {
+    pub(crate) fn to_c(&self, o: &COptions<'_>) -> Vec<PseudoLine> {
         let f = self;
         // Stack pointer offsets.
         let mut rsp: HashMap<u32, i64> = HashMap::from([(0, 0)]);
@@ -513,7 +513,7 @@ impl SsaFunction {
             g.params.push(name);
         }
         let mut next = 1;
-        let mut name_of = |key: (Var, u32), dsu: &mut Dsu, g: &mut Gen| -> String {
+        let mut name_of = |key: (Var, u32), dsu: &mut Dsu, g: &mut Gen<'_>| -> String {
             let root = dsu.find(key);
             if let Some(n) = seen_classes.get(&root) {
                 return n.clone();
@@ -1108,7 +1108,7 @@ mod tests {
     /// A test block: start, instructions, successors with their edge kinds.
     type TestBlock<'a> = (u64, &'a [&'a str], &'a [(u64, EdgeKind)]);
 
-    fn func(bits: u32, blocks: &[TestBlock]) -> Blocks {
+    fn func(bits: u32, blocks: &[TestBlock<'_>]) -> Blocks {
         let mut out = BTreeMap::new();
         for (start, insns, succs) in blocks {
             let mut ip = *start;

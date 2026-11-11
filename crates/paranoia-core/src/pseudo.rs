@@ -1036,7 +1036,7 @@ fn writes_rax_before_ret(blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edg
 /// Emits blocks `order[from..to]` with simple structuring.
 #[allow(clippy::too_many_arguments)]
 fn emit_range(
-    ctx: &mut Ctx,
+    ctx: &mut Ctx<'_>,
     blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>,
     order: &[u64],
     from: usize,
@@ -1145,7 +1145,7 @@ fn emit_range(
 /// Like `emit_range` but the very last block's terminating jcc is left for the caller (loop condition).
 #[allow(clippy::too_many_arguments)]
 fn emit_range_tail_cond(
-    ctx: &mut Ctx,
+    ctx: &mut Ctx<'_>,
     blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>,
     order: &[u64],
     from: usize,
@@ -1178,7 +1178,7 @@ fn emit_range_tail_cond(
 }
 
 fn emit_insns_with_branches(
-    ctx: &mut Ctx,
+    ctx: &mut Ctx<'_>,
     insns: &[Ins],
     indent: u8,
     out: &mut Vec<PseudoLine>,
@@ -1256,7 +1256,7 @@ fn has_outside_jump_to(
     blocks.iter().any(|(a, (_, s))| !inside.contains(a) && s.iter().any(|e| e.to == target && e.kind != crate::model::EdgeKind::Fall))
 }
 
-fn args_expr(ctx: &Ctx) -> Expr {
+fn args_expr(ctx: &Ctx<'_>) -> Expr {
     let mut e = Expr::default();
     if ctx.bits == 32 {
         for (n, p) in ctx.pushes.iter().rev().enumerate() {
@@ -1283,7 +1283,7 @@ fn args_expr(ctx: &Ctx) -> Expr {
 }
 
 /// Arguments for a call with a known prototype: one per parameter, from the convention.
-fn proto_args(ctx: &Ctx, p: &crate::protos::Proto) -> Expr {
+fn proto_args(ctx: &Ctx<'_>, p: &crate::protos::Proto) -> Expr {
     let n = p.params.iter().filter(|x| **x != "...").count();
     if ctx.bits == 32 {
         return args_expr(ctx);
@@ -1308,7 +1308,7 @@ fn proto_args(ctx: &Ctx, p: &crate::protos::Proto) -> Expr {
     e
 }
 
-fn condition(ctx: &Ctx, insns: &[Ins], cc: ConditionCode) -> Expr {
+fn condition(ctx: &Ctx<'_>, insns: &[Ins], cc: ConditionCode) -> Expr {
     // Find the flag producer: the last flag-writing instruction before the jcc.
     let producer = insns.iter().rev().skip(1).find(|i| writes_flags(i));
     let flags = producer.map(|p| match p.mnemonic() {
@@ -1382,7 +1382,7 @@ fn writes_flags(i: &Ins) -> bool {
 }
 
 fn emit_insns(
-    ctx: &mut Ctx,
+    ctx: &mut Ctx<'_>,
     insns: &[Ins],
     indent: u8,
     out: &mut Vec<PseudoLine>,
@@ -1610,7 +1610,7 @@ fn emit_insns(
 }
 
 /// `switch (idx) { case …: goto …; }` for a jump through a recovered table.
-fn switch_lines(ctx: &Ctx, insns: &[Ins], jmp: &Ins, indent: u8) -> Option<Vec<PseudoLine>> {
+fn switch_lines(ctx: &Ctx<'_>, insns: &[Ins], jmp: &Ins, indent: u8) -> Option<Vec<PseudoLine>> {
     let start = insns.first()?.ip();
     let sw = crate::switch::recover(&crate::Source(ctx.bin), ctx.bits, start, jmp.ip(), jmp.len() as u64)?;
     // The scaled index of the table load is the switch variable.

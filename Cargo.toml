@@ -19,6 +19,7 @@ thiserror = "2"
 anyhow = "1"
 
 [workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
 
