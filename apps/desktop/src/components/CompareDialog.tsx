@@ -5,7 +5,7 @@ import type { PseudoLine, Pseudocode, Token } from "../engine/types";
 import { useStore } from "../store";
 
 const hex = (v: number) => `0x${v.toString(16)}`;
-const pct = (v: number) => `${(v * 100).toFixed(v >= 0.995 && v < 1 ? 1 : 0)}%`;
+const pct = (v: number) => (v > 0 && v < 0.01 ? "<1%" : `${(v * 100).toFixed(v >= 0.995 && v < 1 ? 1 : 0)}%`);
 
 const CLASS: Record<Token["k"], string> = {
   text: "t-text",
