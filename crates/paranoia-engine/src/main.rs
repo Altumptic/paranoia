@@ -12,6 +12,11 @@
 //!
 //! Running the engine out of process means a bug triggered by a hostile file can
 //! never take the UI down with it, and analysis runs at full native speed.
+//!
+//! The only `unsafe` code is in the debuggers (Win32 and ptrace calls). Every block
+//! states why it is sound in a `SAFETY:` comment; clippy enforces that.
+
+#![deny(clippy::undocumented_unsafe_blocks, unsafe_op_in_unsafe_fn)]
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};

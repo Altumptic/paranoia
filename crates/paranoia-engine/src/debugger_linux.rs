@@ -154,6 +154,7 @@ fn log_to(shared: &Arc<Mutex<Snapshot>>, s: String) {
 /// Waits for the debuggee; `None` when nothing happened (non-blocking) or on error.
 fn wait(pid: libc::pid_t, block: bool) -> Option<i32> {
     let mut status = 0;
+    // SAFETY: `status` is a valid out-pointer for the call.
     let r = unsafe { libc::waitpid(pid, &mut status, if block { libc::__WALL } else { libc::WNOHANG | libc::__WALL }) };
     (r == pid).then_some(status)
 }
@@ -195,6 +196,7 @@ impl Worker {
         if !libc::WIFSTOPPED(status) {
             return Err("the program exited before the debugger could attach".into());
         }
+        // SAFETY: ptrace on our own stopped child; the data argument is an integer flag, not a pointer.
         unsafe {
             libc::ptrace(libc::PTRACE_SETOPTIONS, pid, std::ptr::null_mut::<libc::c_void>(), libc::PTRACE_O_EXITKILL as *mut libc::c_void);
         }
@@ -251,29 +253,34 @@ impl Worker {
     }
 
     fn rt(&self, va: u64) -> u64 {
-        (va as i64 + self.delta) as u64
+        (va as i64).wrapping_add(self.delta) as u64
     }
 
     fn to_static(&self, rt: u64) -> Option<u64> {
         let base = self.shared.lock().unwrap().base;
-        (rt >= base && rt < base + self.image_size).then(|| (rt as i64 - self.delta) as u64)
+        (rt >= base && rt < base.saturating_add(self.image_size)).then(|| (rt as i64).wrapping_sub(self.delta) as u64)
     }
 
     fn peek(&self, addr: u64) -> Option<u64> {
+        // SAFETY: __errno_location returns this thread's errno slot, which is always valid.
         unsafe { *libc::__errno_location() = 0 };
+        // SAFETY: PEEKDATA reads the tracee's memory through the kernel; no local memory is passed.
         let v = unsafe { libc::ptrace(libc::PTRACE_PEEKDATA, self.pid, addr as *mut libc::c_void, std::ptr::null_mut::<libc::c_void>()) };
+        // SAFETY: __errno_location returns this thread's errno slot, which is always valid.
         (v != -1 || unsafe { *libc::__errno_location() } == 0).then_some(v as u64)
     }
 
     fn poke(&self, addr: u64, v: u64) -> bool {
+        // SAFETY: POKEDATA writes the tracee's memory through the kernel; the value goes as an integer.
         unsafe { libc::ptrace(libc::PTRACE_POKEDATA, self.pid, addr as *mut libc::c_void, v as *mut libc::c_void) == 0 }
     }
 
     fn read_mem(&self, rt: u64, len: usize) -> Option<Vec<u8>> {
+        let end = rt.checked_add(len as u64)?;
         let mut out = Vec::with_capacity(len + 8);
         let start = rt & !7;
         let mut a = start;
-        while a < rt + len as u64 {
+        while a < end {
             out.extend_from_slice(&self.peek(a)?.to_le_bytes());
             a += 8;
         }
@@ -310,7 +317,9 @@ impl Worker {
     }
 
     fn regs(&self) -> Option<libc::user_regs_struct> {
+        // SAFETY: user_regs_struct is plain data; zero is a valid value.
         let mut r: libc::user_regs_struct = unsafe { std::mem::zeroed() };
+        // SAFETY: `r` is a valid user_regs_struct for the kernel to fill in.
         let ok = unsafe {
             libc::ptrace(libc::PTRACE_GETREGS, self.pid, std::ptr::null_mut::<libc::c_void>(), &mut r as *mut _ as *mut libc::c_void)
         };
@@ -318,6 +327,7 @@ impl Worker {
     }
 
     fn set_regs(&self, r: &libc::user_regs_struct) -> bool {
+        // SAFETY: `r` points to a valid user_regs_struct that the kernel only reads.
         unsafe {
             libc::ptrace(libc::PTRACE_SETREGS, self.pid, std::ptr::null_mut::<libc::c_void>(), r as *const _ as *mut libc::c_void) == 0
         }
@@ -379,6 +389,7 @@ impl Worker {
         }
         let null = std::ptr::null_mut::<libc::c_void>();
         if let Some(va) = self.rearm.take() {
+            // SAFETY: Resumes our stopped tracee; the signal number goes as an integer.
             unsafe { libc::ptrace(libc::PTRACE_SINGLESTEP, self.pid, null, sig as usize as *mut libc::c_void) };
             match wait(self.pid, true) {
                 Some(s) if libc::WIFSTOPPED(s) => {
@@ -391,6 +402,7 @@ impl Worker {
                         self.pause("Step".into(), 0);
                         return;
                     }
+                    // SAFETY: Resumes our stopped tracee; no pointers.
                     unsafe { libc::ptrace(libc::PTRACE_CONT, self.pid, null, std::ptr::null_mut::<libc::c_void>()) };
                 }
                 Some(s) => self.exited(s),
@@ -399,6 +411,7 @@ impl Worker {
             return;
         }
         let req = if step { libc::PTRACE_SINGLESTEP } else { libc::PTRACE_CONT };
+        // SAFETY: Resumes our stopped tracee; the signal number goes as an integer.
         unsafe { libc::ptrace(req, self.pid, null, sig as usize as *mut libc::c_void) };
         if step {
             match wait(self.pid, true) {
@@ -452,13 +465,16 @@ impl Worker {
             }
             Cmd::Pause => {
                 if self.stopped.is_none() {
+                    // SAFETY: Sends a signal to our own child process.
                     unsafe { libc::kill(self.pid, libc::SIGSTOP) };
                 }
             }
             Cmd::Stop => {
+                // SAFETY: Sends a signal to our own child process.
                 unsafe { libc::kill(self.pid, libc::SIGKILL) };
                 if self.stopped.is_some() {
                     self.stopped = None;
+                    // SAFETY: Lets the killed tracee run so the kernel can reap it; no pointers.
                     unsafe {
                         libc::ptrace(
                             libc::PTRACE_CONT,
@@ -486,7 +502,7 @@ impl Worker {
                     matches!(i.flow_control(), iced_x86::FlowControl::Call | iced_x86::FlowControl::IndirectCall)
                         .then(|| pc + i.len() as u64)
                 });
-                match next.map(|n| (n as i64 - self.delta) as u64) {
+                match next.map(|n| (n as i64).wrapping_sub(self.delta) as u64) {
                     Some(sva) => {
                         if let Some(b) = self.arm(sva) {
                             self.temp_bps.insert(sva, b);
@@ -504,7 +520,7 @@ impl Worker {
         if sig == libc::SIGTRAP {
             let Some(mut r) = self.regs() else { return };
             let at = r.rip.wrapping_sub(1);
-            let sva = (at as i64 - self.delta) as u64;
+            let sva = (at as i64).wrapping_sub(self.delta) as u64;
             let temp = self.temp_bps.remove(&sva);
             let user = self.user_bps.get(&sva).copied().flatten();
             if let Some(orig) = temp.or(user) {
@@ -551,8 +567,10 @@ impl Worker {
                     Ok(cmd) => self.handle_cmd(cmd),
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
+                        // SAFETY: Sends a signal to our own child process.
                         unsafe { libc::kill(self.pid, libc::SIGKILL) };
                         self.stopped = None;
+                        // SAFETY: Lets the killed tracee run so the kernel can reap it; no pointers.
                         unsafe {
                             libc::ptrace(
                                 libc::PTRACE_CONT,
