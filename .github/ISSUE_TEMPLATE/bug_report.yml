@@ -1,0 +1,47 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security problem, don't use this form. Follow [SECURITY.md](https://github.com/Altumptic/paranoia/blob/main/SECURITY.md).
+        Please don't attach live malware. The file's SHA-256 is enough for a crash on a specific sample.
+  - type: input
+    id: version
+    attributes:
+      label: Paranoia version
+      description: Help → About, or `paranoia --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - Desktop app
+        - Command line (paranoia)
+        - MCP server (paranoia mcp)
+        - Browser build
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, ...
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: The file
+      description: SHA-256, format and architecture (shown in the Overview), and where it comes from. Say if you can share it.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce

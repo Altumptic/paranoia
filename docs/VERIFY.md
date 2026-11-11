@@ -11,7 +11,7 @@ Every release since v0.5.1 has these files next to the executables:
 
 Releases after v0.7.0 also contain `paranoia-cli-vX.Y.Z-windows-x64.exe`, the command-line tool (which is also the [MCP server](MCP.md)). It's in `SHA256SUMS` and attested like the other executables.
 
-Releases up to v0.5.0 predate this and have none of these files. v0.5.1 has a single SBOM, `paranoia-v0.5.1.cdx.json`, which lists the Rust crates but not the npm packages (the scanner skipped development dependencies). From v0.5.2 there are two complete SBOMs.
+Releases up to v0.5.0 predate this and have none of these files. v0.5.1 has a single SBOM, `paranoia-v0.5.1.cdx.json`, which lists the Rust crates but not the npm packages (the scanner skipped development dependencies). From v0.6.0 there are two complete SBOMs.
 
 The Windows executables aren't Authenticode-signed yet, so SmartScreen may warn on first launch. Use the steps below to check a download instead.
 
@@ -69,7 +69,7 @@ gh attestation verify Paranoia-0.5.1-portable.exe --repo Altumptic/paranoia \
 The SBOMs are plain JSON. Any CycloneDX tool can read them, for example:
 
 ```bash
-grype sbom:paranoia-v0.5.2-npm.cdx.json   # known vulnerabilities in the listed components
+grype sbom:paranoia-v0.6.0-npm.cdx.json   # known vulnerabilities in the listed components
 ```
 
 ## If something does not match
