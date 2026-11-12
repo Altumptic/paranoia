@@ -1441,6 +1441,25 @@
   -webkit-app-region: drag;
   padding-right: 150px;
 }
+/* macOS draws the traffic lights inside the page's top-left corner. */
+.desktop.macos .topbar,
+.desktop.macos .welcome-top {
+  padding-left: 78px;
+  padding-right: 12px;
+}
+/* Traffic lights take the space the absolute centre used to float over: put the
+   command centre back in the flow so a narrow window cannot overlap the menus. */
+.desktop.macos .topbar-center {
+  position: static;
+  transform: none;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  width: auto;
+}
+.desktop.macos .topbar-center .command-center {
+  max-width: min(560px, 42vw);
+}
 .desktop .topbar button,
 .desktop .topbar .menubar,
 .desktop .welcome-top .menubar {
