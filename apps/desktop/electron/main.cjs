@@ -469,7 +469,9 @@ ipcMain.on("app:titlebar", (e, c) => {
   if (!trusted(e)) return;
   const hex = /^#[0-9a-f]{6}$/i;
   if (win && c && hex.test(c.color) && hex.test(c.symbolColor)) {
-    win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: 38 });
+    // Missing on macOS: calling it there throws out of this handler and Electron shows an
+    // "A JavaScript error occurred in the main process" dialog on every theme change.
+    if (policy.titleBarOverlaySupported(process.platform)) win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: 38 });
     win.setBackgroundColor(c.color);
   }
 });

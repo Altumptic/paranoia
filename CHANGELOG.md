@@ -4,6 +4,10 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+### Fixed
+- macOS showed "A JavaScript error occurred in the main process" (`TypeError: win.setTitleBarOverlay is not a function`) at start-up and on every theme change: the method is documented for Windows and Linux only, and the IPC handler called it unconditionally. `policy.titleBarOverlaySupported` now gates it.
+- The title bar no longer covers the macOS traffic lights, and the command centre stays in the flow there so a narrow window cannot overlap the menus.
+
 ## 0.8.0 — 2026-11-12
 
 ### Added
