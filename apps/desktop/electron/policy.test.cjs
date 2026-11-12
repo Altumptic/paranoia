@@ -60,3 +60,10 @@ test("the debug confirmation names the program and its arguments", () => {
   assert.match(d, /Arguments: --wipe C:\\/);
   assert.match(policy.debugDetail(null, ""), /Arguments: \(none\)/);
 });
+
+test("the title-bar overlay is only updated where the method exists", () => {
+  assert.ok(policy.titleBarOverlaySupported("win32"));
+  assert.ok(policy.titleBarOverlaySupported("linux"));
+  // macOS has no `setTitleBarOverlay`; calling it throws inside the IPC handler.
+  for (const platform of ["darwin", "freebsd", undefined]) assert.ok(!policy.titleBarOverlaySupported(platform));
+});
