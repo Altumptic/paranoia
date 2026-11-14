@@ -21,7 +21,7 @@ import {
   Quote,
   Search,
 } from "lucide-react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { Group, Panel, Separator, useDefaultLayout, type LayoutStorage } from "react-resizable-panels";
 
 import { isDesktop } from "../engine/client";
 import { archLabel, fmtAddr, formatLabel, useStore, type CenterTab, type SidebarTab } from "../store";
@@ -62,9 +62,33 @@ const TABS: { id: CenterTab; icon: typeof Box; label: string; key: string }[] = 
   { id: "hex", icon: Binary, label: "Hex", key: "6" },
 ];
 
+/** Panel sizes are remembered per combination of visible panels. Storage can be unavailable
+ *  (private windows, blocked site data), in which case the layout just isn't remembered. */
+const layoutStorage: LayoutStorage = {
+  getItem: (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* not remembered */
+    }
+  },
+};
+
 export function Workspace() {
   const info = useStore((s) => s.info)!;
   const st = useStore();
+  const layout = useDefaultLayout({
+    id: "paranoia.layout",
+    panelIds: [...(st.sidebarOpen ? ["sidebar"] : []), "center", ...(st.inspectorOpen ? ["inspector"] : [])],
+    storage: layoutStorage,
+  });
 
   return (
     <div className="workspace">
@@ -137,16 +161,16 @@ Go to address, function or string (Ctrl K)`}>
           ))}
         </nav>
 
-        <PanelGroup direction="horizontal" autoSaveId="paranoia.layout" className="panels">
+        <Group orientation="horizontal" defaultLayout={layout.defaultLayout} onLayoutChanged={layout.onLayoutChanged} className="panels">
           {st.sidebarOpen && (
             <>
-              <Panel id="sidebar" order={1} defaultSize={22} minSize={14} maxSize={45} className="panel">
+              <Panel id="sidebar" defaultSize="22%" minSize="14%" maxSize="45%" className="panel">
                 <Sidebar />
               </Panel>
-              <PanelResizeHandle className="resize-h" />
+              <Separator className="resize-h" />
             </>
           )}
-          <Panel id="center" order={2} minSize={30} className="panel center">
+          <Panel id="center" minSize="30%" className="panel center">
             <div className="tabs">
               {TABS.map((t) => (
                 <button
@@ -178,13 +202,13 @@ Go to address, function or string (Ctrl K)`}>
           </Panel>
           {st.inspectorOpen && (
             <>
-              <PanelResizeHandle className="resize-h" />
-              <Panel id="inspector" order={3} defaultSize={22} minSize={14} maxSize={40} className="panel">
+              <Separator className="resize-h" />
+              <Panel id="inspector" defaultSize="22%" minSize="14%" maxSize="40%" className="panel">
                 <Inspector />
               </Panel>
             </>
           )}
-        </PanelGroup>
+        </Group>
       </div>
       <DebugPanel />
       <Console />

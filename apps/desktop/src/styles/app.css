@@ -420,8 +420,8 @@ textarea {
   position: absolute;
   inset: 0 -3px;
 }
-.resize-h[data-resize-handle-state="hover"],
-.resize-h[data-resize-handle-state="drag"] {
+.resize-h[data-separator="hover"],
+.resize-h[data-separator="active"] {
   background: var(--accent);
 }
 .resize-v {
@@ -434,8 +434,8 @@ textarea {
   position: absolute;
   inset: -3px 0;
 }
-.resize-v[data-resize-handle-state="hover"],
-.resize-v[data-resize-handle-state="drag"] {
+.resize-v[data-separator="hover"],
+.resize-v[data-separator="active"] {
   background: var(--accent);
 }
 
