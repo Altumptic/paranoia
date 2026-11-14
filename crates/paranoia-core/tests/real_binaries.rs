@@ -847,6 +847,11 @@ fn function_memory_carries_struct_types() {
     use paranoia_core::memory::{best_known, LearnFrom, RECALL_MIN_SCORE};
     let Some((p, bytes)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
     let mut a = Binary::load(&p, bytes.clone()).unwrap();
+    // Variable types set by the user are applied by the x86/x64 pseudocode. The AArch64 one
+    // (experimental) applies renames but not types yet, so there is nothing to carry over there.
+    if !matches!(a.info().arch, Arch::X86 | Arch::X86_64) {
+        return;
+    }
     a.analyze();
     a.set_types("typedef struct _PARANOIA_CTX { DWORD magic; DWORD count; char *name; } PARANOIA_CTX;").unwrap();
     // A function with a first argument: its generated name is `a1` in the signature.
@@ -859,12 +864,7 @@ fn function_memory_carries_struct_types() {
             break;
         }
     }
-    let Some(f) = hit else {
-        // Only the x86/x64 pseudocode names its first argument `a1`; other back-ends have
-        // nothing here to type yet.
-        assert!(a.info().arch != Arch::X86 && a.info().arch != Arch::X86_64, "{}: no function with a first argument", a.info().file_name);
-        return;
-    };
+    let Some(f) = hit else { panic!("{}: no function with a first argument", a.info().file_name) };
 
     a.rename(f, "remembered_function");
     a.set_var_name(f, "a1", "record").unwrap();

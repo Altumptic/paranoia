@@ -13,6 +13,9 @@
 //! Running the engine out of process means a bug triggered by a hostile file can
 //! never take the UI down with it, and analysis runs at full native speed.
 //!
+//! The debuggers exist for Windows and for Linux on x86-64 (ptrace register layouts differ per CPU);
+//! other targets answer that the debugger isn't available.
+//!
 //! The only `unsafe` code is in the debuggers (Win32 and ptrace calls). Every block
 //! states why it is sound in a `SAFETY:` comment; clippy enforces that.
 
@@ -24,7 +27,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[cfg(windows)]
 mod debugger;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "debugger_linux.rs"]
 mod debugger;
 
@@ -51,7 +54,7 @@ struct Request {
 struct Engine {
     sessions: HashMap<u32, Session>,
     paths: HashMap<u32, String>,
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
     debugger: Option<debugger::Debugger>,
     next: u32,
     store: Option<Store>,
@@ -128,12 +131,12 @@ impl Engine {
         }
     }
 
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, all(target_os = "linux", target_arch = "x86_64"))))]
     fn debug_op(&mut self, _h: Option<u32>, _m: &str, _a: Value) -> Result<Value, String> {
-        Err("the debugger is available on Windows and Linux".into())
+        Err("the debugger is available on Windows and on Linux x86-64".into())
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
     fn debug_op(&mut self, handle: Option<u32>, method: &str, args: Value) -> Result<Value, String> {
         let va = args.get("va").and_then(Value::as_u64);
         match method {
@@ -146,7 +149,7 @@ impl Engine {
                 {
                     return Err("on Windows the debugger runs 32-bit and 64-bit Windows executables".into());
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
                 if info.format != paranoia_core::Format::Elf || info.arch != paranoia_core::Arch::X86_64 {
                     return Err("on Linux the debugger runs x86-64 ELF programs".into());
                 }
@@ -255,7 +258,7 @@ impl Engine {
     }
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
 fn hex_encode(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -286,7 +289,7 @@ fn main() {
     let mut engine = Engine {
         sessions: HashMap::new(),
         paths: HashMap::new(),
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
         debugger: None,
         next: 0,
         store,
