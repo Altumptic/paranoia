@@ -36,7 +36,7 @@
     "react-resizable-panels": "^2.1.9",
     "typescript": "5.7",
     "vite": "^8.3.8",
-    "zustand": "^5.0.15"
+    "zustand": "^5.1.0"
   },
   "description": "Paranoia — open-source reverse engineering platform",
   "author": "Paranoia contributors",
