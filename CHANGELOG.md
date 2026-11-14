@@ -4,8 +4,12 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+## 0.9.0 — 2026-11-14
+
+The desktop app for Linux and macOS, 32-bit PE function discovery, PE symbol names, and a measured benchmark against Ghidra.
+
 ### Added
-- Desktop builds for Linux and macOS in the tag workflow, next to Windows: AppImage and `.deb` for x64 and ARM64, `.dmg` and `.zip` for Apple silicon and Intel. One publish job now collects every platform and hashes, signs and attests the whole release. The first tagged release after this change is the verification; macOS stays ad-hoc signed until a Developer ID exists (PSB-EX-5).
+- Desktop builds for Linux and macOS in the tag workflow, next to Windows: AppImage and `.deb` for x64 and ARM64, `.dmg` and `.zip` for Apple silicon and Intel. One publish job now collects every platform and hashes, signs and attests the whole release. CI builds every package and smoke-tests it (the packaged engine runs, the deb carries it, the macOS app verifies as signed); macOS stays ad-hoc signed until a Developer ID exists (PSB-EX-5).
 - Ready-made signatures built into the engine: the MSVC x64 static CRT (4 664 signatures), the Rust standard library (580) and musl libc (1 023), generated from public toolchains by `scripts/build-sigpack.mjs` and re-measured by CI. On programs they were not built from they name 53 %, 85 % and 91 % of the relevant library functions at ≥99 % precision. Go needs no pack: its function table already names stripped Go binaries. See [docs/SIGNATURES.md](docs/SIGNATURES.md).
 - `bench/`: a reproducible decompiler benchmark against Ghidra on real binaries (Go, Rust and Windows PE; ground truth from the Go pclntab, COFF symbols and PE exports), with the raw JSON committed. The first published run covers 13 binaries, 23 085 functions and 3 393 sampled decompilations; [docs/BENCHMARK.md](docs/BENCHMARK.md) has the numbers, the failures and the gaps it found.
 - `paranoia mcp --redact-ips`: tool answers replace IPv4/IPv6 literals with `<ip#N>` and count them with string redactions in the disclosure ledger. `paranoia ledger` reports the combined count.

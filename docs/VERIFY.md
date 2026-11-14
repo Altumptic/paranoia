@@ -30,7 +30,7 @@ The release workflow also builds the desktop app for Linux and macOS. Those pack
 | `paranoia-v<version>-rust.cdx.json`, `paranoia-v<version>-npm.cdx.json` | the two SBOMs |
 | `SHA256SUMS`, `SHA256SUMS.sigstore.json` | hashes and their signature |
 
-The desktop artifacts use the bare version (`0.8.0`) and the CLI and SBOM files keep the `v` from the tag (`v0.8.0`); this follows the naming that releases already use.
+The desktop artifacts use the bare version (`0.9.0`) and the CLI and SBOM files keep the `v` from the tag (`v0.9.0`); this follows the naming that releases already use.
 
 The Windows executables aren't Authenticode-signed yet, and the macOS app is only ad-hoc signed rather than signed with a Developer ID, so it isn't notarised. SmartScreen and Gatekeeper may warn on first launch. Use the steps below to check a download instead of trusting the file.
 

@@ -76,7 +76,13 @@ Version numbers are targets. A step counts as done when its check passes on CI.
 
 Moved to the next releases: redaction of symbol and function names on request. Strings and numbers that look like IP addresses are redacted now, in both the MCP server and the in-app assistant, with a disclosure log for each.
 
-### 0.9: AArch64 decompiler
+### 0.9: every platform, benchmark, 32-bit PE (released)
+
+- [x] Desktop app for Windows, Linux (x64, ARM64) and macOS (ARM64, x64), built and smoke-tested by CI ([SIGNING.md](SIGNING.md) for what is not signed)
+- [x] Reproducible benchmark against Ghidra, and the gaps it found closed: PE COFF symbols, 32-bit PE function discovery ([BENCHMARK.md](BENCHMARK.md))
+- [x] Built-in signature packs, privacy for agents and the assistant, function memory with struct types
+
+### 0.10: AArch64 decompiler
 
 - [x] Lift AArch64 into the SSA form (arithmetic, moves, shifts, loads/stores, branches, calls)
 - [x] C, C·SSA and SSA views for AArch64. On two Go binaries, 5 700 of 5 720 functions call the same functions as the listing
@@ -86,15 +92,15 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [ ] A corpus of clang and Rust arm64 binaries on CI
 - [ ] Make C·SSA the default on x86/x64 once it has `else`, `while` and `switch`
 
-### 0.10: Linux and macOS builds
+### 0.11: Linux and macOS packaging
 
-- [ ] AppImage and `.deb` built and signed by CI — wired in the tag workflow for x64 and ARM64; the first tag run is the verification
+- [x] AppImage and `.deb` built by CI for x64 and ARM64 (since 0.9.0); Sigstore-signed checksums and attestations cover them
 - [ ] Flatpak, submitted to Flathub
-- [ ] Unsigned macOS `.dmg` for arm64 and x64 — wired in the tag workflow as `.dmg` + `.zip`, ad-hoc signed; the first tag run is the verification
+- [x] macOS `.dmg` and `.zip` for arm64 and x64, ad-hoc signed (since 0.9.0)
 - [ ] macOS notarisation. This needs a paid Apple Developer ID, so it waits until there is one. Signing and notarisation are already wired behind the secrets in [SIGNING.md](SIGNING.md)
 - [x] CLI builds for Linux and macOS (since 0.8.0)
 
-### 0.11: firmware and raw images
+### 0.12: firmware and raw images
 
 - [ ] Raw loader: pick the architecture, byte order and base address
 - [ ] Intel HEX and Motorola S-record
@@ -102,7 +108,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [ ] Guess the base address of a raw image
 - [ ] Named memory regions, later SVD files
 
-### 0.12: remote debugging
+### 0.13: remote debugging
 
 - [ ] GDB remote protocol: `gdbserver` and QEMU's gdbstub, Linux x86-64 and AArch64
 - [ ] This is the first time the engine opens a socket. It will only connect when the user asks, to loopback by default, and the security docs get updated before it ships
