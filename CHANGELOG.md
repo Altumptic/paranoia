@@ -4,6 +4,10 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+## 0.10.0 — 2026-11-14
+
+A release process with release candidates, an opt-in update check, the debugger on Linux ARM64, user types in AArch64 pseudocode, and CI that starts every packaged desktop app for real.
+
 ### Added
 - Help → Check for updates (desktop app): after you press the button, one request to GitHub's public release list tells you whether a newer release exists and opens its page. Nothing is sent but the request, nothing is downloaded or installed, and there is no background check; see [SECURITY-DESIGN.md](docs/SECURITY-DESIGN.md#update-check).
 - `bench/pdb-truth.mjs` scores the 32-bit PE function list against the functions Microsoft's public PDBs name: 99.3 % of 8,191 on four system DLLs, 81.7 % on `ole32` (a table of a thousand 10-byte stubs). Results in [docs/BENCHMARK.md](docs/BENCHMARK.md).
