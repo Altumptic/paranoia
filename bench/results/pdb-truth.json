@@ -1,0 +1,165 @@
+{
+  "tool": "paranoia",
+  "cli": "paranoia 0.9.0",
+  "rows": [
+    {
+      "dll": "comctl32",
+      "sha256": "edcc46516586b3a11ba583d0a1e288a081d48db00361c28dfbcb5177e5ba7b9c",
+      "pdb": "comctl32v582.pdb",
+      "pdbFunctions": 1754,
+      "found": 1738,
+      "recall": 0.9908779931584949,
+      "extra": 177,
+      "missedTiny": 2,
+      "recallWithoutTinyStubs": 0.9917984768599882,
+      "extraBySource": {
+        "export": 113,
+        "scan": 37,
+        "call": 26,
+        "entry": 1
+      },
+      "foundBySource": {
+        "scan": 1202,
+        "call": 536
+      },
+      "missedSample": [
+        "0x10004980 _InitStatusClass@4",
+        "0x1000d9f0 _CreateProxyPage@8",
+        "0x1006a46c ___CRT_INIT@12",
+        "0x1006a64e __DllMainCRTStartup",
+        "0x1006a8fa ___report_gsfailure"
+      ],
+      "ghidra": {
+        "functions": 1883,
+        "found": 1741,
+        "recall": 0.992588369441277,
+        "extra": 142
+      }
+    },
+    {
+      "dll": "crypt32",
+      "sha256": "486202ff24154e7d80ecba7503bf1d0daa69439d66a2c70ca2171b4a2637f268",
+      "pdb": "crypt32.pdb",
+      "pdbFunctions": 3973,
+      "found": 3957,
+      "recall": 0.9959728165114523,
+      "extra": 360,
+      "missedTiny": 4,
+      "recallWithoutTinyStubs": 0.9967239967239967,
+      "extraBySource": {
+        "export": 290,
+        "scan": 66,
+        "call": 3,
+        "entry": 1
+      },
+      "foundBySource": {
+        "call": 2189,
+        "scan": 1768
+      },
+      "missedSample": [
+        "0x10041b77 ChainFreeInternalChainContext",
+        "0x100559f0 wil::details::FeatureStateManager::~FeatureStateManager",
+        "0x10055b10 wil::details::EnabledStateManager::~EnabledStateManager",
+        "0x10055be0 wil::details_abi::ProcessLocalStorage<class wil::details_abi::FeatureStateData>::~ProcessLocalStorage<class wil::details_abi::FeatureStateData>",
+        "0x10055bf2 wil::details_abi::ProcessLocalStorage<struct wil::details_abi::ProcessLocalData>::~ProcessLocalStorage<struct wil::details_abi::ProcessLocalData>"
+      ],
+      "ghidra": {
+        "functions": 4327,
+        "found": 3923,
+        "recall": 0.9874150515982885,
+        "extra": 404
+      }
+    },
+    {
+      "dll": "ole32",
+      "sha256": "96896789276e71143335176a6ecd5b5f02658b1800c6e47346d1b3cabe137cb1",
+      "pdb": "ole32.pdb",
+      "pdbFunctions": 5830,
+      "found": 4765,
+      "recall": 0.8173241852487135,
+      "extra": 360,
+      "missedTiny": 1030,
+      "recallWithoutTinyStubs": 0.9915377176015474,
+      "extraBySource": {
+        "scan": 104,
+        "export": 225,
+        "call": 30,
+        "entry": 1
+      },
+      "foundBySource": {
+        "call": 1747,
+        "scan": 3018
+      },
+      "missedSample": [
+        "0x10009400 _IDispatch_Invoke_Proxy@36",
+        "0x1001c502 _TlgUnregisterAggregateProvider@4",
+        "0x10024fc6 wil::details::ReportFailure_Return<1>",
+        "0x1002bd81 COleStaticMutexSem::~COleStaticMutexSem",
+        "0x1002c2cf CEndPointAtom::~CEndPointAtom"
+      ]
+    },
+    {
+      "dll": "shlwapi",
+      "sha256": "cee9f176fbf39360e9f32a507ffe8cd92b3e0d6e640f4f5284b848126d1dfd7a",
+      "pdb": "shlwapi.pdb",
+      "pdbFunctions": 1533,
+      "found": 1511,
+      "recall": 0.9856490541422048,
+      "extra": 393,
+      "missedTiny": 7,
+      "recallWithoutTinyStubs": 0.9862385321100917,
+      "extraBySource": {
+        "export": 373,
+        "scan": 14,
+        "call": 3,
+        "entry": 3
+      },
+      "foundBySource": {
+        "call": 505,
+        "scan": 1006
+      },
+      "missedSample": [
+        "0x100144b4 _WppCleanupUm@0",
+        "0x10015496 Microsoft::WRL::Details::StaticStorage<class Microsoft::WRL::Details::DefaultModule<1>,0,int>::~StaticStorage<class Microsoft::WRL::Details::DefaultModule<1>,0,int>",
+        "0x10015e10 _SHFreeDataBlockList@4",
+        "0x10015e60 _SHGetCurColorRes@0",
+        "0x1001609d wil::details_abi::ProcessLocalStorage<struct wil::details_abi::ProcessLocalData>::~ProcessLocalStorage<struct wil::details_abi::ProcessLocalData>"
+      ]
+    },
+    {
+      "dll": "xmllite",
+      "sha256": "e3e2e06b634afe483636d048ae9dee622d30e826c64ab2f9e92e47778bd00fde",
+      "pdb": "XmlLite.pdb",
+      "pdbFunctions": 931,
+      "found": 924,
+      "recall": 0.9924812030075187,
+      "extra": 17,
+      "missedTiny": 4,
+      "recallWithoutTinyStubs": 0.9963636363636363,
+      "extraBySource": {
+        "export": 6,
+        "scan": 7,
+        "call": 3,
+        "entry": 1
+      },
+      "foundBySource": {
+        "scan": 639,
+        "call": 285
+      },
+      "missedSample": [
+        "0x100057b0 wil::details::`dynamic initializer for 'g_enabledStateManager''",
+        "0x10007597 NamespaceManager::ReInitializeStrings",
+        "0x100130e5 __SEH_epilog4",
+        "0x10013167 ___report_gsfailure",
+        "0x1001349d __o__cexit"
+      ]
+    }
+  ],
+  "total": {
+    "pdbFunctions": 14021,
+    "found": 12895,
+    "extra": 1307,
+    "missedTiny": 1047,
+    "recall": 0.9196918907353255
+  }
+}

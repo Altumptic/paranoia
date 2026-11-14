@@ -6,6 +6,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ### Added
 - Help → Check for updates (desktop app): after you press the button, one request to GitHub's public release list tells you whether a newer release exists and opens its page. Nothing is sent but the request, nothing is downloaded or installed, and there is no background check; see [SECURITY-DESIGN.md](docs/SECURITY-DESIGN.md#update-check).
+- `bench/pdb-truth.mjs` scores the 32-bit PE function list against the functions Microsoft's public PDBs name: 99.3 % of 8,191 on four system DLLs, 81.7 % on `ole32` (a table of a thousand 10-byte stubs). Results in [docs/BENCHMARK.md](docs/BENCHMARK.md).
 - A release process: `scripts/release.mjs` checks that every version number agrees with the tag and the CHANGELOG, generates the release notes, and tags with a suffix (`v0.10.0-rc.1`) publish a pre-release. [docs/RELEASING.md](docs/RELEASING.md) has the versioning rules, the channels and the support policy.
 - CI runs the engine tests on Linux ARM64 as well, and starts every packaged desktop app (Windows, Linux, macOS Apple silicon) for real: it opens a file and checks the window over the DevTools protocol.
 - AArch64 pseudocode now applies the variable types you set with `Y`: the signature and declaration carry the type and loads through the pointer become `->field`, as on x86. Function memory therefore restores typed variables on AArch64 too.
