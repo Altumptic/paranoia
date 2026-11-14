@@ -363,8 +363,8 @@ impl Worker {
                 regs_out.push((n.to_string(), v));
             }
             if let Some(mem) = self.read_mem(r.rsp, 16 * 8) {
-                for (i, ch) in mem.chunks_exact(8).enumerate() {
-                    stack.push((r.rsp + i as u64 * 8, u64::from_le_bytes(ch.try_into().unwrap())));
+                for (i, ch) in mem.as_chunks::<8>().0.iter().enumerate() {
+                    stack.push((r.rsp + i as u64 * 8, u64::from_le_bytes(*ch)));
                 }
             }
         }
