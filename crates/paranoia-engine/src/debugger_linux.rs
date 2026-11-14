@@ -1,4 +1,4 @@
-//! A small Linux user-mode debugger for x86-64 ELF programs, on `ptrace`.
+//! A small Linux user-mode debugger for x86-64 and ARM64 ELF programs, on `ptrace`.
 //!
 //! Same interface as the Windows debugger (`debugger.rs`): one worker thread owns the debuggee
 //! (ptrace requests must come from the tracer thread), commands arrive over a channel, and the UI
@@ -18,6 +18,203 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
+
+/// What differs between CPUs: the register file, the breakpoint instruction, and how to tell a call
+/// (for "step over"). Everything else in this file is the same on x86-64 and AArch64.
+#[cfg(target_arch = "x86_64")]
+mod arch {
+    pub const NAME: &str = "x86-64";
+    /// Program counter register name in the register list.
+    #[cfg(test)]
+    pub const PC_NAME: &str = "rip";
+    /// The breakpoint instruction (`int3`), little-endian, and its length.
+    pub const BREAK: [u8; 4] = [0xcc, 0, 0, 0];
+    pub const BREAK_LEN: usize = 1;
+    /// How far past the breakpoint the program counter is when the trap arrives.
+    pub const PC_AFTER_BREAK: u64 = 1;
+
+    #[derive(Clone, Copy)]
+    pub struct Regs(libc::user_regs_struct);
+
+    impl Regs {
+        pub fn get(pid: libc::pid_t) -> Option<Regs> {
+            // SAFETY: user_regs_struct is plain data; zero is a valid value.
+            let mut r: libc::user_regs_struct = unsafe { std::mem::zeroed() };
+            // SAFETY: `r` is a valid user_regs_struct for the kernel to fill in.
+            let ok = unsafe {
+                libc::ptrace(libc::PTRACE_GETREGS, pid, std::ptr::null_mut::<libc::c_void>(), &mut r as *mut _ as *mut libc::c_void)
+            };
+            (ok == 0).then_some(Regs(r))
+        }
+        pub fn set(&self, pid: libc::pid_t) -> bool {
+            // SAFETY: the pointer is to a valid user_regs_struct that the kernel only reads.
+            unsafe {
+                libc::ptrace(libc::PTRACE_SETREGS, pid, std::ptr::null_mut::<libc::c_void>(), &self.0 as *const _ as *mut libc::c_void) == 0
+            }
+        }
+        pub fn pc(&self) -> u64 {
+            self.0.rip
+        }
+        pub fn set_pc(&mut self, pc: u64) {
+            self.0.rip = pc;
+        }
+        pub fn sp(&self) -> u64 {
+            self.0.rsp
+        }
+        pub fn list(&self) -> Vec<(String, u64)> {
+            let r = &self.0;
+            [
+                ("rax", r.rax),
+                ("rbx", r.rbx),
+                ("rcx", r.rcx),
+                ("rdx", r.rdx),
+                ("rsi", r.rsi),
+                ("rdi", r.rdi),
+                ("rbp", r.rbp),
+                ("rsp", r.rsp),
+                ("r8", r.r8),
+                ("r9", r.r9),
+                ("r10", r.r10),
+                ("r11", r.r11),
+                ("r12", r.r12),
+                ("r13", r.r13),
+                ("r14", r.r14),
+                ("r15", r.r15),
+                ("rip", r.rip),
+                ("rflags", r.eflags),
+            ]
+            .into_iter()
+            .map(|(n, v)| (n.to_string(), v))
+            .collect()
+        }
+    }
+
+    /// The address after the call at `pc`, if the instruction in `bytes` is a call.
+    pub fn call_return(pc: u64, bytes: &[u8]) -> Option<u64> {
+        let mut d = iced_x86::Decoder::with_ip(64, bytes, pc, iced_x86::DecoderOptions::NONE);
+        let i = d.decode();
+        matches!(i.flow_control(), iced_x86::FlowControl::Call | iced_x86::FlowControl::IndirectCall).then(|| pc + i.len() as u64)
+    }
+
+    #[cfg(test)]
+    pub mod tests {
+        use super::*;
+        #[test]
+        pub fn calls_are_recognised() {
+            // call rel32, call rax, ret, jmp rel8
+            assert_eq!(call_return(0x1000, &[0xe8, 0, 0, 0, 0]), Some(0x1005));
+            assert_eq!(call_return(0x1000, &[0xff, 0xd0]), Some(0x1002));
+            assert_eq!(call_return(0x1000, &[0xc3]), None);
+            assert_eq!(call_return(0x1000, &[0xeb, 0x05]), None);
+        }
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+mod arch {
+    pub const NAME: &str = "ARM64";
+    #[cfg(test)]
+    pub const PC_NAME: &str = "pc";
+    /// `brk #0`, little-endian (0xD4200000), and its length.
+    pub const BREAK: [u8; 4] = [0x00, 0x00, 0x20, 0xd4];
+    pub const BREAK_LEN: usize = 4;
+    /// `brk` traps with the program counter on the instruction itself.
+    pub const PC_AFTER_BREAK: u64 = 0;
+
+    /// `struct user_pt_regs` from the kernel's ptrace ABI.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct Regs {
+        x: [u64; 31],
+        sp: u64,
+        pc: u64,
+        pstate: u64,
+    }
+
+    impl Regs {
+        pub fn get(pid: libc::pid_t) -> Option<Regs> {
+            let mut r = Regs { x: [0; 31], sp: 0, pc: 0, pstate: 0 };
+            let mut iov = libc::iovec { iov_base: &mut r as *mut Regs as *mut libc::c_void, iov_len: std::mem::size_of::<Regs>() };
+            // SAFETY: GETREGSET fills the buffer the iovec describes (a valid, writable Regs).
+            let ok = unsafe {
+                libc::ptrace(
+                    libc::PTRACE_GETREGSET,
+                    pid,
+                    libc::NT_PRSTATUS as usize as *mut libc::c_void,
+                    &mut iov as *mut libc::iovec as *mut libc::c_void,
+                )
+            };
+            (ok == 0 && iov.iov_len == std::mem::size_of::<Regs>()).then_some(r)
+        }
+        pub fn set(&self, pid: libc::pid_t) -> bool {
+            let mut copy = *self;
+            let mut iov = libc::iovec { iov_base: &mut copy as *mut Regs as *mut libc::c_void, iov_len: std::mem::size_of::<Regs>() };
+            // SAFETY: SETREGSET reads the buffer the iovec describes (a valid Regs).
+            unsafe {
+                libc::ptrace(
+                    libc::PTRACE_SETREGSET,
+                    pid,
+                    libc::NT_PRSTATUS as usize as *mut libc::c_void,
+                    &mut iov as *mut libc::iovec as *mut libc::c_void,
+                ) == 0
+            }
+        }
+        pub fn pc(&self) -> u64 {
+            self.pc
+        }
+        pub fn set_pc(&mut self, pc: u64) {
+            self.pc = pc;
+        }
+        pub fn sp(&self) -> u64 {
+            self.sp
+        }
+        pub fn list(&self) -> Vec<(String, u64)> {
+            let mut out: Vec<(String, u64)> = self.x.iter().enumerate().map(|(i, v)| (format!("x{i}"), *v)).collect();
+            out.push(("sp".into(), self.sp));
+            out.push(("pc".into(), self.pc));
+            out.push(("pstate".into(), self.pstate));
+            out
+        }
+    }
+
+    /// The address after the call at `pc`, if the instruction in `bytes` is a call
+    /// (`bl`, `blr`, or the pointer-authenticated `blraa`/`blrab` forms).
+    pub fn call_return(pc: u64, bytes: &[u8]) -> Option<u64> {
+        let w = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
+        let bl = w & 0xfc00_0000 == 0x9400_0000;
+        let blr = w & 0xffff_fc1f == 0xd63f_0000;
+        let blra = w & 0xfeff_f800 == 0xd63f_0800;
+        (bl || blr || blra).then(|| pc + 4)
+    }
+
+    #[cfg(test)]
+    pub mod tests {
+        use super::*;
+        #[test]
+        pub fn calls_are_recognised() {
+            let w = |v: u32| v.to_le_bytes();
+            assert_eq!(call_return(0x1000, &w(0x9400_0010)), Some(0x1004)); // bl .+0x40
+            assert_eq!(call_return(0x1000, &w(0xd63f_0100)), Some(0x1004)); // blr x8
+            assert_eq!(call_return(0x1000, &w(0xd73f_0be8)), Some(0x1004)); // blrab x31, x8
+            assert_eq!(call_return(0x1000, &w(0xd65f_03c0)), None); // ret
+            assert_eq!(call_return(0x1000, &w(0x1400_0010)), None); // b .+0x40
+            assert_eq!(call_return(0x1000, &w(0xd61f_0100)), None); // br x8
+            assert_eq!(call_return(0x1000, &[0, 0]), None);
+        }
+        #[test]
+        pub fn register_file_layout_is_the_kernels() {
+            assert_eq!(std::mem::size_of::<Regs>(), 34 * 8);
+        }
+    }
+}
+
+/// The CPU this debugger runs programs for: the one it runs on.
+#[cfg(target_arch = "x86_64")]
+pub const HOST_ARCH: paranoia_core::Arch = paranoia_core::Arch::X86_64;
+#[cfg(target_arch = "aarch64")]
+pub const HOST_ARCH: paranoia_core::Arch = paranoia_core::Arch::Arm64;
+/// Its name for messages.
+pub use arch::NAME as HOST_NAME;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Snapshot {
@@ -135,8 +332,9 @@ struct Worker {
     /// runtime - static
     delta: i64,
     image_size: u64,
-    user_bps: BTreeMap<u64, Option<u8>>,
-    temp_bps: BTreeMap<u64, u8>,
+    /// Breakpoints by static VA with the original instruction bytes (little-endian) once armed.
+    user_bps: BTreeMap<u64, Option<u32>>,
+    temp_bps: BTreeMap<u64, u32>,
     /// Breakpoint (static VA) to re-arm after stepping off it.
     rearm: Option<u64>,
     /// Stopped, with the signal to deliver when it continues (0 = none).
@@ -295,13 +493,22 @@ impl Worker {
         self.poke(word, (v & !(0xff << shift)) | ((b as u64) << shift))
     }
 
-    fn arm(&self, va: u64) -> Option<u8> {
+    /// Writes the original instruction bytes back over a breakpoint.
+    fn restore(&self, rt: u64, orig: u32) {
+        for i in 0..arch::BREAK_LEN {
+            self.write_byte(rt + i as u64, (orig >> (8 * i)) as u8);
+        }
+    }
+
+    /// Plants the breakpoint instruction and returns what it replaced.
+    fn arm(&self, va: u64) -> Option<u32> {
         let rt = self.rt(va);
-        let orig = *self.read_mem(rt, 1)?.first()?;
-        if orig == 0xcc {
+        let bytes = self.read_mem(rt, arch::BREAK_LEN)?;
+        let orig = bytes.iter().enumerate().fold(0u32, |a, (i, b)| a | (*b as u32) << (8 * i));
+        if bytes == arch::BREAK[..arch::BREAK_LEN] {
             return Some(orig);
         }
-        self.write_byte(rt, 0xcc).then_some(orig)
+        arch::BREAK[..arch::BREAK_LEN].iter().enumerate().all(|(i, b)| self.write_byte(rt + i as u64, *b)).then_some(orig)
     }
 
     fn arm_all(&mut self) {
@@ -316,21 +523,12 @@ impl Worker {
         }
     }
 
-    fn regs(&self) -> Option<libc::user_regs_struct> {
-        // SAFETY: user_regs_struct is plain data; zero is a valid value.
-        let mut r: libc::user_regs_struct = unsafe { std::mem::zeroed() };
-        // SAFETY: `r` is a valid user_regs_struct for the kernel to fill in.
-        let ok = unsafe {
-            libc::ptrace(libc::PTRACE_GETREGS, self.pid, std::ptr::null_mut::<libc::c_void>(), &mut r as *mut _ as *mut libc::c_void)
-        };
-        (ok == 0).then_some(r)
+    fn regs(&self) -> Option<arch::Regs> {
+        arch::Regs::get(self.pid)
     }
 
-    fn set_regs(&self, r: &libc::user_regs_struct) -> bool {
-        // SAFETY: `r` points to a valid user_regs_struct that the kernel only reads.
-        unsafe {
-            libc::ptrace(libc::PTRACE_SETREGS, self.pid, std::ptr::null_mut::<libc::c_void>(), r as *const _ as *mut libc::c_void) == 0
-        }
+    fn set_regs(&self, r: &arch::Regs) -> bool {
+        r.set(self.pid)
     }
 
     fn pause(&mut self, reason: String, signal: i32) {
@@ -339,32 +537,11 @@ impl Worker {
         let mut stack = Vec::new();
         let mut pc = 0;
         if let Some(r) = self.regs() {
-            pc = r.rip;
-            for (n, v) in [
-                ("rax", r.rax),
-                ("rbx", r.rbx),
-                ("rcx", r.rcx),
-                ("rdx", r.rdx),
-                ("rsi", r.rsi),
-                ("rdi", r.rdi),
-                ("rbp", r.rbp),
-                ("rsp", r.rsp),
-                ("r8", r.r8),
-                ("r9", r.r9),
-                ("r10", r.r10),
-                ("r11", r.r11),
-                ("r12", r.r12),
-                ("r13", r.r13),
-                ("r14", r.r14),
-                ("r15", r.r15),
-                ("rip", r.rip),
-                ("rflags", r.eflags),
-            ] {
-                regs_out.push((n.to_string(), v));
-            }
-            if let Some(mem) = self.read_mem(r.rsp, 16 * 8) {
+            pc = r.pc();
+            regs_out = r.list();
+            if let Some(mem) = self.read_mem(r.sp(), 16 * 8) {
                 for (i, ch) in mem.as_chunks::<8>().0.iter().enumerate() {
-                    stack.push((r.rsp + i as u64 * 8, u64::from_le_bytes(*ch)));
+                    stack.push((r.sp() + i as u64 * 8, u64::from_le_bytes(*ch)));
                 }
             }
         }
@@ -455,7 +632,7 @@ impl Worker {
             Cmd::ClearBp(va) => {
                 if let Some(Some(orig)) = self.user_bps.remove(&va) {
                     if self.stopped.is_some() {
-                        self.write_byte(self.rt(va), orig);
+                        self.restore(self.rt(va), orig);
                     }
                 }
                 if self.rearm == Some(va) {
@@ -494,14 +671,8 @@ impl Worker {
                 self.resume(false);
             }
             Cmd::StepOver => {
-                let pc = self.regs().map(|r| r.rip);
-                let next = pc.and_then(|pc| {
-                    let bytes = self.read_mem(pc, 16)?;
-                    let mut d = iced_x86::Decoder::with_ip(64, &bytes, pc, iced_x86::DecoderOptions::NONE);
-                    let i = d.decode();
-                    matches!(i.flow_control(), iced_x86::FlowControl::Call | iced_x86::FlowControl::IndirectCall)
-                        .then(|| pc + i.len() as u64)
-                });
+                let pc = self.regs().map(|r| r.pc());
+                let next = pc.and_then(|pc| arch::call_return(pc, &self.read_mem(pc, 16)?));
                 match next.map(|n| (n as i64).wrapping_sub(self.delta) as u64) {
                     Some(sva) => {
                         if let Some(b) = self.arm(sva) {
@@ -519,14 +690,14 @@ impl Worker {
         let sig = libc::WSTOPSIG(status);
         if sig == libc::SIGTRAP {
             let Some(mut r) = self.regs() else { return };
-            let at = r.rip.wrapping_sub(1);
+            let at = r.pc().wrapping_sub(arch::PC_AFTER_BREAK);
             let sva = (at as i64).wrapping_sub(self.delta) as u64;
             let temp = self.temp_bps.remove(&sva);
             let user = self.user_bps.get(&sva).copied().flatten();
             if let Some(orig) = temp.or(user) {
-                // Our int3: put the byte back and execute the real instruction next.
-                self.write_byte(at, orig);
-                r.rip = at;
+                // Our breakpoint: put the instruction back and execute the real one next.
+                self.restore(at, orig);
+                r.set_pc(at);
                 self.set_regs(&r);
                 if user.is_some() {
                     self.rearm = Some(sva);
@@ -628,7 +799,7 @@ mod tests {
         let bytes = std::fs::read(path).unwrap();
         let bin = paranoia_core::Binary::load("true", bytes).unwrap();
         let info = bin.info();
-        if info.arch != paranoia_core::Arch::X86_64 {
+        if info.arch != HOST_ARCH {
             return;
         }
         let size = info.sections.iter().map(|x| x.vaddr + x.vsize).max().unwrap_or(0).saturating_sub(info.image_base);
@@ -646,11 +817,11 @@ mod tests {
         assert_eq!(s.state, "paused", "{s:?}");
         assert_eq!(s.reason, "Entry point");
         assert_eq!(s.pc, Some(info.entry), "runtime {:#x} base {:#x}", s.pc_runtime, s.base);
-        assert!(s.regs.iter().any(|(n, v)| n == "rip" && *v == s.pc_runtime));
+        assert!(s.regs.iter().any(|(n, v)| n == arch::PC_NAME && *v == s.pc_runtime));
         assert_eq!(s.stack.len(), 16);
-        // Memory at the entry point reads back the original bytes (no int3 left behind).
+        // Memory at the entry point reads back the original bytes (no breakpoint left behind).
         let mem = d.read(info.entry, 4).unwrap();
-        assert_ne!(mem[0], 0xcc);
+        assert_ne!(mem[..arch::BREAK_LEN], arch::BREAK[..arch::BREAK_LEN]);
         d.command("step_into", None).unwrap();
         let s2 = wait_state(&d, &["paused", "exited"]);
         assert_eq!(s2.reason, "Step", "{s2:?}");
@@ -658,6 +829,64 @@ mod tests {
         d.command("continue", None).unwrap();
         let s3 = wait_state(&d, &["exited"]);
         assert_eq!(s3.exit_code, Some(0), "{s3:?}");
+    }
+
+    /// A breakpoint planted on an instruction the program is about to run stops it there, is
+    /// stepped off without re-triggering, and leaves the program able to finish normally.
+    #[test]
+    fn a_breakpoint_stops_steps_off_and_lets_the_program_finish() {
+        let path = ["/bin/true", "/usr/bin/true"].into_iter().find(|p| std::path::Path::new(p).exists());
+        let Some(path) = path else { return };
+        let bin = paranoia_core::Binary::load("true", std::fs::read(path).unwrap()).unwrap();
+        let info = bin.info();
+        if info.arch != HOST_ARCH {
+            return;
+        }
+        let size = info.sections.iter().map(|x| x.vaddr + x.vsize).max().unwrap_or(0).saturating_sub(info.image_base);
+        let start = |breakpoints: Vec<u64>, break_on_entry: bool| {
+            Debugger::start(StartArgs {
+                path: path.into(),
+                cmdline: String::new(),
+                image_base: info.image_base,
+                entry: info.entry,
+                breakpoints,
+                break_on_entry,
+                image_size: size,
+            })
+            .unwrap()
+        };
+        // Walk the first instructions after the entry point to find an address that is executed.
+        let d = start(vec![], true);
+        let s0 = wait_state(&d, &["paused", "exited"]);
+        assert_eq!(s0.reason, "Entry point", "{s0:?}");
+        let mut target = s0.pc.unwrap();
+        for _ in 0..3 {
+            d.command("step_into", None).unwrap();
+            let s = wait_state(&d, &["paused", "exited"]);
+            assert_eq!(s.reason, "Step", "{s:?}");
+            target = s.pc.expect("still in the image");
+        }
+        assert_ne!(target, info.entry, "three steps moved on");
+        d.command("stop", None).unwrap();
+        wait_state(&d, &["exited"]);
+        // A fresh run with a breakpoint there stops at it (nothing else is armed).
+        let d = start(vec![target], false);
+        let s = wait_state(&d, &["paused", "exited"]);
+        assert_eq!(s.state, "paused", "{s:?}");
+        assert_eq!(s.reason, "Breakpoint", "{s:?}");
+        assert_eq!(s.pc, Some(target));
+        assert!(s.breakpoints.contains(&target));
+        // The instruction the breakpoint replaced is back in memory while stopped.
+        let mem = d.read(target, arch::BREAK_LEN).unwrap();
+        assert_ne!(mem[..], arch::BREAK[..arch::BREAK_LEN]);
+        // Stepping leaves it, and it is armed again for later (it is not reached again here).
+        d.command("step_into", None).unwrap();
+        let s2 = wait_state(&d, &["paused", "exited"]);
+        assert_eq!(s2.reason, "Step", "{s2:?}");
+        assert_ne!(s2.pc, Some(target));
+        d.command("continue", None).unwrap();
+        let end = wait_state(&d, &["exited"]);
+        assert_eq!(end.exit_code, Some(0), "{end:?}");
     }
 
     #[test]

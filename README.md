@@ -38,7 +38,7 @@ Paranoia does disassembly, control-flow graphs, decompilation, debugging and scr
 - **Editing:** rename, comments, bookmarks, define code/data/strings, create functions, local C types, undo and redo. Everything is saved per file hash.
 - **Patching:** hex view, byte patches, NOP/invert/force-jump, an x86 assembler, save the patched file.
 - **Debug info:** PDB and DWARF names and types, FLIRT signatures (`.sig` and `.pat`), and built-in signature packs for the MSVC static CRT, Rust std and musl libc ([docs/SIGNATURES.md](docs/SIGNATURES.md)).
-- **Debugger:** local Windows (x64 and 32-bit) and Linux x86-64 programs.
+- **Debugger:** local Windows (x64 and 32-bit), Linux x86-64 and Linux ARM64 programs. Not macOS, not 32-bit Linux or ARM32, no remote targets.
 - **Scripting:** Python in your own interpreter (`idc` and `idautils` work for common calls), JavaScript, plugins, and a headless batch mode.
 - **AI:** an optional assistant in the app ([local or hosted model](docs/ASSISTANT.md): Ollama, LM Studio, llama.cpp, Claude, OpenAI, OpenCode and others), and `paranoia mcp` for agents such as Claude Code, which can hide the sample's strings and IP-like numbers from the model and keep a log of everything the agent was shown. The in-app assistant has the same opt-in redaction and keeps a local hash-chained disclosure ledger. See [docs/MCP.md](docs/MCP.md) and [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
