@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use paranoia_core::{Binary, Instruction};
 use serde_json::{json, Value};
 
-use crate::disclosure::{sha256_hex, Ledger, Redactor};
+use crate::disclosure::{sha256_hex, IpRedactor, Ledger, Redactor};
 
 /// Protocol revisions this server speaks, newest first.
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -29,11 +29,16 @@ const REDACTED_NOTE: &str =
     " String contents from the file are redacted: literals read \"<str#N len=L>\" and names derived from them aRedactedN; \
 the same string keeps its number for the whole session.";
 
+const REDACTED_IPS_NOTE: &str =
+    " Numbers that look like IPv4 or IPv6 addresses are redacted as \"<ip#N>\"; the same address keeps its number for the \
+whole session. Version numbers that do not look like addresses, floats and other constants are not affected.";
+
 #[derive(Default)]
 pub struct Config {
     pub roots: Vec<PathBuf>,
     pub allow_writes: bool,
     pub redact_strings: bool,
+    pub redact_ips: bool,
     pub ledger: Option<PathBuf>,
     /// The desktop app's workspace store: names are read from it on open and, with
     /// `allow_writes`, written back after every change.
@@ -67,6 +72,9 @@ pub struct Server {
     roots: Vec<PathBuf>,
     allow_writes: bool,
     redact: bool,
+    redact_ips: bool,
+    /// Lazily numbered IP placeholders, shared by every file the session opens.
+    ips: Option<IpRedactor>,
     ledger: Option<Ledger>,
     workspace: Option<PathBuf>,
     memory: Option<PathBuf>,
@@ -97,12 +105,15 @@ impl Server {
                 "roots": roots.iter().map(|r| shown(r)).collect::<Vec<_>>(),
                 "allow_writes": cfg.allow_writes,
                 "redact_strings": cfg.redact_strings,
+                "redact_ips": cfg.redact_ips,
             }))?;
         }
         Ok(Server {
             roots,
             allow_writes: cfg.allow_writes,
             redact: cfg.redact_strings,
+            redact_ips: cfg.redact_ips,
+            ips: cfg.redact_ips.then(IpRedactor::new),
             ledger,
             workspace: cfg.workspace,
             memory: cfg.memory,
@@ -145,10 +156,20 @@ impl Server {
             Err(ToolError(e)) => (e, true),
         };
         let target = self.index(args).ok();
-        let (text, redactions) = match target.and_then(|i| self.bins[i].redactor.as_mut()) {
-            Some(r) => r.apply(&text),
-            None => (text, 0),
-        };
+        let mut text = text;
+        let mut redactions = 0;
+        if let Some(i) = target {
+            if let Some(r) = self.bins[i].redactor.as_mut() {
+                let (t, n) = r.apply(&text);
+                text = t;
+                redactions += n;
+            }
+        }
+        if let Some(r) = self.ips.as_mut() {
+            let (t, n) = r.apply(&text);
+            text = t;
+            redactions += n;
+        }
         let text = clip(text);
         if let Some(l) = self.ledger.as_mut() {
             let entry = json!({
@@ -186,11 +207,18 @@ impl Server {
             "initialize" => {
                 let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOLS[0]);
                 let version = PROTOCOLS.iter().find(|v| **v == asked).copied().unwrap_or(PROTOCOLS[0]);
+                let mut instructions = INSTRUCTIONS.to_string();
+                if self.redact {
+                    instructions.push_str(REDACTED_NOTE);
+                }
+                if self.redact_ips {
+                    instructions.push_str(REDACTED_IPS_NOTE);
+                }
                 Ok(json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": "paranoia", "title": "Paranoia", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": if self.redact { format!("{INSTRUCTIONS}{REDACTED_NOTE}") } else { INSTRUCTIONS.to_string() },
+                    "instructions": instructions,
                 }))
             }
             "ping" => Ok(json!({})),
@@ -763,11 +791,16 @@ fn compare_text(a: &str, b: &str, r: &paranoia_core::memory::DiffReport, limit: 
 pub fn run(cfg: Config) -> anyhow::Result<()> {
     let mut server = Server::new(cfg)?;
     let roots: Vec<String> = server.roots.iter().map(|r| shown(r)).collect();
+    let redacted = match (server.redact, server.redact_ips) {
+        (true, true) => ", strings and IP-like numbers redacted",
+        (true, false) => ", strings redacted",
+        (false, true) => ", IP-like numbers redacted",
+        (false, false) => "",
+    };
     eprintln!(
-        "paranoia mcp {}: stdio, {}{}{}, files under {}",
+        "paranoia mcp {}: stdio, {}{redacted}{}, files under {}",
         env!("CARGO_PKG_VERSION"),
         if server.allow_writes { "writes allowed (session only)" } else { "read-only" },
-        if server.redact { ", strings redacted" } else { "" },
         server.ledger.as_ref().map(|l| format!(", ledger {}", shown(l.path()))).unwrap_or_default()
             + &server.workspace.as_ref().map(|w| format!(", workspace {}", shown(w))).unwrap_or_default(),
         roots.join(", ")
@@ -1047,6 +1080,47 @@ mod tests {
         assert_eq!(d["sha256"].as_str().unwrap(), sha256_hex(red.as_bytes()));
         assert_eq!(d["file_sha256"].as_str().unwrap(), s.bins[0].sha256);
         assert!(d["redactions"].as_u64().unwrap() >= 1);
+    }
+
+    #[test]
+    fn ip_redaction_is_counted_and_logged() {
+        let (_, exe) = server(true);
+        let dir = std::env::temp_dir().join(format!("paranoia-mcp-ips-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ledger = dir.join("ledger.jsonl");
+        let cfg = || Config {
+            roots: vec![exe.parent().unwrap().to_path_buf()],
+            allow_writes: true,
+            redact_ips: true,
+            ledger: Some(ledger.clone()),
+            ..Config::default()
+        };
+        let mut s = Server::new(cfg()).unwrap();
+        let init = s.handle(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} })).unwrap();
+        let instructions = init["result"]["instructions"].as_str().unwrap();
+        assert!(instructions.contains("<ip#N>"), "{instructions}");
+
+        call(&mut s, "open_binary", json!({ "path": exe.to_string_lossy() }));
+        let entry = s.bins[0].bin.info().entry;
+        // A comment is an ordinary tool answer: the addresses in it must be replaced.
+        let (err, t) =
+            call(&mut s, "set_comment", json!({ "address": format!("{entry:#x}"), "text": "beacon 192.168.13.37 / 10.0.0.0/8" }));
+        assert!(!err, "{t}");
+        let (err, d) = call(&mut s, "disassemble", json!({ "address": format!("{entry:#x}"), "count": 1 }));
+        assert!(!err, "{d}");
+        assert!(d.contains("<ip#1>") && d.contains("<ip#2>"), "{d}");
+        assert!(!d.contains("192.168.13.37") && !d.contains("10.0.0.0"), "{d}");
+
+        // The ledger counts them like string redactions and keeps the exact text.
+        let lines: Vec<Value> = std::fs::read_to_string(&ledger).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(lines[0]["event"], "session");
+        assert_eq!(lines[0]["redact_ips"], true);
+        let line = lines.iter().find(|l| l["tool"] == "disassemble").unwrap();
+        assert_eq!(line["text"].as_str().unwrap(), d);
+        assert_eq!(line["sha256"].as_str().unwrap(), sha256_hex(d.as_bytes()));
+        assert!(line["redactions"].as_u64().unwrap() >= 2, "{line}");
     }
 
     #[test]

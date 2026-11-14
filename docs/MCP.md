@@ -61,14 +61,15 @@ The model behind the agent is the agent's business: any model your client suppor
 - `--root DIR`: a folder files may be opened from. Without it, the current directory.
 - `--allow-writes`: also offer `rename`, `set_comment` and `rename_variable`. Changes are kept in memory for the session; `export_idc` returns them as an IDC script.
 - `--redact-strings`: the file's string contents never reach the agent (see below).
+- `--redact-ips`: also replace constants that look like IP addresses with `<ip#N>` (see below).
 - `--ledger FILE`: write every answer to `FILE` before sending it. If that fails, the answer isn't sent.
-- `--memory [FILE]`: offer `recognize_functions`, which looks the open file up in the function knowledge base ([FUNCTION-MEMORY.md](FUNCTION-MEMORY.md)). Without a path it uses the app's own `memory.redb`. With `--allow-writes` the tool can also apply the names it finds.
+- `--memory [FILE]`: offer `recognize_functions`, which looks the open file up in the function knowledge base ([FUNCTION-MEMORY.md](FUNCTION-MEMORY.md)). Without a path it uses the app's own `memory.redb`. With `--allow-writes` the tool can also apply the names it finds and the local type declarations their variables need.
 - `--workspace [FILE]`: share names with the desktop app. Names, comments and types are loaded from the app's workspace when a file is opened, and with `--allow-writes` each change is saved back. Without a path it uses the app's own workspace (`%APPDATA%\Paranoia\workspace.redb` on Windows, `~/.config/Paranoia/` on Linux, `~/Library/Application Support/Paranoia/` on macOS). The app locks the workspace while it's open, so close it first.
 
 For a confidential sample and a hosted model:
 
 ```bash
-paranoia mcp --root D:\cases\0412 --redact-strings --ledger D:\cases\0412\agent-ledger.jsonl
+paranoia mcp --root D:\cases\0412 --redact-strings --redact-ips --ledger D:\cases\0412\agent-ledger.jsonl
 ```
 
 ## Tools
@@ -90,7 +91,7 @@ Every tool takes an optional `binary`, the id `open_binary` returned (default: t
 | `list_strings`, `list_imports`, `list_exports` | Lists, with `filter`, `offset` and `limit` |
 | `search` | Functions, names and strings matching a query |
 | `compare_binaries` | Matches the functions of two open binaries: shared code, changed functions (least similar first), functions in only one of them |
-| `recognize_functions` | Only with `--memory`: functions the knowledge base knows from other files, with the remembered name and how similar the code is |
+| `recognize_functions` | Only with `--memory`: functions the knowledge base knows from other files, with the remembered name, the local type declarations their typed variables need, and how similar the code is |
 | `export_idc` | The session's names and comments as an IDC script |
 | `rename`, `set_comment`, `rename_variable` | Only with `--allow-writes` |
 
@@ -114,18 +115,28 @@ v6 = GetProcAddress(v6, "<str#36 len=29>");
 
 The agent can still see that two strings are passed to these calls and how long they are, but not what they say.
 
-It doesn't hide function, import, export or section names, numbers in the code (an IP address stored as an integer, for example), or what the agent itself searches for: a `search` for a word tells the agent whether the file contains it. `export_idc` output is redacted too, so it isn't a usable IDC script in this mode.
+With `--redact-ips`, constants that look like IP addresses are replaced by `<ip#N>` in the same pass, and counted in the same `redactions` number in the ledger. An IPv4 address is four decimal octets between 0 and 255, optionally followed by a `/0`–`/32` prefix (`192.168.13.37`, `10.0.0.0/8`). An IPv6 address is either all eight groups (`2001:0db8:85a3:0000:0000:8a2e:0370:7334`) or a `::`-compressed form (`fe80::1`, `2001:db8::1`, `::1`, `::ffff:192.168.1.1`). The same address keeps its number for the whole session. Ordinary numbers, floats, times (`12:34:56`), MAC addresses, identifiers such as `std::vector` and version numbers that don't fit those shapes (`1.2.3`, `10.0.19041.1`) are left alone; a four-part number whose parts are all ≤255 (`1.2.3.4`) is indistinguishable from an IPv4 address, so it is redacted too. Comments from the file are covered like every other part of an answer:
+
+```c
+// uploads to 192.168.13.37:443
+```
+
+```c
+// uploads to <ip#1>:443
+```
+
+It doesn't hide function, import, export or section names, raw bytes, or an address stored as an integer or float (`0xC0A80D25`) rather than written as a dotted quad: `--redact-ips` only recognises the textual forms. It also doesn't hide what the agent itself searches for: a `search` for a word tells the agent whether the file contains it. `export_idc` output is redacted too, so it isn't a usable IDC script in either mode.
 
 ## Ledger
 
 With `--ledger FILE`, the server appends one JSON line per answer and syncs it to disk before replying:
 
 ```json
-{"event":"session","version":"0.7.0","roots":["D:\\cases\\0412"],"allow_writes":false,"redact_strings":true,"time":1762610400,"prev":null}
-{"event":"tool","tool":"decompile","arguments":{"address":"sub_401C04"},"file_sha256":"1e47…","is_error":false,"redactions":2,"chars":2068,"sha256":"45ee…","text":"// sub_401C04 at 0x401c04\n…","time":1762610412,"prev":"9c1f…"}
+{"event":"session","version":"0.8.0","roots":["D:\\cases\\0412"],"allow_writes":false,"redact_strings":true,"redact_ips":true,"time":1762610400,"prev":null}
+{"event":"tool","tool":"decompile","arguments":{"address":"sub_401C04"},"file_sha256":"1e47…","is_error":false,"redactions":3,"chars":2068,"sha256":"45ee…","text":"// sub_401C04 at 0x401c04\n…","time":1762610412,"prev":"9c1f…"}
 ```
 
-`text` is exactly what the agent got, `sha256` is its hash, and `prev` is the hash of the previous line, so the lines form a chain. The file contains the disclosed text itself, so keep it with the case notes.
+`text` is exactly what the agent got, `sha256` is its hash, and `prev` is the hash of the previous line, so the lines form a chain. `redactions` counts string and IP-address replacements together. The file contains the disclosed text itself, so keep it with the case notes.
 
 To check a ledger:
 
@@ -140,7 +151,7 @@ This prints what each tool returned and for which files, and exits with status 2
 - The server talks over stdin and stdout and never opens a socket.
 - `open_binary` resolves the path, including symlinks, and refuses anything outside `--root`. Files over 1 GiB are refused.
 - Write tools only exist with `--allow-writes`. They never change the analysed file, and only touch the app's workspace with `--workspace`.
-- Strings and names come from whoever made the file. A string like "ignore previous instructions" is just data, and the server tells the client so, but whether the model listens is up to the model. Keep write tools off for untrusted files and check what the agent suggests. `--redact-strings` keeps the strings away from the model entirely.
+- Strings and names come from whoever made the file. A string like "ignore previous instructions" is just data, and the server tells the client so, but whether the model listens is up to the model. Keep write tools off for untrusted files and check what the agent suggests. `--redact-strings` keeps the strings away from the model entirely, and `--redact-ips` the addresses written out in the output.
 - Paranoia itself sends nothing anywhere. Your MCP client sends the tool results to its model, so with a hosted model the pseudocode and strings the agent reads leave your machine. Use a local model if nothing may leave.
 - If something panics while answering, the agent gets an error and the server keeps running.
 

@@ -263,11 +263,39 @@ function aiKey(s) {
   }
 }
 const aiPublic = (s) => ({ ...ai.publicSettings({ ...s, keyEnc: s.keyEnc || (aiSessionKey ? "session" : "") }), encryption: safeStorage.isEncryptionAvailable() });
+
+// The assistant's disclosure ledger: one hash-chained JSON line per request and per answer, in
+// the app's data folder. It records hashes, counts and the host — never the code or the answer.
+const aiLedgerFile = () => path.join(app.getPath("userData"), "assistant-ledger.jsonl");
+/** Appends one ledger line and syncs it to disk; throws when the ledger cannot be written. */
+function aiLedgerAppend(entry) {
+  const file = aiLedgerFile();
+  let prev = null;
+  try {
+    const text = fs.readFileSync(file, "utf8");
+    const last = text.split("\n").filter((l) => l.trim()).pop();
+    if (last) prev = ai.sha256Hex(last);
+  } catch (e) {
+    if (e?.code !== "ENOENT") throw e;
+  }
+  const line = ai.ledgerLine(prev, entry);
+  const fd = fs.openSync(file, "a");
+  try {
+    fs.writeSync(fd, `${line}\n`);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 handle("ai:get", () => aiPublic(aiRead()));
 handle("ai:set", async (_e, input) => {
   if (!input || typeof input !== "object") throw new Error("invalid settings");
   const cur = aiRead();
   const next = { model: String(input.model ?? "").trim().slice(0, 120) };
+  // Privacy options live with the other AI settings; redaction is opt-in.
+  next.redactStrings = input.redactStrings === undefined ? cur.redactStrings === true : input.redactStrings === true;
+  next.redactIps = input.redactIps === undefined ? cur.redactIps === true : input.redactIps === true;
   const raw = String(input.endpoint ?? "").trim();
   if (raw) {
     const ep = ai.parseEndpoint(raw);
@@ -292,7 +320,8 @@ handle("ai:set", async (_e, input) => {
         message: `Send function code to ${ep.host}?`,
         detail:
           `The assistant sends the decompiled text of the function you ask about (up to ${ai.MAX_CODE_CHARS} characters per request) to ${ep.host}. ` +
-          `That service may log it. Nothing is sent until you choose an assistant command, and nothing else from the file is sent.\n\nFor a binary you must keep private, use a local model (Ollama, LM Studio) instead.`,
+          `That service may log it. Nothing is sent until you choose an assistant command, and nothing else from the file is sent.\n\n` +
+          `${ai.redactionSummary(next.redactStrings, next.redactIps)}\n\nFor a binary you must keep private, use a local model (Ollama, LM Studio) instead.`,
         buttons: ["Cancel", "Allow this host"],
         defaultId: 0,
         cancelId: 0,
@@ -345,19 +374,36 @@ handle("ai:test", async () => {
   const text = await ai.chat({ endpoint: s.endpoint, key: aiKey(s), model: s.model, messages: ai.TEST_MESSAGES });
   return { text: text.slice(0, 300), millis: Date.now() - started, host: ep.host, local: ep.local };
 });
+// One assistant request. Redaction (opt-in) replaces the file's strings and IP-like constants
+// before anything leaves; the request and the answer are recorded in the disclosure ledger, and
+// a request whose record cannot be written is not sent (the same rule as `paranoia mcp`).
 handle("ai:ask", async (_e, req) => {
   if (!req || typeof req !== "object" || typeof req.task !== "string" || typeof req.code !== "string") throw new Error("invalid assistant request");
   if (req.code.length > 400000) throw new Error("The function is too large to send");
   const s = aiRead();
   if (!s.endpoint) throw new Error("The assistant is off — choose Assistant → Settings… and point it at a model server");
+  if (!String(s.model ?? "").trim()) throw new Error("No model is chosen — pick one in Assistant → Settings");
   const ep = ai.parseEndpoint(s.endpoint);
-  const messages = ai.buildMessages(req.task, req);
+  // The page sends the options it has saved; the main process keeps the last word.
+  const redactStrings = req.redactStrings === true || s.redactStrings === true;
+  const redactIps = req.redactIps === true || s.redactIps === true;
+  const strings = Array.isArray(req.strings) ? req.strings.filter((v) => typeof v === "string") : [];
+  const redactor = ai.createRedactor({ strings, redactStrings, redactIps });
+  const redactions = { strings: 0, ips: 0 };
+  const messages = ai.buildMessages(req.task, req).map((m) => {
+    const r = redactor.apply(m.content);
+    redactions.strings += r.strings;
+    redactions.ips += r.ips;
+    return { ...m, content: r.text };
+  });
   if (!ep.local && aiRemoteConfirmed !== ep.host) {
     const r = await dialog.showMessageBox(win, {
       type: "question",
       title: ai.TASKS[req.task].title,
       message: `Send this function to ${ep.host}?`,
-      detail: `${Math.min(req.code.length, ai.MAX_CODE_CHARS)} characters of decompiled code for “${String(req.name ?? "").slice(0, 80)}” will leave this computer. Paranoia asks once per session for each host.`,
+      detail:
+        `${Math.min(req.code.length, ai.MAX_CODE_CHARS)} characters of decompiled code for “${String(req.name ?? "").slice(0, 80)}” will leave this computer. ` +
+        `${ai.redactionSummary(redactStrings, redactIps)}\n\nParanoia asks once per session for each host.`,
       buttons: ["Cancel", "Send"],
       defaultId: 0,
       cancelId: 0,
@@ -366,12 +412,39 @@ handle("ai:ask", async (_e, req) => {
     if (r.response !== 1) throw new Error("Cancelled");
     aiRemoteConfirmed = ep.host;
   }
+  // Record the request before sending it: nothing leaves unrecorded.
+  try {
+    aiLedgerAppend({
+      event: "request",
+      host: ep.host,
+      local: ep.local,
+      task: req.task,
+      model: String(s.model ?? ""),
+      redact_strings: redactStrings,
+      redact_ips: redactIps,
+      redactions,
+      request_sha256: ai.sha256Hex(JSON.stringify(messages)),
+    });
+  } catch (e) {
+    throw new Error(`The disclosure ledger ${aiLedgerFile()} could not be written (${e instanceof Error ? e.message : e}); nothing was sent.`);
+  }
   aiCancel?.abort();
   const ctl = new AbortController();
   aiCancel = ctl;
   try {
     const text = await ai.chat({ endpoint: s.endpoint, key: aiKey(s), model: s.model, messages, signal: ctl.signal });
-    return { text, name: req.task === "name" ? ai.parseName(text) : null, host: ep.host, local: ep.local };
+    try {
+      aiLedgerAppend({
+        event: "answer",
+        host: ep.host,
+        task: req.task,
+        response_sha256: ai.sha256Hex(text),
+        response_chars: text.length,
+      });
+    } catch (e) {
+      throw new Error(`The answer was withheld: the disclosure ledger ${aiLedgerFile()} could not be written (${e instanceof Error ? e.message : e}).`);
+    }
+    return { text, name: req.task === "name" ? ai.parseName(text) : null, host: ep.host, local: ep.local, redactions };
   } finally {
     if (aiCancel === ctl) aiCancel = null;
   }

@@ -43,6 +43,8 @@ export function AiSettingsDialog() {
   const [endpoint, setEndpoint] = useState("");
   const [model, setModel] = useState("");
   const [key, setKey] = useState("");
+  const [redactStrings, setRedactStrings] = useState(false);
+  const [redactIps, setRedactIps] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -62,6 +64,8 @@ export function AiSettingsDialog() {
         setCur(s);
         setEndpoint(s.endpoint);
         setModel(s.model);
+        setRedactStrings(s.redactStrings);
+        setRedactIps(s.redactIps);
       })
       .catch((e) => setErr(String(e)));
   }, [open]);
@@ -75,7 +79,7 @@ export function AiSettingsDialog() {
     setErr(null);
     setNote(null);
     try {
-      const s = await desktop!.ai.set({ endpoint, model, key: clearKey ? "" : key ? key : undefined });
+      const s = await desktop!.ai.set({ endpoint, model, key: clearKey ? "" : key ? key : undefined, redactStrings, redactIps });
       setCur(s);
       setKey("");
       if (then) await then();
@@ -108,7 +112,8 @@ export function AiSettingsDialog() {
         <div className="modal-title">Assistant settings</div>
         <p className="muted small">
           Optional. Point Paranoia at a model server. A local one keeps everything on this computer. Leave the endpoint empty to turn the assistant off;
-          nothing is sent until you choose an Assistant command.
+          nothing is sent until you choose an Assistant command. Strings and IP-like numbers can be hidden from each request below; every request is
+          recorded in the app's disclosure ledger (hashes and counts only).
         </p>
         <div className="ai-presets-head muted small">On this computer</div>
         <div className="ai-presets">
@@ -158,6 +163,21 @@ export function AiSettingsDialog() {
           />
         </label>
         {cur && !cur.encryption && <div className="muted small">This system cannot encrypt secrets, so the key is kept in memory for this session only.</div>}
+        <div className="ai-presets-head muted small">Privacy</div>
+        <label className="ai-check">
+          <input type="checkbox" checked={redactStrings} onChange={(e) => setRedactStrings(e.target.checked)} />
+          <span>
+            Hide the file's strings from the model (<span className="mono">{"<str#N len=L>"}</span> placeholders; names derived from them become{" "}
+            <span className="mono">aRedactedN</span>)
+          </span>
+        </label>
+        <label className="ai-check">
+          <input type="checkbox" checked={redactIps} onChange={(e) => setRedactIps(e.target.checked)} />
+          <span>
+            Hide numbers that look like IP addresses (<span className="mono">{"<ip#N>"}</span>). Ordinary numbers and floats are left alone; a four-part
+            version with small parts looks like an address and is hidden too
+          </span>
+        </label>
         {remote && <div className="ai-warn">This is not a local address. Code you ask about would go to that service; Paranoia asks you to confirm the host.</div>}
         {note && <div className="muted small">{note}</div>}
         {err && <div className="search-error">{err}</div>}

@@ -132,6 +132,10 @@ export interface AiSettings {
   hasKey: boolean;
   local: boolean;
   host: string;
+  /** Replace the file's strings (and names derived from them) with placeholders before sending. */
+  redactStrings: boolean;
+  /** Replace constants that look like IP addresses with `<ip#N>` placeholders before sending. */
+  redactIps: boolean;
   /** Whether the OS can encrypt the API key for storage. */
   encryption: boolean;
 }
@@ -141,6 +145,8 @@ export interface AiAnswer {
   name: { name: string; reason: string } | null;
   host: string;
   local: boolean;
+  /** Placeholders actually substituted in the request. */
+  redactions: { strings: number; ips: number };
 }
 
 export interface PluginInfo {
@@ -170,8 +176,19 @@ export interface DesktopBridge {
   ai: {
     get(): Promise<AiSettings>;
     /** `key`: undefined keeps the stored key, "" clears it. A remote host asks the user in a native dialog. */
-    set(s: { endpoint: string; model: string; key?: string }): Promise<AiSettings>;
-    ask(req: { task: "explain" | "name" | "suspicious"; name: string; address: string; arch: string; format: string; code: string }): Promise<AiAnswer>;
+    set(s: { endpoint: string; model: string; key?: string; redactStrings?: boolean; redactIps?: boolean }): Promise<AiSettings>;
+    ask(req: {
+      task: "explain" | "name" | "suspicious";
+      name: string;
+      address: string;
+      arch: string;
+      format: string;
+      code: string;
+      /** The file's strings, so literals and string-derived names can be numbered like `paranoia mcp`. */
+      strings?: string[];
+      redactStrings?: boolean;
+      redactIps?: boolean;
+    }): Promise<AiAnswer>;
     cancel(): Promise<void>;
     /** Model ids the saved endpoint offers. */
     models(): Promise<string[]>;
