@@ -993,5 +993,9 @@ fn arm64_pseudocode_applies_user_types() {
             break;
         }
     }
-    eprintln!("arm64 user types: no AArch64 sample with a load from a1 here ({tried} tried)");
+    // On CI's ARM runners (their own system programs are AArch64) the test must not be a silent no-op.
+    if cfg!(target_arch = "aarch64") && std::env::var_os("CI").is_some() {
+        assert!(tried > 0, "no AArch64 function that loads from its first argument was found in the system programs");
+    }
+    eprintln!("arm64 user types: {tried} function(s) checked");
 }
