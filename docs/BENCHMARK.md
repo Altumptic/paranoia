@@ -238,6 +238,30 @@ fixed a third problem of its own:
   found 1,913 functions, and five 32-bit DLLs agree with Ghidra at 97.8 % / 98.0 %. A first version of the
   scan listed `push ebp; mov ebp, esp` two bytes after a hot-patch `mov edi, edi` as a second function; the
   benchmark's call comparison exposed the duplicates and a test now guards it.
+- **32-bit PE discovery against real symbols, not only against Ghidra.** The PDB that Microsoft publishes
+  for a system DLL names the functions the linker saw, so for compiler-generated x86 it is the nearest
+  thing to ground truth that exists. A public PDB leaves out static functions, so it measures *recall* (of
+  the functions it names, how many does the file-only analysis find) and says nothing certain about the
+  extra functions Paranoia lists. `bench/pdb-truth.mjs` runs it (PDBs downloaded from the public symbol
+  server, matched by the CodeView GUID; raw numbers in `bench/results/pdb-truth.json`):
+
+  | DLL (x86, this machine's build) | named in the PDB | found from the file alone | recall | Ghidra |
+  | --- | ---: | ---: | ---: | ---: |
+  | `comctl32` | 1,754 | 1,738 | 99.1 % | 99.3 % |
+  | `crypt32` | 3,973 | 3,957 | 99.6 % | 98.7 % |
+  | `shlwapi` | 1,533 | 1,511 | 98.6 % | n/a |
+  | `xmllite` | 931 | 924 | 99.2 % | n/a |
+  | `ole32` | 5,830 | 4,765 | 81.7 % | n/a |
+
+  Without `ole32`, 8,130 of 8,191 (99.3 %). `ole32` is one pattern: 1,030 of its 1,065 misses are
+  `___Interceptor_meth<N>` stubs, a table of about a thousand 10-byte `mov eax, N; jmp` thunks that no
+  call, export or relocation points at and that have no padding between them; without them its recall is
+  99.2 %. The other misses are start-up and exit code (`__DllMainCRTStartup`, `___report_gsfailure`,
+  `__SEH_epilog4`) and a few C++ destructors that are only reachable through registered callbacks.
+  Ghidra was scored on the two DLLs the benchmark had already run it on; the other three DLLs have no
+  Ghidra dump, so that column is empty rather than guessed. Paranoia also lists 1,307 functions the PDBs do
+  not name (most are exports the PDB spells differently, some are static functions): that is not an error
+  count. The earlier 98 % is agreement between two tools; this is agreement with symbols.
 - **The benchmark's own name matching.** The Rust name parser mis-counted escaped characters (`$LT$`,
   `$u20$`), so correct names were scored as wrong for both tools, and generic arguments were not ignored. This
   understated both tools' naming (Ghidra 66.5 % published, 91.7 % now).

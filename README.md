@@ -48,7 +48,7 @@ Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analy
 
 - Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental: it has been measured on Go binaries only and tested on system programs of the CI's ARM runners. Types come from known library calls and from the types you set; they do not flow from caller to callee yet. Other architectures have disassembly and graphs only.
 - MIPS has only been tested on known instruction encodings, not on a full binary.
-- On a 32-bit PE, functions that nothing calls are found by a scan for prologues and relocation targets, not from an unwind table, so that list is a heuristic: on five system DLLs it agrees with Ghidra's at about 98 % in both directions ([docs/BENCHMARK.md](docs/BENCHMARK.md)).
+- On a 32-bit PE, functions that nothing calls are found by a scan for prologues and relocation targets, not from an unwind table, so that list is a heuristic. Against the functions Microsoft's public symbols name it finds 99.3 % on four system DLLs and 81.7 % on a fifth (`ole32`, whose misses are a table of a thousand tiny stubs), and it agrees with Ghidra's list at about 98 % in both directions. Public symbols do not name static functions, so extra functions are not counted as errors ([docs/BENCHMARK.md](docs/BENCHMARK.md)).
 - The debugger runs local programs only. Remote debugging is planned.
 - The desktop app is built for Windows (x64), Linux (x64 and ARM64) and macOS (arm64 and x64). The Linux and macOS packages are new and have had much less testing than the Windows build. The command-line tool (with `diff`, function memory and the MCP server) is released for Windows, Linux and macOS.
 - Raw firmware images without a PE/ELF/Mach-O header can't be loaded yet.
