@@ -17,7 +17,7 @@ Last reviewed: 2026-11-12 · Applies from release v0.5.1.
 | | Requirement | Status | Evidence |
 | --- | --- | --- | --- |
 | P1 | Open by default | ✅ | All code Apache-2.0 in this repository; no closed components |
-| P2 | Least data | ✅ | No telemetry, no accounts, no network ([SECURITY-DESIGN.md § Network](SECURITY-DESIGN.md#network)) |
+| P2 | Least data | ✅ | No telemetry, no accounts, no network by itself; the only user-started requests are the update check and the optional assistant ([SECURITY-DESIGN.md § Network](SECURITY-DESIGN.md#network)) |
 | P3 | Prove, don't claim | ✅ | Signed checksums, attestations, SBOM, tests named in [SECURITY-DESIGN.md](SECURITY-DESIGN.md) |
 | P4 | Fail closed | ✅ | Untrusted IPC senders, unchosen file paths and declined confirmations are refused, never bypassed |
 | P5 | Authorized scope only | ✅ | A tool for analysing software you are allowed to analyse; the debugger only starts programs the user chooses and warns before every start |
@@ -30,7 +30,7 @@ Last reviewed: 2026-11-12 · Applies from release v0.5.1.
 | Allowed algorithms only | ✅ | SHA-256 for identity and integrity; Sigstore (ECDSA P-256 with Fulcio, justified by the Sigstore ecosystem) for signatures. MD5 / SHA-1 are displayed for file identification only, never for a security decision |
 | Keys and secrets | ➖ | The product holds no keys of its own. The optional AI assistant can store the user's own API key, encrypted with the OS keystore (`safeStorage`) and never exposed to the page. CI uses OIDC tokens for signing; the optional Authenticode certificate would live in GitHub encrypted secrets |
 | Data at rest | ➖ | Only the user's own annotations and recent-file list, stored locally ([data inventory](SECURITY-DESIGN.md#data-inventory)) |
-| Data in transit | ➖ | No network traffic unless the user configures the optional AI assistant: loopback by default, `https://` otherwise, with native consent ([SECURITY-DESIGN.md § AI assistant](SECURITY-DESIGN.md#ai-assistant-optional)). The MCP server (`paranoia mcp`) uses stdio only ([SECURITY-DESIGN.md § MCP server](SECURITY-DESIGN.md#mcp-server-paranoia-mcp)) |
+| Data in transit | ➖ | No network traffic unless the user presses Check for updates (one request to the GitHub release list, [§ Update check](SECURITY-DESIGN.md#update-check)) or configures the optional AI assistant: loopback by default, `https://` otherwise, with native consent ([SECURITY-DESIGN.md § AI assistant](SECURITY-DESIGN.md#ai-assistant-optional)). The MCP server (`paranoia mcp`) uses stdio only ([SECURITY-DESIGN.md § MCP server](SECURITY-DESIGN.md#mcp-server-paranoia-mcp)) |
 
 ## 3. Release authenticity
 
@@ -49,7 +49,7 @@ Last reviewed: 2026-11-12 · Applies from release v0.5.1.
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Minimal OS permissions, explained | ✅ | No admin rights, all permission requests denied ([SECURITY-DESIGN.md § Operating-system permissions](SECURITY-DESIGN.md#operating-system-permissions)) |
-| Auto-update only from a signed channel | ➖ | No auto-update; manual download + verification |
+| Auto-update only from a signed channel | ➖ | No auto-update. A user-started check tells you a newer release exists and opens its page; download and verification stay manual |
 | No debug builds on stable | ✅ | DevTools disabled in packaged builds; Electron fuses disable `RunAsNode`, `NODE_OPTIONS`, `--inspect`; asar integrity enforced |
 | CSP without eval | ⚠️ | `script-src 'self' 'wasm-unsafe-eval'`, no `'unsafe-eval'`, no inline script (PSB-EX-2 for `'wasm-unsafe-eval'`) |
 | Renderer isolation | ⚠️ | Sandbox, `contextIsolation`, no Node integration, sender checks on every IPC handler, file allow-list, native confirmations; Electron's extra `file://` privileges kept (PSB-EX-3) |

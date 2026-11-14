@@ -2,7 +2,7 @@
 // privileged (files, the native engine) goes through the narrow bridge in
 // preload.cjs.
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, shell, session } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, safeStorage, shell, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 
@@ -11,6 +11,7 @@ const { PythonRunner } = require("./python.cjs");
 const plugins = require("./plugins.cjs");
 const ai = require("./ai.cjs");
 const policy = require("./policy.cjs");
+const update = require("./update.cjs");
 
 const isDev = !app.isPackaged && process.env.PARANOIA_DEV_URL;
 const ROOT = path.resolve(__dirname, "..");
@@ -532,6 +533,11 @@ handle("dialog:pdb", async () => {
 });
 
 handle("app:info", () => ({ version: app.getVersion(), engine: engineExe(), electron: process.versions.electron, platform: process.platform }));
+
+// The app's only automatic-looking network call is not automatic: it runs when the user presses
+// "Check now" in Help → Check for updates. One GET to the public release list; nothing is sent
+// but the request itself, nothing is downloaded or installed (electron/update.cjs).
+handle("update:check", () => update.check((url, init) => net.fetch(url, init), app.getVersion()));
 
 // Drag & drop: the preload resolves a dropped File to its path (only real files have one).
 ipcMain.on("path:allow", (e, p) => {

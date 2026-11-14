@@ -1531,6 +1531,29 @@
   width: 100%;
 }
 
+/* ---- Update check ---- */
+.modal.update {
+  width: min(460px, calc(100vw - 32px));
+}
+.update-result {
+  min-height: 44px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.update-result:empty {
+  display: none;
+}
+.update-bad {
+  color: var(--danger, #b3261e);
+}
+
 /* ---- Assistant ---- */
 .ai-modal {
   width: min(560px, calc(100vw - 32px));

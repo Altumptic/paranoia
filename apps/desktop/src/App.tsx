@@ -4,6 +4,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { EditDialog } from "./components/EditDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { AboutDialog } from "./components/AboutDialog";
+import { UpdateDialog } from "./components/UpdateDialog";
 import { AiSettingsDialog, AssistantDialog } from "./components/AssistantDialog";
 import { CompareDialog } from "./components/CompareDialog";
 import { MemoryDialog } from "./components/MemoryDialog";
@@ -182,6 +183,7 @@ export function App() {
       <XrefsDialog />
       <ContextMenu />
       <AboutDialog />
+      <UpdateDialog />
       <AssistantDialog />
       <AiSettingsDialog />
       <MemoryDialog />
