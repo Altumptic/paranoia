@@ -367,7 +367,20 @@ export const useStore = create<State>((set, get) => ({
       const pc = await session.pseudocode(f.address);
       if (!pc || pc.lines.length === 0) throw new Error("There is no pseudocode for this function (x86 / x64 only)");
       const code = pc.lines.map((l) => "  ".repeat(l.indent) + l.tokens.map((t) => t.t).join("")).join("\n");
-      const r = await desktop.ai.ask({ task, name: f.name, address: `0x${f.address.toString(16)}`, arch: info?.arch ?? "unknown", format: info?.format ?? "unknown", code });
+      // Redaction needs the file's strings: they give literals their numbering and the engine's
+      // auto names (`aHelloWorld`), the same way `paranoia mcp` does it.
+      const strings = s.redactStrings || s.redactIps ? (await session.strings()).map((x) => x.value) : undefined;
+      const r = await desktop.ai.ask({
+        task,
+        name: f.name,
+        address: `0x${f.address.toString(16)}`,
+        arch: info?.arch ?? "unknown",
+        format: info?.format ?? "unknown",
+        code,
+        ...(strings ? { strings } : {}),
+        redactStrings: s.redactStrings,
+        redactIps: s.redactIps,
+      });
       if (get().assistant?.va !== f.address) return; // closed or replaced while waiting
       set({ assistant: { title, fn: f.name, va: f.address, state: "done", text: r.text, name: r.name, host: r.host, local: r.local } });
     } catch (e) {

@@ -3,8 +3,11 @@
 // It speaks the OpenAI-compatible `/chat/completions` protocol, which Ollama
 // (http://127.0.0.1:11434/v1), LM Studio (http://127.0.0.1:1234/v1) and most hosted services
 // accept. Requests are made from the main process (the page has no network access), and only
-// the text of the function the user asked about is sent. Pure functions here; the network call
-// takes an injectable `fetch` so it is testable without a server.
+// the text of the function the user asked about is sent. Redaction and the disclosure ledger
+// mirror `paranoia mcp` (crates/paranoia-cli/src/disclosure.rs). Pure functions here; the
+// network call takes an injectable `fetch` so it is testable without a server.
+
+const crypto = require("node:crypto");
 
 const MAX_CODE_CHARS = 12000;
 const MAX_REPLY_BYTES = 256 * 1024;
@@ -226,6 +229,307 @@ function parseName(text) {
   return { name, reason: typeof j.reason === "string" ? j.reason.slice(0, 300) : "" };
 }
 
+// ---- Redaction and the disclosure ledger ------------------------------------------------------
+// The same placeholders as `paranoia mcp --redact-strings/--redact-ips`: quoted literals become
+// `"<str#N len=L>"`, names derived from them `aRedactedN`, and IP-like constants `<ip#N>`.
+// Numbering follows the file's string order, so a string keeps its number for the whole request.
+
+/** Shorter strings are too common ("%s", "true") to identify anything (disclosure.rs). */
+const MIN_NAMED = 4;
+
+/** A string as the engine prints it inside a literal: `Hello\n` → `Hello\\n` (Rust's escape_debug). */
+function escapeDebug(s) {
+  let out = "";
+  for (const ch of String(s)) {
+    const code = ch.codePointAt(0);
+    if (ch === "\\") out += "\\\\";
+    else if (ch === '"') out += '\\"';
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "\t") out += "\\t";
+    else if (code < 0x20 || code === 0x7f) out += `\\u{${code.toString(16)}}`;
+    else out += ch;
+  }
+  return out;
+}
+
+/** `Hello, world!` → `aHelloWorld`, the engine's name for a string (paranoia_core::string_name). */
+function stringName(s) {
+  let out = "a";
+  let upper = true;
+  for (const ch of String(s)) {
+    if (out.length >= 26) break;
+    if (/^[A-Za-z0-9]$/.test(ch)) {
+      out += upper ? ch.toUpperCase() : ch;
+      upper = false;
+    } else {
+      upper = true;
+    }
+  }
+  return out.length === 1 ? `${out}Str` : out;
+}
+
+const isDigit = (c) => typeof c === "string" && c >= "0" && c <= "9";
+const isHex = (c) => isDigit(c) || (typeof c === "string" && /^[A-Fa-f]$/.test(c));
+const isAlphaNum = (c) => typeof c === "string" && /^[A-Za-z0-9]$/.test(c);
+
+/**
+ * Builds a redactor for one assistant request. `strings` is the analysed file's string list
+ * (`StringEntry.value`), used to number literals in the file's order and to know the engine's
+ * auto names for them. `apply(text)` returns `{ text, strings, ips }`: the redacted text and
+ * how many replacements of each kind were made.
+ */
+function createRedactor({ strings = [], redactStrings = false, redactIps = false } = {}) {
+  const literalIds = new Map();
+  const nameIds = new Map();
+  const ipIds = new Map();
+  let next = 0;
+  const idFor = (key) => {
+    let id = literalIds.get(key);
+    if (id === undefined) {
+      id = ++next;
+      literalIds.set(key, id);
+    }
+    return id;
+  };
+  if (redactStrings) {
+    for (const value of Array.isArray(strings) ? strings : []) {
+      if (typeof value !== "string") continue;
+      const id = idFor(escapeDebug(value));
+      if ([...value].length < MIN_NAMED) continue;
+      const name = stringName(value);
+      // A string like "1   " is named `a1`, the same as the first parameter in pseudocode.
+      if (/^a\d+$/.test(name)) continue;
+      if (!nameIds.has(name)) nameIds.set(name, id);
+    }
+  }
+  return {
+    apply(text) {
+      let out = String(text);
+      let stringCount = 0;
+      let ipCount = 0;
+      if (redactStrings) {
+        const r = redactStringLiterals(out, literalIds, nameIds);
+        out = r.text;
+        stringCount = r.count;
+      }
+      if (redactIps) {
+        const r = redactIpConstants(out, ipIds);
+        out = r.text;
+        ipCount = r.count;
+      }
+      return { text: out, strings: stringCount, ips: ipCount };
+    },
+  };
+}
+
+/** Replaces quoted literals and string-derived names in `text`. */
+function redactStringLiterals(text, literalIds, nameIds) {
+  const chars = [...text];
+  let out = "";
+  let count = 0;
+  let i = 0;
+  while (i < chars.length) {
+    const c = chars[i];
+    if (c === '"' || c === "'") {
+      const end = closingQuote(chars, i);
+      if (end !== null) {
+        const inner = chars.slice(i + 1, end).join("");
+        let id = literalIds.get(inner);
+        if (id === undefined) {
+          id = literalIds.size + 1;
+          literalIds.set(inner, id);
+        }
+        out += `${c}<str#${id} len=${[...inner].length}>${c}`;
+        count += 1;
+        i = end + 1;
+        continue;
+      }
+    }
+    if (c === "_" || /^[A-Za-z]$/.test(c)) {
+      const start = i;
+      while (i < chars.length && (isAlphaNum(chars[i]) || chars[i] === "_")) i += 1;
+      const word = chars.slice(start, i).join("");
+      // Only whole identifiers: `aHelloWorld`, not the tail of `xaHelloWorld`.
+      const whole = start === 0 || !(isAlphaNum(chars[start - 1]) || chars[start - 1] === "_");
+      const id = nameIds.get(word);
+      if (whole && id !== undefined) {
+        out += `aRedacted${id}`;
+        count += 1;
+      } else {
+        out += word;
+      }
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return { text: out, count };
+}
+
+/** Index of the quote closing the literal opened at `open`, on the same line. */
+function closingQuote(chars, open) {
+  const q = chars[open];
+  let i = open + 1;
+  while (i < chars.length) {
+    if (chars[i] === "\\") i += 2;
+    else if (chars[i] === "\n") return null;
+    else if (chars[i] === q) return i;
+    else i += 1;
+  }
+  return null;
+}
+
+/**
+ * Replaces IP-like constants: the same rule as `IpRedactor` in disclosure.rs — IPv4 dotted
+ * quads with octets 0–255 (optionally /0–/32) and IPv6 literals (all eight groups or a `::`
+ * form). Plain numbers, floats, times such as `12:34:56`, MAC addresses, identifiers and
+ * version numbers that do not fit those shapes are left alone.
+ */
+function redactIpConstants(text, ipIds) {
+  const chars = [...text];
+  let out = "";
+  let count = 0;
+  let i = 0;
+  while (i < chars.length) {
+    const hit = ipAt(chars, i);
+    if (hit) {
+      const [end, address] = hit;
+      let id = ipIds.get(address);
+      if (id === undefined) {
+        id = ipIds.size + 1;
+        ipIds.set(address, id);
+      }
+      out += `<ip#${id}>`;
+      count += 1;
+      i = end;
+    } else {
+      out += chars[i];
+      i += 1;
+    }
+  }
+  return { text: out, count };
+}
+
+/** `[end, address]` if an IP-like constant starts at `chars[i]`, else `null`. */
+function ipAt(chars, i) {
+  const c = chars[i];
+  if (!isDigit(c) && c !== ":" && !isHex(c)) return null;
+  if (i > 0) {
+    const p = chars[i - 1];
+    if (isAlphaNum(p) || p === "_" || p === "." || p === ":") return null;
+  }
+  if (isDigit(c)) {
+    const end = v4End(chars, i);
+    if (end !== null) {
+      const stop = chars[end] === "/" ? (prefixEnd(chars, end + 1) ?? end) : end;
+      return [stop, chars.slice(i, end).join("")];
+    }
+  }
+  const run = hexRunEnd(chars, i);
+  let token = chars.slice(i, run).join("");
+  if (token.endsWith(".")) token = token.slice(0, -1);
+  return token.includes(":") && ipv6Like(token) ? [i + [...token].length, token] : null;
+}
+
+/** End (exclusive) of a dotted quad starting at `start`: four octets, each 0–255. */
+function v4End(chars, start) {
+  let i = start;
+  for (let part = 0; part < 4; part += 1) {
+    const begin = i;
+    let octet = 0;
+    while (i < chars.length && isDigit(chars[i])) {
+      if (i - begin === 3) return null;
+      octet = octet * 10 + Number(chars[i]);
+      i += 1;
+    }
+    if (i === begin || octet > 255) return null;
+    if (part < 3) {
+      if (chars[i] !== ".") return null;
+      i += 1;
+    }
+  }
+  // A fifth component (`1.2.3.4.5`) is a version, not an address; `1.2.3.4x` is a name.
+  if (chars[i] === "." && isDigit(chars[i + 1])) return null;
+  if (isAlphaNum(chars[i]) || chars[i] === "_") return null;
+  return i;
+}
+
+/** End (exclusive) of a `/0`–`/32` IPv4 prefix whose digits start at `start`. */
+function prefixEnd(chars, start) {
+  let i = start;
+  let value = 0;
+  while (i < chars.length && isDigit(chars[i])) {
+    value = value * 10 + Number(chars[i]);
+    i += 1;
+  }
+  const digits = i - start;
+  return digits >= 1 && digits <= 2 && value <= 32 ? i : null;
+}
+
+/** End (exclusive) of the run of hex digits, colons and dots an IPv6 literal may consist of. */
+function hexRunEnd(chars, start) {
+  let i = start;
+  while (i < chars.length && (isHex(chars[i]) || chars[i] === ":" || chars[i] === ".")) i += 1;
+  return i;
+}
+
+/** True when `token` looks like all eight groups of an IPv6 address, or a `::`-compressed form. */
+function ipv6Like(token) {
+  const at = token.indexOf("::");
+  if (at < 0) {
+    const groups = token.split(":");
+    return groups.length === 8 && groups.every((g, k) => v6Group(g, k === 7));
+  }
+  const left = splitV6Groups(token.slice(0, at));
+  const right = splitV6Groups(token.slice(at + 2));
+  if (!left || !right || token.slice(at + 2).includes("::")) return false;
+  const groups = [...left, ...right];
+  // The compressed part stands for at least one omitted group; at most seven can be written.
+  return groups.length >= 1 && groups.length <= 7 && groups.every((g, k) => v6Group(g, k === groups.length - 1));
+}
+
+/** The non-empty colon-separated groups of one side of an IPv6 `::`, or `null`. */
+function splitV6Groups(s) {
+  if (s === "") return [];
+  const groups = s.split(":");
+  return groups.every((g) => g !== "") ? groups : null;
+}
+
+/** One group of an IPv6 address: 1–4 hex digits, or an embedded IPv4 address in the last group. */
+function v6Group(group, last) {
+  if (last && group.includes(".")) return v4Literal(group);
+  return /^[0-9a-fA-F]{1,4}$/.test(group);
+}
+
+/** Exactly four octets, each 0–255 (no prefix, no surrounding text). */
+function v4Literal(s) {
+  const parts = s.split(".");
+  return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
+
+/** What leaves the machine with this request, in one sentence for the consent dialogs. */
+function redactionSummary(redactStrings, redactIps) {
+  const parts = [];
+  if (redactStrings) parts.push("the file's strings are replaced with <str#N len=L> placeholders (names derived from them with aRedactedN)");
+  if (redactIps) parts.push("numbers that look like IPv4 or IPv6 addresses are replaced with <ip#N>");
+  if (!parts.length) {
+    return "Redaction is off: string literals and constants from the file are sent as they are. You can turn it on in Assistant → Settings.";
+  }
+  return `Redaction is on: ${parts.join("; ")} before sending.`;
+}
+
+/** SHA-256 of a text, lowercase hex. */
+function sha256Hex(text) {
+  return crypto.createHash("sha256").update(String(text), "utf8").digest("hex");
+}
+
+/** One line of the hash-chained disclosure ledger: the entry plus `time` and `prev` (the hash
+ *  of the line before it, or null for the first line). */
+function ledgerLine(prev, entry, time = Math.floor(Date.now() / 1000)) {
+  return JSON.stringify({ ...entry, time, prev: prev ?? null });
+}
+
 /** Stored settings, with what is safe to show the page. */
 function publicSettings(s) {
   let ep = null;
@@ -234,7 +538,15 @@ function publicSettings(s) {
   } catch {
     ep = null;
   }
-  return { endpoint: ep?.url ?? "", model: s.model ?? "", hasKey: Boolean(s.keyEnc), local: ep?.local ?? true, host: ep?.host ?? "" };
+  return {
+    endpoint: ep?.url ?? "",
+    model: s.model ?? "",
+    hasKey: Boolean(s.keyEnc),
+    local: ep?.local ?? true,
+    host: ep?.host ?? "",
+    redactStrings: s.redactStrings === true,
+    redactIps: s.redactIps === true,
+  };
 }
 
 /** A fixed prompt for "Test": proves the endpoint, key and model work without sending any code. */
@@ -254,6 +566,10 @@ module.exports = {
   chat,
   listModels,
   parseName,
+  createRedactor,
+  redactionSummary,
+  sha256Hex,
+  ledgerLine,
   publicSettings,
   MAX_CODE_CHARS,
 };

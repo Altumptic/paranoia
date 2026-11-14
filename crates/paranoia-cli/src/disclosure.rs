@@ -1,8 +1,9 @@
 //! What `paranoia mcp` lets an agent see, and a log of what it saw.
 //!
 //! `Redactor` replaces the file's strings in tool output with numbered placeholders
-//! (`"<str#12 len=23>"`, `aRedacted12`). `Ledger` writes every answer to a JSON-lines file
-//! before it is sent; if the write fails, the answer is not sent.
+//! (`"<str#12 len=23>"`, `aRedacted12`); `IpRedactor` does the same for constants that look like
+//! IP addresses (`<ip#7>`). `Ledger` writes every answer to a JSON-lines file before it is sent;
+//! if the write fails, the answer is not sent.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -115,6 +116,181 @@ fn closing(chars: &[char], open: usize) -> Option<usize> {
         }
     }
     None
+}
+
+/// Replaces constants that look like IP addresses with numbered placeholders (`<ip#7>`).
+///
+/// An IPv4 address is a dotted quad whose octets are all 0–255, optionally followed by a
+/// `/0`–`/32` prefix. An IPv6 address is either all eight groups or a `::`-compressed form
+/// (with an optional embedded IPv4 address at the end). Plain numbers, floats, times such as
+/// `12:34:56`, MAC addresses, identifiers (`std::vector`) and version numbers that do not fit
+/// those shapes are left alone.
+#[derive(Default)]
+pub struct IpRedactor {
+    /// Address (without its prefix) → placeholder number.
+    ids: HashMap<String, usize>,
+    /// Last placeholder number handed out.
+    next: usize,
+}
+
+impl IpRedactor {
+    pub fn new() -> IpRedactor {
+        IpRedactor::default()
+    }
+
+    /// Replaces IPv4 and IPv6 literals; returns the text and how many replacements were made.
+    pub fn apply(&mut self, text: &str) -> (String, usize) {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::with_capacity(text.len());
+        let mut count = 0;
+        let mut i = 0;
+        while i < chars.len() {
+            match ip_at(&chars, i) {
+                Some((end, address)) => {
+                    let next = &mut self.next;
+                    let id = *self.ids.entry(address).or_insert_with(|| {
+                        *next += 1;
+                        *next
+                    });
+                    out.push_str(&format!("<ip#{id}>"));
+                    count += 1;
+                    i = end;
+                }
+                None => {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+        }
+        (out, count)
+    }
+}
+
+/// If an IP-like constant starts at `chars[i]`, returns where it ends and the address used as
+/// its key (any prefix is not part of it).
+fn ip_at(chars: &[char], i: usize) -> Option<(usize, String)> {
+    let c = chars[i];
+    if !(c.is_ascii_digit() || c == ':' || c.is_ascii_hexdigit()) {
+        return None;
+    }
+    // Whole constants only: `v1.2.3.4`, `xa::1` and `sub_1.2.3.4` are identifiers, not addresses.
+    if i > 0 {
+        let p = chars[i - 1];
+        if p.is_ascii_alphanumeric() || p == '_' || p == '.' || p == ':' {
+            return None;
+        }
+    }
+    if c.is_ascii_digit() {
+        if let Some(end) = v4_end(chars, i) {
+            let end = if chars.get(end) == Some(&'/') { prefix_end(chars, end + 1).unwrap_or(end) } else { end };
+            return Some((end, chars[i..end].iter().copied().take_while(|c| *c != '/').collect()));
+        }
+    }
+    let end = hex_run_end(chars, i);
+    let mut token: String = chars[i..end].iter().collect();
+    // A sentence period is not part of the literal; embedded dots (an IPv4-mapped address) are.
+    if token.ends_with('.') {
+        token.pop();
+    }
+    (token.contains(':') && ipv6_like(&token)).then(|| (i + token.chars().count(), token))
+}
+
+/// End (exclusive) of a dotted quad starting at `start`: four octets, each 0–255.
+fn v4_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut i = start;
+    for part in 0..4 {
+        let begin = i;
+        let mut octet = 0u32;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            if i - begin == 3 {
+                return None; // four digits cannot be an octet
+            }
+            octet = octet * 10 + chars[i].to_digit(10).unwrap_or(0);
+            i += 1;
+        }
+        if i == begin || octet > 255 {
+            return None;
+        }
+        if part < 3 {
+            if chars.get(i) != Some(&'.') {
+                return None;
+            }
+            i += 1;
+        }
+    }
+    // A fifth component (`1.2.3.4.5`) is a version, not an address; and `1.2.3.4x` is a name.
+    if chars.get(i) == Some(&'.') && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    if chars.get(i).is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_') {
+        return None;
+    }
+    Some(i)
+}
+
+/// End (exclusive) of a `/0`–`/32` IPv4 prefix whose digits start at `start`.
+fn prefix_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut i = start;
+    let mut value = 0u32;
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        value = value * 10 + chars[i].to_digit(10).unwrap_or(0);
+        i += 1;
+    }
+    ((1..=2).contains(&(i - start)) && value <= 32).then_some(i)
+}
+
+/// End (exclusive) of the run of hex digits, colons and dots an IPv6 literal may consist of.
+fn hex_run_end(chars: &[char], start: usize) -> usize {
+    let mut i = start;
+    while i < chars.len() && (chars[i].is_ascii_hexdigit() || chars[i] == ':' || chars[i] == '.') {
+        i += 1;
+    }
+    i
+}
+
+/// True when `token` looks like an IPv6 address: all eight hex groups, or a `::`-compressed
+/// form, optionally ending in an embedded IPv4 address.
+fn ipv6_like(token: &str) -> bool {
+    let Some((left, right)) = token.split_once("::") else {
+        let groups: Vec<&str> = token.split(':').collect();
+        return groups.len() == 8 && groups.iter().enumerate().all(|(k, g)| is_v6_group(g, k == 7));
+    };
+    if right.contains("::") {
+        return false;
+    }
+    let (Some(left), Some(right)) = (split_v6_groups(left), split_v6_groups(right)) else { return false };
+    let groups = left.len() + right.len();
+    // The compressed part stands for at least one omitted group, and at most seven can be written.
+    if groups == 0 || groups > 7 {
+        return false;
+    }
+    left.iter().chain(right.iter()).enumerate().all(|(k, g)| is_v6_group(g, k + 1 == groups))
+}
+
+/// The non-empty colon-separated groups of one side of an IPv6 `::`; `None` for an empty group.
+fn split_v6_groups(s: &str) -> Option<Vec<&str>> {
+    if s.is_empty() {
+        return Some(Vec::new());
+    }
+    let groups: Vec<&str> = s.split(':').collect();
+    groups.iter().all(|g| !g.is_empty()).then_some(groups)
+}
+
+/// One group of an IPv6 address: 1–4 hex digits, or an embedded IPv4 address in the last group.
+fn is_v6_group(group: &str, last: bool) -> bool {
+    if last && group.contains('.') {
+        return is_v4_literal(group);
+    }
+    (1..=4).contains(&group.len()) && group.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// True for exactly four octets, each 0–255 (no prefix, no surrounding text).
+fn is_v4_literal(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    parts.len() == 4
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().is_ok_and(|v| v <= 255))
 }
 
 pub struct Ledger {
@@ -268,6 +444,36 @@ mod tests {
         let (t, n) = r.apply(r#"f("say \"hi\"", 1)"#);
         assert_eq!(n, 1);
         assert_eq!(t, r#"f("<str#1 len=10>", 1)"#);
+    }
+
+    #[test]
+    fn ip_addresses_are_redacted_and_keep_their_number() {
+        let mut r = IpRedactor::new();
+        let (t, n) = r.apply("connect 192.168.13.37:443, gw 10.0.0.0/8, v6 fe80::1 and [2001:db8:85a3::8a2e:370:7334]");
+        assert_eq!(n, 4, "{t}");
+        assert_eq!(t, "connect <ip#1>:443, gw <ip#2>, v6 <ip#3> and [<ip#4>]");
+        // The same address keeps its number; a prefix is not part of the identity.
+        let (t, n) = r.apply("192.168.13.37 and 10.0.0.0/16 and 10.0.0.0");
+        assert_eq!(n, 3, "{t}");
+        assert_eq!(t, "<ip#1> and <ip#2> and <ip#2>");
+    }
+
+    #[test]
+    fn ipv6_forms_are_redacted() {
+        let mut r = IpRedactor::new();
+        // Full form, compressed form, IPv4-mapped and the loopback shortcut.
+        let (t, n) = r.apply("2001:0db8:85a3:0000:0000:8a2e:0370:7334 ::ffff:192.168.1.1 ::1");
+        assert_eq!(n, 3, "{t}");
+        assert_eq!(t, "<ip#1> <ip#2> <ip#3>");
+    }
+
+    #[test]
+    fn numbers_floats_versions_and_names_are_not_ips() {
+        let mut r = IpRedactor::new();
+        let text = "1.2.3  999.1.1.1  10.0.19041.1  3.14  0x401000  1.2.3.4.5  v1.2.3.4  \
+                    12:34:56  std::vector  a:b  sub_401000  deadbeef  00:1A:2B:3C:4D:5E  counter_2";
+        let (t, n) = r.apply(text);
+        assert_eq!((t.as_str(), n), (text, 0));
     }
 
     #[test]

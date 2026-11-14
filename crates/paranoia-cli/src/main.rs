@@ -138,6 +138,9 @@ enum Cmd {
         /// Hide the file's string contents from the agent (placeholders like "<str#12 len=23>").
         #[arg(long)]
         redact_strings: bool,
+        /// Hide numbers that look like IP addresses from the agent (placeholders like "<ip#7>").
+        #[arg(long)]
+        redact_ips: bool,
         /// Append every answer sent to the agent to this JSON-lines file; nothing is sent unrecorded.
         #[arg(long, value_name = "FILE")]
         ledger: Option<PathBuf>,
@@ -389,7 +392,7 @@ fn main() -> Result<()> {
                 }))?;
             } else {
                 println!(
-                    "{} sessions, {} answers ({} errors), {} characters disclosed, {} strings redacted",
+                    "{} sessions, {} answers ({} errors), {} characters disclosed, {} redactions",
                     r.sessions, r.answers, r.errors, r.chars, r.redactions
                 );
                 for (tool, n) in &r.tools {
@@ -407,7 +410,7 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         }
-        Cmd::Mcp { roots, allow_writes, redact_strings, ledger, workspace, memory } => {
+        Cmd::Mcp { roots, allow_writes, redact_strings, redact_ips, ledger, workspace, memory } => {
             let workspace = match workspace {
                 Some(p) if p.as_os_str().is_empty() => {
                     Some(mcp::default_workspace().context("cannot tell where the app's workspace is; pass a path")?)
@@ -420,7 +423,7 @@ fn main() -> Result<()> {
                 }
                 other => other,
             };
-            mcp::run(mcp::Config { roots, allow_writes, redact_strings, ledger, workspace, memory })?
+            mcp::run(mcp::Config { roots, allow_writes, redact_strings, redact_ips, ledger, workspace, memory })?
         }
         Cmd::Sigapply { file, pat } => {
             let mut bin = open(&file)?;
