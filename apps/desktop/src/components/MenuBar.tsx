@@ -248,6 +248,7 @@ function useMenus(): Menu[] {
         items: [
           { label: "Command palette…", keys: "Ctrl+K", run: () => st().set("paletteOpen", true) },
           sep,
+          ...(desktop ? [{ label: "Check for updates…", run: () => st().set("updateOpen", true) }] : []),
           { label: "About Paranoia", run: () => st().set("aboutOpen", true) },
         ],
       },

@@ -24,7 +24,7 @@ A local-first reverse-engineering tool for PE, ELF and Mach-O.
   <img src="docs/screenshots/overview-dark.png" alt="File overview" width="49%" />
 </p>
 
-Paranoia does disassembly, control-flow graphs, decompilation, debugging and scripting, with keys and scripting names that IDA users will recognise. It remembers the functions you name and recognises them in the next file you open, and it compares two versions of a program function by function. It runs entirely on your machine: no account, no telemetry, no update checks. The engine is written in Rust and the same engine is used by the desktop app, the command-line tool, a browser build (WebAssembly) and an MCP server for AI agents.
+Paranoia does disassembly, control-flow graphs, decompilation, debugging and scripting, with keys and scripting names that IDA users will recognise. It remembers the functions you name and recognises them in the next file you open, and it compares two versions of a program function by function. It runs entirely on your machine: no account, no telemetry, no background network traffic. The engine is written in Rust and the same engine is used by the desktop app, the command-line tool, a browser build (WebAssembly) and an MCP server for AI agents.
 
 ## Features
 
@@ -115,7 +115,7 @@ On macOS, the CLI binary is quarantined too because it isn't notarised; `xattr -
 
 ## Privacy and security
 
-The app makes no network connections. The only exception is the AI assistant, and only after you point it at a server. Your names, comments and recent files are stored in the app's data folder — `%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS — and nowhere else. When you ask the assistant, its request and answer are recorded in a hash-chained `assistant-ledger.jsonl` in that folder, and the file's strings and IP-like numbers can be hidden from the request.
+The app makes no network connections on its own. Two things reach the network, and only when you start them: Help → Check for updates (one request to GitHub's release list; nothing is downloaded or installed) and the AI assistant, after you point it at a server. Your names, comments and recent files are stored in the app's data folder — `%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS — and nowhere else. When you ask the assistant, its request and answer are recorded in a hash-chained `assistant-ledger.jsonl` in that folder, and the file's strings and IP-like numbers can be hidden from the request.
 
 The renderer is sandboxed, the engine runs in its own process and only opens files you chose, and starting the debugger or a Python script asks for confirmation first. The debugger runs the program you're analysing, so use a VM for malware. There has been no independent audit.
 

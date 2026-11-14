@@ -161,11 +161,26 @@ export interface PluginInfo {
   trusted: boolean;
 }
 
+export interface UpdateResult {
+  /** This app's version and the latest release's. */
+  current: string;
+  version: string;
+  tag: string;
+  /** The release page on github.com. */
+  url: string;
+  published: string | null;
+  /** "newer": a newer release exists; "current": this is the latest; "ahead": this build is newer than the latest release. */
+  status: "newer" | "current" | "ahead";
+  checkedAt: string;
+}
+
 export interface DesktopBridge {
   engine(req: Record<string, unknown>): Promise<unknown>;
   openDialog(): Promise<string | null>;
   pdbDialog(): Promise<string | null>;
   info(): Promise<{ version: string; engine: string; electron: string; platform: string }>;
+  /** One request to GitHub's public release list, only when the user asks. Never downloads anything. */
+  checkForUpdates(): Promise<UpdateResult>;
   /** `process.platform` of the shell, available before the first paint. */
   platform: string;
   reveal(path: string): Promise<void>;

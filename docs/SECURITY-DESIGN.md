@@ -81,9 +81,13 @@ Paranoia doesn't encrypt anything and has no accounts or keys of its own.
 
 ## Network
 
-The app and the engine make no network connections by default: no telemetry, update checks, crash reports, fonts or scripts from CDNs. The page CSP limits connections to the app itself. The only things that can reach the network are your own Python scripts, your own code in the script worker, and the AI assistant once you've set it up.
+The app and the engine make no network connections by themselves: no telemetry, crash reports, fonts or scripts from CDNs, and nothing at start-up. The page CSP limits connections to the app itself. What can reach the network: your own Python scripts, your own code in the script worker, the AI assistant once you've set it up, and the update check when you press its button.
 
-There's no auto-updater. Download new releases yourself and check them ([VERIFY.md](VERIFY.md)).
+### Update check
+
+`Help → Check for updates…` opens a dialog that says what will happen; only **Check now** sends anything. The main process (never the page) makes one `GET https://api.github.com/repos/Altumptic/paranoia/releases/latest` with `credentials: omit` and a fixed `User-Agent`, so not even the app's version is sent. The answer is limited to 1 MB and reduced to the tag, the date and a link; the link is rebuilt from the tag and the answer is refused if its `html_url` is anything else, so a changed or hostile answer cannot put another address in front of the user. Pre-release candidates are never offered (GitHub's `latest` skips them). Nothing is downloaded or installed: the release page opens in the browser (github.com is already on the external-link allow-list). Covered by `electron/update.test.cjs`.
+
+There's no auto-updater and no background check. Download new releases yourself and check them ([VERIFY.md](VERIFY.md)). Silent updates need platform code signing first ([SIGNING.md](SIGNING.md)); an updater that installs unsigned code on its own would weaken the verifiable chain.
 
 ### AI assistant
 
