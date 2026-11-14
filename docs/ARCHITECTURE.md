@@ -43,7 +43,7 @@ Files are treated as hostile. Loaders don't trust any size or offset, analysis h
 
 ## The other crates
 
-- **paranoia-engine** is the process the desktop app starts. It reads JSON requests on stdin, keeps the workspace store (`paranoia-db`, a redb file keyed by each file's SHA-256), and contains the debuggers: `debugger.rs` for Windows (x64 and WOW64) and `debugger_linux.rs` for Linux x86-64 (ptrace).
+- **paranoia-engine** is the process the desktop app starts. It reads JSON requests on stdin, keeps the workspace store (`paranoia-db`, a redb file keyed by each file's SHA-256), and contains the debuggers: `debugger.rs` for Windows (x64 and WOW64) and `debugger_linux.rs` for Linux x86-64 and ARM64 (ptrace; a small `arch` module holds the register file, the breakpoint instruction and call detection).
 - **paranoia-cli** is the `paranoia` command. `script.rs` runs Python scripts without the app, `mcp.rs` is the MCP server and `disclosure.rs` has its string redaction and disclosure log.
 - **paranoia-wasm** exports `pn_alloc`, `pn_open`, `pn_call` and a few more as a plain C ABI. No wasm-bindgen.
 

@@ -54,18 +54,23 @@ function stopPolling() {
 
 /** `process.platform` of the desktop app, once known. */
 let platform: string | null = null;
+/** `process.arch` of the desktop app: the CPU the debugged program runs on. */
+let hostArch: string | null = null;
 desktop
   ?.info()
-  .then((i) => (platform = i.platform))
+  .then((i) => {
+    platform = i.platform;
+    hostArch = i.arch;
+  })
   .catch(() => {});
 
 export const debug = {
-  /** The native debugger runs programs of the OS the app runs on: Windows PE (x86 / x64) or Linux ELF (x86-64). */
+  /** The native debugger runs programs of the OS the app runs on: Windows PE (x86 / x64) or Linux ELF (x86-64 / ARM64). */
   available: () => {
     const info = useStore.getState().info;
     if (!desktop || !info) return false;
     if (info.format === "pe") return platform === "win32" && ["x86_64", "x86"].includes(info.arch);
-    if (info.format === "elf") return platform === "linux" && info.arch === "x86_64";
+    if (info.format === "elf") return platform === "linux" && ((info.arch === "x86_64" && hostArch === "x64") || (info.arch === "arm64" && hostArch === "arm64"));
     return false;
   },
 

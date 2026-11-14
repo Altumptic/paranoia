@@ -78,7 +78,7 @@ export function DebugPanel() {
               const word = d?.regs?.some(([n]) => n === "esp") ? 4 : 8;
               return (
                 <div key={a} className="reg">
-                  <span className="reg-n">{i === 0 ? (word === 4 ? "esp" : "rsp") : `+${(i * word).toString(16)}`}</span>
+                  <span className="reg-n">{i === 0 ? (word === 4 ? "esp" : d?.regs?.some(([n]) => n === "sp") ? "sp" : "rsp") : `+${(i * word).toString(16)}`}</span>
                   <button className={`reg-v ${sva != null ? "link-tok" : ""}`} onClick={() => sva != null && st().goto(sva)}>
                     {hex(v, word * 2)}
                   </button>
