@@ -149,7 +149,7 @@ impl Binary {
     /// A pointer-sized, aligned value at `va` that points into the image.
     fn pointer_at(&self, va: u64) -> Option<u64> {
         let p = self.ptr_size();
-        if va % p != 0 {
+        if !va.is_multiple_of(p) {
             return None;
         }
         let v = self.read_uint(va, p)?;

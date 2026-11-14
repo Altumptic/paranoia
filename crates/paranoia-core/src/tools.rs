@@ -41,7 +41,7 @@ pub enum SearchKind {
 /// Parses `48 8b ?? 0x24` / `488B??24` into bytes with wildcards.
 pub fn parse_pattern(p: &str) -> Result<Vec<Option<u8>>, String> {
     let cleaned: String = p.split_whitespace().map(|t| t.trim_start_matches("0x").trim_start_matches("0X")).collect::<Vec<_>>().join("");
-    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
+    if cleaned.is_empty() || !cleaned.len().is_multiple_of(2) {
         return Err("byte patterns need an even number of hex digits (use ?? for wildcards)".into());
     }
     cleaned
