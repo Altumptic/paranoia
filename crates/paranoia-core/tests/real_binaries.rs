@@ -847,11 +847,6 @@ fn function_memory_carries_struct_types() {
     use paranoia_core::memory::{best_known, LearnFrom, RECALL_MIN_SCORE};
     let Some((p, bytes)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
     let mut a = Binary::load(&p, bytes.clone()).unwrap();
-    // Variable types set by the user are applied by the x86/x64 pseudocode. The AArch64 one
-    // (experimental) applies renames but not types yet, so there is nothing to carry over there.
-    if !matches!(a.info().arch, Arch::X86 | Arch::X86_64) {
-        return;
-    }
     a.analyze();
     a.set_types("typedef struct _PARANOIA_CTX { DWORD magic; DWORD count; char *name; } PARANOIA_CTX;").unwrap();
     // A function with a first argument: its generated name is `a1` in the signature.
@@ -910,4 +905,93 @@ fn function_memory_carries_struct_types() {
     assert_eq!(applied.types, 0, "the user's type of the same name is kept");
     assert_eq!(c.annotations().types.structs["PARANOIA_CTX"].size, 1);
     assert_eq!(c.annotations().types.source.matches("PARANOIA_CTX {").count(), 1);
+}
+
+/// AArch64 programs to test on: the corpus (`PARANOIA_ARM64_DIR`) and, on an ARM host, its own
+/// system programs (Linux ARM64 and Apple silicon CI runners).
+fn arm64_samples() -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    if let Ok(dir) = std::env::var("PARANOIA_ARM64_DIR") {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if let Ok(b) = std::fs::read(e.path()) {
+                out.push((e.file_name().to_string_lossy().into_owned(), b));
+            }
+        }
+    }
+    for p in ["/bin/ls", "/usr/bin/ls", "/bin/cat", "/usr/bin/env", "/bin/bash"] {
+        if let Ok(b) = std::fs::read(p) {
+            out.push((p.to_string(), b));
+        }
+    }
+    out
+}
+
+/// Types set with `Y` apply to AArch64 pseudocode: the signature and the declaration carry the
+/// type and a load from the typed pointer becomes a member access. Looks for a function that
+/// loads from its first argument, builds a struct with a field exactly there, and types `a1`.
+#[test]
+fn arm64_pseudocode_applies_user_types() {
+    let text = |pc: &paranoia_core::Pseudocode| {
+        pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n")
+    };
+    // `*(uint32_t *)(a1 + 0x10)` / `*(uint8_t *)(a1)`: (C type, field type, size, offset).
+    let load = |s: &str| -> Option<(&'static str, u64, u64)> {
+        for (cty, c, size) in [
+            ("uint64_t", "unsigned long long", 8u64),
+            ("uint32_t", "unsigned int", 4),
+            ("uint16_t", "unsigned short", 2),
+            ("uint8_t", "unsigned char", 1),
+        ] {
+            let head = format!("*({cty} *)(a1");
+            let Some(at) = s.find(&head) else { continue };
+            let rest = &s[at + head.len()..];
+            let off = if rest.starts_with(')') {
+                0
+            } else if let Some(r) = rest.strip_prefix(" + 0x") {
+                u64::from_str_radix(r.split(')').next()?, 16).ok()?
+            } else {
+                continue;
+            };
+            if off % size == 0 && off < 0x200 {
+                return Some((c, size, off));
+            }
+        }
+        None
+    };
+    let mut tried = 0;
+    for (name, bytes) in arm64_samples() {
+        let Ok(mut bin) = Binary::load(&name, bytes) else { continue };
+        if bin.info().arch != Arch::Arm64 {
+            continue;
+        }
+        bin.analyze();
+        let funcs: Vec<u64> =
+            bin.functions().iter().filter(|f| f.instructions > 6 && f.instructions < 400).map(|f| f.address).take(600).collect();
+        for va in funcs {
+            let plain = bin.pseudocode(va).expect("pseudocode");
+            let plain_text = text(&plain);
+            let Some((cty, _size, off)) = load(&plain_text) else { continue };
+            let pad = if off > 0 { format!("unsigned char pad[{off}]; ") } else { String::new() };
+            bin.set_types(&format!("typedef struct _ARM_CTX {{ {pad}{cty} hit; }} ARM_CTX;")).unwrap();
+            bin.set_var_type(va, "a1", "ARM_CTX *");
+            let typed = text(&bin.pseudocode(va).expect("pseudocode"));
+            assert!(typed.lines().next().unwrap().contains("ARM_CTX * a1"), "{name} {va:#x}: the signature must carry the type:\n{typed}");
+            assert!(typed.contains("a1->hit"), "{name} {va:#x}: the load at +{off:#x} must become a member access:\n{typed}");
+            if tried == 0 {
+                eprintln!(
+                    "{name} {va:#x} typed:
+{typed}"
+                );
+            }
+            // Removing the type restores the plain text; the rename still applies on top.
+            bin.set_var_type(va, "a1", "");
+            assert_eq!(text(&bin.pseudocode(va).unwrap()), plain_text, "{name} {va:#x}");
+            tried += 1;
+            if tried >= 3 {
+                return;
+            }
+            break;
+        }
+    }
+    eprintln!("arm64 user types: no AArch64 sample with a load from a1 here ({tried} tried)");
 }

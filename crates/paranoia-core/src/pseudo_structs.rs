@@ -212,6 +212,41 @@ fn close_of(toks: &[Token], open: usize) -> Option<usize> {
     None
 }
 
+/// Puts text from the C·SSA printer (AArch64) in the shape the rewrites below expect: every
+/// parenthesis a token of its own (the printer emits `) & ` as one), and a type keyword and the
+/// name after it as separate tokens (`int ` + `a1` becomes `int`, ` `, `a1`). The text is unchanged.
+pub(crate) fn split_for_types(lines: &mut [PseudoLine]) {
+    for l in lines.iter_mut() {
+        let mut out: Vec<Token> = Vec::with_capacity(l.tokens.len() + 4);
+        for t in l.tokens.drain(..) {
+            match t.k {
+                TokenKind::Punct if t.t.contains(['(', ')']) => {
+                    let mut run = String::new();
+                    for c in t.t.chars() {
+                        if c == '(' || c == ')' {
+                            if !run.is_empty() {
+                                out.push(Token { t: std::mem::take(&mut run), k: TokenKind::Punct });
+                            }
+                            out.push(Token { t: c.to_string(), k: TokenKind::Punct });
+                        } else {
+                            run.push(c);
+                        }
+                    }
+                    if !run.is_empty() {
+                        out.push(Token { t: run, k: TokenKind::Punct });
+                    }
+                }
+                TokenKind::Keyword if t.t.len() > 1 && t.t.ends_with(' ') && !t.t.starts_with("*(") => {
+                    out.push(Token { t: t.t.trim_end().to_string(), k: TokenKind::Keyword });
+                    out.push(Token { t: " ".into(), k: TokenKind::Text });
+                }
+                _ => out.push(t),
+            }
+        }
+        l.tokens = out;
+    }
+}
+
 /// Rewrites one deref cast (`*(uint32_t *)(a1 + 0x1c)`) starting at token `p` (the cast keyword).
 /// Returns the replacement tokens and the index just past the consumed group.
 fn rewrite_deref(toks: &[Token], p: usize, types: &HashMap<String, String>, lib: &dyn TypeSource) -> Option<(Vec<Token>, usize)> {
