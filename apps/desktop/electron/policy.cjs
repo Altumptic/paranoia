@@ -53,6 +53,15 @@ function recentAddAllowed(args, isAllowed) {
   return typeof p === "string" && isAllowed(p);
 }
 
+/**
+ * Whether `BrowserWindow.setTitleBarOverlay` exists. It is documented for Windows and Linux
+ * only: on macOS the method is missing, and calling it throws inside the IPC handler, which
+ * Electron reports as "A JavaScript error occurred in the main process" on every theme change.
+ */
+function titleBarOverlaySupported(platform) {
+  return platform === "win32" || platform === "linux";
+}
+
 /** Text shown in the native confirmation before a debuggee starts. */
 function debugDetail(file, cmdline) {
   const args = typeof cmdline === "string" && cmdline.trim() ? cmdline.trim().slice(0, 500) : "(none)";
@@ -62,4 +71,4 @@ function debugDetail(file, cmdline) {
   );
 }
 
-module.exports = { appUrl, isAppPage, externalAllowed, storeMethodAllowed, memoryMethodAllowed, recentAddAllowed, debugDetail };
+module.exports = { appUrl, isAppPage, externalAllowed, storeMethodAllowed, memoryMethodAllowed, recentAddAllowed, titleBarOverlaySupported, debugDetail };
