@@ -4,6 +4,11 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+### Changed
+- `windows-sys` 0.61 for the Windows debugger. With the `x86_64-pc-windows-gnu` toolchain this needs MinGW-w64 binutils and `-C dlltool` (README); the MSVC toolchain and CI are unaffected.
+- UI dependencies: Electron 45, TypeScript 7, dagre 3, react-resizable-panels 4, React 19, Vite 8.
+- `redb` 4.5, `miniz_oxide` 0.9, `zustand` 5.1.
+
 ## 0.9.0 — 2026-11-14
 
 The desktop app for Linux and macOS, 32-bit PE function discovery, PE symbol names, and a measured benchmark against Ghidra.
