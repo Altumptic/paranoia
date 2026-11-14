@@ -4,7 +4,7 @@
 //! to take from an analysed binary and how to apply a remembered function to a
 //! new one.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +24,11 @@ pub struct KnownFunction {
     /// Pseudocode variable types set by the user.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub var_types: BTreeMap<String, String>,
+    /// Local type declarations (C source) that the typed variables above need: the
+    /// structs and enums from the learned file's Local Types, with what they use.
+    /// Text [`Binary::set_types`] accepts. Empty when every type is a built-in one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub types: String,
     /// Comments inside the function, by offset from its start. Only applied where
     /// the code is identical, since offsets move when code changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -65,6 +70,9 @@ pub struct Applied {
     pub renamed: bool,
     pub comments: usize,
     pub variables: usize,
+    /// Local type declarations the target didn't have yet.
+    #[serde(default)]
+    pub types: usize,
 }
 
 /// How close a differently named runner-up may score before the answer counts as ambiguous.
@@ -231,7 +239,8 @@ pub fn resolve(
 
 impl Binary {
     /// The functions worth remembering from this binary, with the user's names,
-    /// comments and variable names and types.
+    /// comments, variable names and types, and the local type declarations the typed
+    /// variables need.
     pub fn knowledge(&self, from: LearnFrom) -> Vec<KnownFunction> {
         let Some(a) = &self.analysis else { return Vec::new() };
         let ann = &self.annotations;
@@ -267,11 +276,16 @@ impl Binary {
                 .filter(|(va, _)| a.function_containing(**va).is_some_and(|g| g.address == f.address))
                 .filter_map(|(va, c)| u32::try_from(va - f.address).ok().map(|off| (off, c.clone())))
                 .collect();
+            let var_types = ann.var_types.get(&f.address).cloned().unwrap_or_default();
+            // The local declarations those variables name: a struct-typed variable in this
+            // file is meaningless in the next one unless its definition travels with it.
+            let types = ann.types.declarations_for(var_types.values().map(String::as_str));
             out.push(KnownFunction {
                 name,
                 comment: ann.comments.get(&f.address).cloned(),
                 var_names: ann.var_names.get(&f.address).cloned().unwrap_or_default(),
-                var_types: ann.var_types.get(&f.address).cloned().unwrap_or_default(),
+                var_types,
+                types,
                 comments,
                 calls,
                 print: fp.print,
@@ -282,10 +296,11 @@ impl Binary {
         out
     }
 
-    /// Applies a remembered function to the function at `va`: its name, its comment
-    /// and its variable names and types. Comments inside the function are applied
-    /// only when `exact` is set. Existing user names and comments are kept.
-    /// Call [`Binary::checkpoint`] first to make this undoable.
+    /// Applies a remembered function to the function at `va`: its name, its comment,
+    /// its variable names and types, and the local type declarations those types need.
+    /// Comments inside the function are applied only when `exact` is set. Existing user
+    /// names, comments and types are kept; a type the user already defines wins over the
+    /// remembered one. Call [`Binary::checkpoint`] first to make this undoable.
     pub fn apply_known(&mut self, va: u64, k: &KnownFunction, exact: bool) -> Applied {
         let mut done = Applied::default();
         if !self.annotations.names.contains_key(&va) && is_symbol_name(&k.name) {
@@ -307,6 +322,11 @@ impl Binary {
                 }
             }
         }
+        // The declarations have to be in place before the variables are typed: with them
+        // missing, a struct pointer would render as `int` and lose its `->field` accesses.
+        if !k.types.is_empty() {
+            done.types = self.merge_remembered_types(&k.types);
+        }
         for (var, name) in &k.var_names {
             if self.annotations.var_names.get(&va).is_some_and(|m| m.contains_key(var)) {
                 continue;
@@ -324,10 +344,55 @@ impl Binary {
         }
         done
     }
+
+    /// Adds the C declarations a remembered function carries to the local types. A type
+    /// the target already defines (the user's work, or an earlier recall) is left alone:
+    /// the stored definition and the target's one may differ, and the user's wins.
+    /// Existing variables that name it still get the target's layout. Returns how many
+    /// definitions were added.
+    fn merge_remembered_types(&mut self, declarations: &str) -> usize {
+        let ptr_size = if self.info.bits == 64 { 8 } else { 4 };
+        let Ok(recalled) = crate::types::parse(declarations, ptr_size) else { return 0 };
+        let wanted: BTreeSet<String> =
+            recalled.structs.keys().chain(recalled.enums.keys()).filter(|name| !self.annotations.types.has_type(name)).cloned().collect();
+        if wanted.is_empty() {
+            return 0;
+        }
+        // Append only the declarations that won, so saving the Local Types editor later
+        // re-parses the same library instead of bringing back a replaced definition.
+        let text = recalled.declarations_named(&wanted);
+        let added = self.annotations.types.add_missing(&recalled);
+        let source = &mut self.annotations.types.source;
+        if !source.is_empty() && !source.ends_with('\n') {
+            source.push('\n');
+        }
+        source.push_str(&text);
+        added
+    }
 }
 
 /// Names from symbols can contain `::`, `.`, `$`, `@` and the like; they're fine as
 /// labels as long as they hold no whitespace or control characters and aren't huge.
 fn is_symbol_name(n: &str) -> bool {
     !n.is_empty() && n.len() <= 512 && !n.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A knowledge base written before types were carried must keep loading (serde
+    /// default), and an entry without types keeps its old JSON shape.
+    #[test]
+    fn knowledge_entries_without_types_still_load() {
+        let json = r#"{"name":"f","comment":"about f","var_names":{"v1":"n"},"var_types":{},"comments":[],"calls":[],
+            "print":{"size":10,"instructions":5,"blocks":1,"edges":0,"back_edges":0,"calls":0,"exact":1,"shape":2,
+            "minhash":[3],"anchors":[]},"source":"a.exe","source_sha256":"aa"}"#;
+        let k: KnownFunction = serde_json::from_str(json).expect("old entry loads");
+        assert_eq!(k.name, "f");
+        assert!(k.types.is_empty(), "a database from before types loads with no types");
+        assert_eq!(Applied::default().types, 0);
+        let now = serde_json::to_string(&k).unwrap();
+        assert!(!now.contains("\"types\""), "an entry without types keeps its old shape: {now}");
+    }
 }

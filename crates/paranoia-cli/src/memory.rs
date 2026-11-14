@@ -285,12 +285,14 @@ pub fn memory_command(db: Option<std::path::PathBuf>, action: MemoryAction, json
             if apply {
                 let store = store.as_ref().ok_or_else(|| anyhow::anyhow!("--apply needs the app's workspace"))?;
                 bin.checkpoint();
-                let mut renamed = 0;
+                let (mut renamed, mut types) = (0, 0);
                 for r in &recalls {
-                    renamed += bin.apply_known(r.address, &r.known, r.exact).renamed as usize;
+                    let done = bin.apply_known(r.address, &r.known, r.exact);
+                    renamed += done.renamed as usize;
+                    types += done.types;
                 }
                 store.set_annotations(&sha, &serde_json::to_value(bin.annotations())?)?;
-                eprintln!("applied: {renamed} functions renamed in the workspace");
+                eprintln!("applied: {renamed} functions renamed, {types} local types added in the workspace");
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&recalls)?);

@@ -803,3 +803,77 @@ fn function_matching_finds_one_edit() {
     assert_eq!((changed[0].a, changed[0].b), (f.address, f.address));
     assert!(changed[0].score > 0.6 && changed[0].score < 1.0);
 }
+
+/// Function memory carries the local types a remembered function's typed variables need:
+/// in a fresh copy of the file the variable comes back as `PARANOIA_CTX * record`, not
+/// `int a1`, because the struct declaration travels with it. A type the target binary's
+/// user already defines wins, and the Local Types source never gets a second definition.
+#[test]
+fn function_memory_carries_struct_types() {
+    use paranoia_core::memory::{best_known, LearnFrom, RECALL_MIN_SCORE};
+    let Some((p, bytes)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
+    let mut a = Binary::load(&p, bytes.clone()).unwrap();
+    a.analyze();
+    a.set_types("typedef struct _PARANOIA_CTX { DWORD magic; DWORD count; char *name; } PARANOIA_CTX;").unwrap();
+    // A function with a first argument: its generated name is `a1` in the signature.
+    let mut hit = None;
+    for f in a.functions().iter().filter(|f| f.blocks > 6 && !f.is_import_thunk).take(200) {
+        let Some(pc) = a.pseudocode(f.address) else { continue };
+        let sig: String = pc.lines.first().map_or(String::new(), |l| l.tokens.iter().map(|t| t.t.as_str()).collect());
+        if sig.contains("a1") {
+            hit = Some(f.address);
+            break;
+        }
+    }
+    let Some(f) = hit else {
+        // Only the x86/x64 pseudocode names its first argument `a1`; other back-ends have
+        // nothing here to type yet.
+        assert!(a.info().arch != Arch::X86 && a.info().arch != Arch::X86_64, "{}: no function with a first argument", a.info().file_name);
+        return;
+    };
+
+    a.rename(f, "remembered_function");
+    a.set_var_name(f, "a1", "record").unwrap();
+    a.set_var_type(f, "a1", "PARANOIA_CTX *");
+    let known = a.knowledge(LearnFrom::User);
+    assert_eq!(known.len(), 1, "one named function was learned");
+    let k = &known[0];
+    assert_eq!(k.name, "remembered_function");
+    assert_eq!(k.var_types.get("a1").map(String::as_str), Some("PARANOIA_CTX *"));
+    assert!(k.types.contains("struct PARANOIA_CTX"), "the struct declaration travels with the function: {:?}", k.types);
+
+    // A fresh copy of the file: recognise the code, then apply what came back.
+    let mut b = Binary::load(&p, bytes.clone()).unwrap();
+    b.analyze();
+    let print = b.fingerprint_at(f).expect("the function is analysed again");
+    assert_eq!(print.address, f);
+    let (recalled, score) = best_known(&print.print, &known, RECALL_MIN_SCORE).expect("the code is recognised in the copy");
+    assert!(score > 0.99, "identical code scores {score}");
+    assert_eq!(recalled.types, k.types);
+    let applied = b.apply_known(print.address, recalled, true);
+    assert!(applied.renamed && applied.types == 1, "{applied:?}");
+    let ptr = if b.info().bits == 64 { 8 } else { 4 };
+    let decl = b.annotations().types.structs.get("PARANOIA_CTX").expect("the recalled struct is a local type");
+    assert_eq!(decl.size, 8 + ptr, "DWORD, DWORD and a pointer");
+    assert_eq!(b.annotations().var_names.get(&f).and_then(|m| m.get("a1")).map(String::as_str), Some("record"));
+    assert_eq!(b.annotations().var_types.get(&f).and_then(|m| m.get("a1")).map(String::as_str), Some("PARANOIA_CTX *"));
+    let code: String = b
+        .pseudocode(f)
+        .unwrap()
+        .lines
+        .iter()
+        .map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(code.contains("PARANOIA_CTX * record"), "the variable is typed and renamed:\n{code}");
+
+    // The target's own definition of that name wins: nothing is added and the source
+    // keeps one definition, so saving the Local Types editor later cannot overwrite it.
+    let mut c = Binary::load(&p, bytes).unwrap();
+    c.analyze();
+    c.set_types("struct PARANOIA_CTX { BYTE only; };").unwrap();
+    let applied = c.apply_known(f, k, true);
+    assert_eq!(applied.types, 0, "the user's type of the same name is kept");
+    assert_eq!(c.annotations().types.structs["PARANOIA_CTX"].size, 1);
+    assert_eq!(c.annotations().types.source.matches("PARANOIA_CTX {").count(), 1);
+}

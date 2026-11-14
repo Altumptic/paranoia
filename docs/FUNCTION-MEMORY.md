@@ -3,7 +3,7 @@
 Function memory recognises the same function in different files: a new version of a program, another build of it, or a sample from the same family. It does two things:
 
 - **Compare two files.** Which functions are identical, which changed and how much, which were added or removed. This is what BinDiff and Diaphora do; use it to find what a patch fixed or what a new malware version added.
-- **Remember functions.** Functions you named in one file are recognised in the next one, and their names, comments and variable names come with them. IDA's Lumina does this with a shared server. Here the database is a file on your computer, and nothing is sent anywhere.
+- **Remember functions.** Functions you named in one file are recognised in the next one, and their names, comments and variable names come with them — along with the local struct and enum types their pseudocode needs, so a typed variable still renders as `PKT *p`, not `int`. IDA's Lumina does this with a shared server. Here the database is a file on your computer, and nothing is sent anywhere.
 
 Both work on x86, x64, AArch64 and the other architectures Paranoia disassembles.
 
@@ -12,7 +12,7 @@ Both work on x86, x64, AArch64 and the other architectures Paranoia disassembles
 In the app:
 
 - **Analysis → Compare with another file…** opens a second file and matches it against the one you have open. You get the changed functions (least similar first), the ones that exist in only one file, and both versions of a function side by side with the differing lines highlighted. **Take names** copies names from the other file to functions that only have an automatic name here (one undo step).
-- **Analysis → Function memory…** has **Learn this file**, which remembers the functions you named (optionally also names from symbols, exports and debug info), and **Recognise**, which lists the functions of the open file the database knows. Pick the ones you want and press **Apply** (one undo step).
+- **Analysis → Function memory…** has **Learn this file**, which remembers the functions you named (optionally also names from symbols, exports and debug info), and **Recognise**, which lists the functions of the open file the database knows. Pick the ones you want and press **Apply** (one undo step): names, comments, variable names and types come back, and so do the struct declarations those types need.
 
 From the command line:
 
@@ -27,7 +27,9 @@ paranoia memory export team.jsonl                # share with a colleague; `impo
 paranoia memory forget <sha256>                  # drop everything learned from one file
 ```
 
-The database is `memory.redb` next to the app's workspace (`%APPDATA%\Paranoia` on Windows). `--db FILE` uses another one, for example one per case.
+`recall --apply` writes the names, comments, variable names and types into the app's workspace. It also adds the struct and enum declarations the typed variables need to the open file's Local Types, so a variable typed `PKT *` renders as `PKT *` and keeps its `p->field` accesses. A type the file already defines is kept as it is: the file's own definition wins, even when its layout differs from the remembered one.
+
+The database is `memory.redb` next to the app's workspace (`%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS). `--db FILE` uses another one, for example one per case.
 
 Agents can use it too: `compare_binaries` is always available in `paranoia mcp`, and `recognize_functions` with `--memory` (see [MCP.md](MCP.md)).
 
@@ -81,4 +83,8 @@ The numbers come from our own runs on the machine that wrote this page; run the 
 
 ## What is stored
 
-For each remembered function: its name, your comment on it, comments inside it (by offset), renamed and typed pseudocode variables, the names of the named functions it calls, the fingerprint, and the name and SHA-256 of the file it was learned from. No code, no strings from the file. Fingerprint hashes are one-way, but the anchors are hashes of the file's strings and imports, so someone holding your database could check whether a function uses a string they already know.
+For each remembered function: its name, your comment on it, comments inside it (by offset), renamed and typed pseudocode variables, the local type declarations (structs and enums from Local Types, with the definitions they use) that those variable types need, the names of the named functions it calls, the fingerprint, and the name and SHA-256 of the file it was learned from. No code, no strings from the file. Fingerprint hashes are one-way, but the anchors are hashes of the file's strings and imports, so someone holding your database could check whether a function uses a string they already know.
+
+The type declarations are the C text you entered in Local Types, carried so the pseudocode can resolve them; types that came only from debug info (DWARF or PDB) are not copied, since they are not part of the saved annotations. Function prototypes are not carried yet: the model has no user-set signature (return type, calling convention) to save, so the signature line is regenerated from the code each time. Parameter types set with `Y` do travel, as typed variables.
+
+Old databases load unchanged: a function stored before types were carried simply has no declarations.

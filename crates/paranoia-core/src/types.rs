@@ -1,7 +1,7 @@
 //! Local types (IDA's "Local Types"): C struct / enum declarations parsed into
 //! layouts that can be applied to data.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -125,6 +125,149 @@ impl TypeView<'_> {
         }
         hits.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.len().cmp(&b.1.name.len())).then_with(|| a.1.name.cmp(&b.1.name)));
         hits.into_iter().take(limit).map(|h| h.1).collect()
+    }
+}
+
+/// A union parses into fields that all start at offset 0; the model doesn't record
+/// whether a definition was written as `union`, so the layout decides it again.
+fn is_union(s: &StructDef) -> bool {
+    s.fields.len() > 1 && s.fields.iter().all(|f| f.offset == 0)
+}
+
+/// One field of a C declaration, as [`parse`] accepts it (`DWORD ids[4];`, `char *name;`).
+fn field_decl(f: &Field) -> String {
+    let mut out = String::from("  ");
+    if f.pointer {
+        // `Field::ty` keeps the ` *` (`char *`), the parser wants it between type and name.
+        out.push_str(f.ty.trim_end_matches('*').trim());
+        out.push_str(" *");
+    } else {
+        out.push_str(&f.ty);
+        out.push(' ');
+    }
+    out.push_str(&f.name);
+    if f.count != 1 {
+        out.push_str(&format!("[{}]", f.count));
+    }
+    out.push_str(";\n");
+    out
+}
+
+impl TypeLibrary {
+    /// Whether a struct or enum with this name is defined here.
+    pub(crate) fn has_type(&self, name: &str) -> bool {
+        self.structs.contains_key(name) || self.enums.contains_key(name)
+    }
+
+    /// The local types a C variable declaration names: `MY_STRUCT *p` and
+    /// `struct MY_STRUCT x` both name `MY_STRUCT`; words that aren't defined here are
+    /// ignored, so scalars and the C keywords don't matter.
+    fn names_in(&self, declaration: &str, out: &mut BTreeSet<String>) {
+        for word in declaration.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+            if !word.is_empty() && self.has_type(word) {
+                out.insert(word.to_string());
+            }
+        }
+    }
+
+    /// C declarations for the local types that the given variable declarations name,
+    /// plus the structs and enums those definitions use in their fields, dependencies
+    /// first. [`parse`] accepts the text, so it can go straight to
+    /// [`Binary::set_types`](crate::Binary::set_types). Empty when none of the names is
+    /// defined here.
+    ///
+    /// This is what function memory keeps per remembered function: the declarations its
+    /// typed pseudocode variables would otherwise miss in another file.
+    pub fn declarations_for<'a>(&self, variable_types: impl IntoIterator<Item = &'a str>) -> String {
+        let mut names = BTreeSet::new();
+        for ty in variable_types {
+            self.names_in(ty, &mut names);
+        }
+        // A struct or enum held by value inside another one has to be declared first.
+        // A pointer field doesn't: it needs no declaration of the pointee.
+        let mut queued: Vec<String> = names.iter().cloned().collect();
+        while let Some(name) = queued.pop() {
+            let Some(s) = self.structs.get(&name) else { continue };
+            for f in &s.fields {
+                if f.pointer {
+                    continue;
+                }
+                let dep = f.nested.as_deref().or_else(|| self.enums.contains_key(f.ty.trim()).then(|| f.ty.trim()));
+                if let Some(dep) = dep.filter(|n| self.has_type(n)) {
+                    if names.insert(dep.to_string()) {
+                        queued.push(dep.to_string());
+                    }
+                }
+            }
+        }
+        self.declarations_named(&names)
+    }
+
+    /// C declarations for exactly these names, no expansion: dependencies among them
+    /// first. Used when the target may define some of the types already and those
+    /// definitions must win.
+    pub(crate) fn declarations_named(&self, names: &BTreeSet<String>) -> String {
+        let mut out = String::new();
+        // Enums go first: a field of enum type names a type declared later otherwise.
+        for name in names {
+            let Some(e) = self.enums.get(name) else { continue };
+            out.push_str("enum ");
+            out.push_str(&e.name);
+            out.push_str(" {\n");
+            for (member, value) in &e.members {
+                out.push_str(&format!("  {member} = {value},\n"));
+            }
+            out.push_str("};\n");
+        }
+        let mut done = BTreeSet::new();
+        for name in names {
+            self.emit_struct(name, names, &mut done, &mut out);
+        }
+        out
+    }
+
+    fn emit_struct(&self, name: &str, names: &BTreeSet<String>, done: &mut BTreeSet<String>, out: &mut String) {
+        if done.contains(name) {
+            return;
+        }
+        let Some(s) = self.structs.get(name) else { return };
+        // Inserted before the recursion: a self-referential definition can't come from
+        // `parse`, and this keeps hostile hand-edited JSON from looping.
+        done.insert(name.to_string());
+        for f in &s.fields {
+            if let Some(dep) = f.nested.as_deref().filter(|d| names.contains(*d)) {
+                self.emit_struct(dep, names, done, out);
+            }
+        }
+        out.push_str(if is_union(s) { "union " } else { "struct " });
+        out.push_str(&s.name);
+        out.push_str(" {\n");
+        for f in &s.fields {
+            out.push_str(&field_decl(f));
+        }
+        out.push_str("};\n");
+    }
+
+    /// Adds the definitions from `other` that this library doesn't define yet. A type the
+    /// user already has wins, so a remembered declaration never overwrites a local one
+    /// (the layouts may differ). Returns how many definitions were added.
+    pub fn add_missing(&mut self, other: &TypeLibrary) -> usize {
+        let mut added = 0;
+        for (name, def) in &other.structs {
+            if self.has_type(name) {
+                continue;
+            }
+            self.structs.insert(name.clone(), def.clone());
+            added += 1;
+        }
+        for (name, def) in &other.enums {
+            if self.has_type(name) {
+                continue;
+            }
+            self.enums.insert(name.clone(), def.clone());
+            added += 1;
+        }
+        added
     }
 }
 
@@ -363,6 +506,75 @@ mod tests {
         assert_eq!(lib.structs["POINT"].size, 8);
         assert_eq!(lib.enums["Color"].members, vec![("Red".into(), 0), ("Green".into(), 5), ("Blue".into(), 6)]);
         assert!(parse("struct A { Foo f; };", 8).is_err());
+    }
+
+    const MEMORY_SOURCE: &str = "
+        typedef struct _POINT { LONG x; LONG y; } POINT;
+        enum Mode { READ = 1, WRITE = 2 };
+        union Value { DWORD dw; BYTE b[4]; };
+        struct PKT {
+            BYTE kind;
+            DWORD crc;
+            char *name;
+            struct PKT *next;
+            POINT where;
+            Mode mode;
+            DWORD ids[4];
+            Value val;
+        };
+        struct Unrelated { QWORD q; };
+    ";
+
+    #[test]
+    fn declarations_for_a_variable_round_trip() {
+        let lib = parse(MEMORY_SOURCE, 8).unwrap();
+        // `PKT *` pulls in the types its definition needs by value, and nothing else.
+        let text = lib.declarations_for(["PKT *", "int", "char *"]);
+        let names: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("struct ").or_else(|| l.strip_prefix("union ")).or_else(|| l.strip_prefix("enum ")))
+            .map(|l| l.trim_end_matches(" {").trim())
+            .collect();
+        assert_eq!(names, ["Mode", "POINT", "Value", "PKT"], "{text}");
+        // The text parses, and the layouts come back exactly: offsets, sizes, alignments.
+        let again = parse(&text, 8).unwrap();
+        for name in ["POINT", "Value", "PKT"] {
+            assert_eq!(again.structs.get(name), lib.structs.get(name), "{name}\n{text}");
+        }
+        assert_eq!(again.enums.get("Mode"), lib.enums.get("Mode"));
+        assert!(!again.structs.contains_key("Unrelated"), "unreferenced types are not carried");
+        // A plain pointer sizes nothing out of the local types.
+        assert_eq!(lib.declarations_for(["int *", "DWORD", "void"]), "");
+    }
+
+    #[test]
+    fn declarations_named_does_not_expand() {
+        let lib = parse(MEMORY_SOURCE, 8).unwrap();
+        let names = std::collections::BTreeSet::from(["PKT".to_string()]);
+        let text = lib.declarations_named(&names);
+        assert!(!text.contains("struct POINT"), "no expansion: {text}");
+        // Recall appends this after a source that already defines the dependencies (that
+        // is why they aren't repeated), and the merged editor text parses.
+        let mut existing = String::from(
+            "typedef struct _POINT { LONG x; LONG y; } POINT;\nenum Mode { READ = 1, WRITE = 2 };\nunion Value { DWORD dw; BYTE b[4]; };\n",
+        );
+        existing.push_str(&text);
+        let again = parse(&existing, 8).unwrap();
+        assert_eq!(again.structs["PKT"], lib.structs["PKT"]);
+        assert_eq!(again.structs.len(), 3, "POINT, Value and the recalled PKT");
+        assert_eq!(again.enums.len(), 1);
+    }
+
+    #[test]
+    fn add_missing_keeps_the_users_definition() {
+        let mut user = parse("struct PKT { BYTE only; };", 8).unwrap();
+        let recalled = parse(MEMORY_SOURCE, 8).unwrap();
+        let added = user.add_missing(&recalled);
+        assert_eq!(added, 4, "the four types the user doesn't have");
+        assert_eq!(user.structs["PKT"].size, 1, "a user type of the same name wins");
+        assert_eq!(user.structs["POINT"].size, 8);
+        assert!(user.enums.contains_key("Mode"));
+        assert!(user.structs["Unrelated"].fields.iter().any(|f| f.name == "q"));
     }
 
     #[test]

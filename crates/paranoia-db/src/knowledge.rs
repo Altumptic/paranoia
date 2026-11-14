@@ -301,6 +301,7 @@ mod tests {
             comment: Some(format!("about {name}")),
             var_names: BTreeMap::new(),
             var_types: BTreeMap::new(),
+            types: String::new(),
             comments: Vec::new(),
             calls: Vec::new(),
             print: Fingerprint {
@@ -331,7 +332,9 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let kb = Knowledge::open(&path).unwrap();
 
-        let decrypt = known("decrypt_config", 7, (0..64).collect(), "aaa");
+        let mut decrypt = known("decrypt_config", 7, (0..64).collect(), "aaa");
+        // The local types a remembered function's typed variables need travel with it.
+        decrypt.types = "struct PACKET {\n  DWORD magic;\n};\n".into();
         let other = known("send_beacon", 9, (1000..1064).collect(), "aaa");
         let s = kb.learn(&[decrypt.clone(), other.clone()]).unwrap();
         assert_eq!((s.added, s.updated), (2, 0));
@@ -340,10 +343,11 @@ mod tests {
         assert_eq!((s.added, s.updated), (0, 1));
         assert_eq!(kb.stats().unwrap().functions, 2);
 
-        // Identical code in another file.
+        // Identical code in another file: the types come back with the name.
         let r = kb.recall(&[print_of(&decrypt, 0x401000)], "bbb", 0.7).unwrap();
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].known.name, "decrypt_config");
+        assert_eq!(r[0].known.types, decrypt.types, "recall keeps the type declarations");
         assert!(r[0].exact);
 
         // Similar code: most of the sketch and all anchors agree, the bytes don't.
