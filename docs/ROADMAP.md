@@ -57,7 +57,7 @@ When two things compete, they're done in this order:
 | Plugins | ✅ | Commands only. See [PLUGINS.md](PLUGINS.md) |
 | AI assistant | ✅ | Local or hosted models, with a model list and a connection test. Opt-in string and IP-like number redaction, and a local hash-chained disclosure ledger. Tested live with llama.cpp and a small local model; see [ASSISTANT.md](ASSISTANT.md) |
 | MCP server | ✅ | Read-only by default, string and IP-like number redaction (`--redact-ips`), disclosure log, names shared with the app. See [MCP.md](MCP.md) |
-| Debugger | 🟡 | Local Windows (x64, 32-bit) and Linux x86-64 programs. No remote targets, no macOS |
+| Debugger | 🟡 | Local Windows (x64, 32-bit), Linux x86-64 and Linux ARM64 programs. The ARM64 one is new and tested on CI's ARM runner only. No remote targets, no macOS |
 | IDC export, undo/redo | ✅ | |
 | Collaboration | ⏳ | |
 
@@ -135,7 +135,7 @@ The first published run names its own weaknesses ([BENCHMARK.md](BENCHMARK.md));
 - Signature checks for referenced functions, more built-in libraries
 - Plugin panels, hotkeys and event hooks
 - Batch naming and chat in the AI assistant
-- Debugger for Linux 32-bit, ARM and macOS
+- Debugger for Linux 32-bit and ARM32, and macOS
 - An independent security audit
 
 ## Editions

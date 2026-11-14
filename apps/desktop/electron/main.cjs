@@ -532,7 +532,7 @@ handle("dialog:pdb", async () => {
   return r.filePaths[0];
 });
 
-handle("app:info", () => ({ version: app.getVersion(), engine: engineExe(), electron: process.versions.electron, platform: process.platform }));
+handle("app:info", () => ({ version: app.getVersion(), engine: engineExe(), electron: process.versions.electron, platform: process.platform, arch: process.arch }));
 
 // The app's only automatic-looking network call is not automatic: it runs when the user presses
 // "Check now" in Help → Check for updates. One GET to the public release list; nothing is sent

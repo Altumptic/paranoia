@@ -9,6 +9,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 - `bench/pdb-truth.mjs` scores the 32-bit PE function list against the functions Microsoft's public PDBs name: 99.3 % of 8,191 on four system DLLs, 81.7 % on `ole32` (a table of a thousand 10-byte stubs). Results in [docs/BENCHMARK.md](docs/BENCHMARK.md).
 - A release process: `scripts/release.mjs` checks that every version number agrees with the tag and the CHANGELOG, generates the release notes, and tags with a suffix (`v0.10.0-rc.1`) publish a pre-release. [docs/RELEASING.md](docs/RELEASING.md) has the versioning rules, the channels and the support policy.
 - CI runs the engine tests on Linux ARM64 as well, and starts every packaged desktop app (Windows, Linux, macOS Apple silicon) for real: it opens a file and checks the window over the DevTools protocol.
+- The Linux debugger runs ARM64 programs as well as x86-64 ones (`ptrace` with `brk #0` breakpoints), so the ARM64 desktop package can debug what it analyses. Its tests run on CI's ARM runner; there is no macOS or remote debugger yet.
 - AArch64 pseudocode now applies the variable types you set with `Y`: the signature and declaration carry the type and loads through the pointer become `->field`, as on x86. Function memory therefore restores typed variables on AArch64 too.
 
 ### Changed

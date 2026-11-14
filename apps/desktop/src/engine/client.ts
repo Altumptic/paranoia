@@ -178,7 +178,7 @@ export interface DesktopBridge {
   engine(req: Record<string, unknown>): Promise<unknown>;
   openDialog(): Promise<string | null>;
   pdbDialog(): Promise<string | null>;
-  info(): Promise<{ version: string; engine: string; electron: string; platform: string }>;
+  info(): Promise<{ version: string; engine: string; electron: string; platform: string; /** `process.arch` of the shell: x64, arm64, … */ arch: string }>;
   /** One request to GitHub's public release list, only when the user asks. Never downloads anything. */
   checkForUpdates(): Promise<UpdateResult>;
   /** `process.platform` of the shell, available before the first paint. */
