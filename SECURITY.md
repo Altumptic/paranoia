@@ -41,4 +41,4 @@ Good-faith research within the policy is covered by the safe harbor described at
 
 ## Supported versions
 
-Only the latest release receives security fixes. Releases are published at <https://github.com/Altumptic/paranoia/releases>; [docs/VERIFY.md](docs/VERIFY.md) shows how to check that a download is genuine.
+Only the latest release receives security fixes (see [docs/RELEASING.md](docs/RELEASING.md) for versioning and why). A security fix ships as a patch release as soon as it is verified, with the advisory in the CHANGELOG. Releases are published at <https://github.com/Altumptic/paranoia/releases>; [docs/VERIFY.md](docs/VERIFY.md) shows how to check that a download is genuine.
