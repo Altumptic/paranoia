@@ -71,8 +71,14 @@ fn inventory(b: &Binary) -> Value {
             })
         })
         .collect();
-    let calls: Vec<Value> = b.call_edges().into_iter().map(|(from, to)| json!([hex(from), hex(to)])).collect();
-    json!({ "functions": functions, "imports": imports, "strings": strings, "calls": calls })
+    let pairs = |edges: Vec<(u64, u64)>| -> Vec<Value> { edges.into_iter().map(|(from, to)| json!([hex(from), hex(to)])).collect() };
+    json!({
+        "functions": functions,
+        "imports": imports,
+        "strings": strings,
+        "calls": pairs(b.call_edges()),
+        "tail_calls": pairs(b.tail_call_edges()),
+    })
 }
 
 fn function(b: &mut Binary, sel: &str) -> Value {
@@ -189,7 +195,7 @@ mod tests {
         assert!(!funcs.is_empty());
         assert!(funcs.iter().all(|f| is_addr(&f["address"]) && f["name"].is_string()));
         let starts: std::collections::HashSet<&str> = funcs.iter().filter_map(|f| f["address"].as_str()).collect();
-        for c in inv["calls"].as_array().unwrap() {
+        for c in inv["calls"].as_array().unwrap().iter().chain(inv["tail_calls"].as_array().unwrap()) {
             assert!(is_addr(&c[0]) && is_addr(&c[1]));
             assert!(starts.contains(c[0].as_str().unwrap()), "a call edge starts at a function: {c}");
         }

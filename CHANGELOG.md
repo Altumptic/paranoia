@@ -13,6 +13,10 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 - Function memory now carries the local struct and enum declarations a remembered function's typed variables need: recalling a known function restores `MY_STRUCT *` variables and their `->field` accesses instead of plain integers. A type the file already defines wins and old knowledge bases load unchanged. Function prototypes are not carried yet (the model has no user-set signature).
 - [docs/CASE-STUDIES.md](docs/CASE-STUDIES.md): three reproducible walk-throughs — a stripped Go binary, an MSVC `/MT` binary and a real fzf version diff — with commands and SHA-256 hashes.
 
+- PE images: the COFF symbol table GNU ld leaves in the file is read (bounds-checked), so GNU-linked Rust and MinGW programs get their function names: 84.2 % named on the Rust test binaries, from 5.6 %.
+- 32-bit x86: functions that no call, export or symbol reaches are found by scanning uncovered code for prologues after padding and for addresses the base relocations point at, each candidate checked by decoding. `comctl32` (x86) goes from 380 to 1 913 functions; on five system DLLs the list agrees with Ghidra's at 97.8 % / 98.0 %. These functions are marked as found by a scan.
+- `paranoia query FILE inventory` also lists tail calls (`tail_calls`).
+
 ### Changed
 - Minimum Rust version 1.82 → 1.88 (gimli 0.32 → 0.34, required by the DWARF reader).
 - Linux and macOS data folders documented; release, verification and signing docs updated for the new packages.
@@ -21,6 +25,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 - macOS builds are ad-hoc signed and not notarised while there is no Developer ID; recorded as PSB-EX-5, with the Gatekeeper limitation stated in the README.
 
 ### Fixed
+- The benchmark's Rust name matching scored correct names as wrong (escaped characters in mangled names); both tools' naming figures were understated. Go function names now follow the Go function table, so a function has one name stripped or not (a PE symbol table spelled them with `.abi0`).
 - macOS showed "A JavaScript error occurred in the main process" (`TypeError: win.setTitleBarOverlay is not a function`) at start-up and on every theme change: the method is documented for Windows and Linux only, and the IPC handler called it unconditionally. `policy.titleBarOverlaySupported` now gates it.
 - The title bar no longer covers the macOS traffic lights, and the command centre stays in the flow there so a narrow window cannot overlap the menus.
 

@@ -161,6 +161,7 @@ fn priority(s: FunctionSource) -> u8 {
         FunctionSource::Symbol => 3,
         FunctionSource::ExceptionTable => 4,
         FunctionSource::Call => 5,
+        FunctionSource::Scan => 6,
     }
 }
 
