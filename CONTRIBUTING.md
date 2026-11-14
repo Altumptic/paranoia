@@ -36,7 +36,7 @@ CI runs the same checks on Windows, Linux and macOS, plus `cargo audit` and `npm
 
 ## Things that trip people up
 
-- If the checkout path has spaces and you get `dlltool` errors on Windows, set `CARGO_TARGET_DIR` to a path without spaces.
+- On Windows with the `x86_64-pc-windows-gnu` toolchain, `windows-sys` needs MinGW-w64 binutils (`as`, `dlltool`) and `-C dlltool=PATH`; the MSVC toolchain needs nothing extra. If the checkout path has spaces and you still get `dlltool` errors, set `CARGO_TARGET_DIR` to a path without spaces.
 - `npm run app:dev` fails until the engine has been built once.
 - The crash tests in `real_binaries.rs` mutate system binaries in memory (`notepad.exe`, `/bin/ls`, or `PARANOIA_FUZZ_FILE`) and never run them. Tests whose sample is missing just pass.
 - Optional sample directories for slower tests: `PARANOIA_FLIRT_DIR` (IDA `.sig` files), `PARANOIA_PPC_DIR` (PowerPC), `PARANOIA_ARM64_DIR` (AArch64 pseudocode).

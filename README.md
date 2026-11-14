@@ -171,7 +171,7 @@ npm run dist:linux  # AppImage and .deb, built on Linux
 npm run dist:mac    # .dmg and .zip for the host architecture, built on macOS
 ```
 
-On Windows everything builds with the `x86_64-pc-windows-gnu` toolchain, no C compiler needed. If the checkout path has spaces in it and you get `dlltool` errors, set `CARGO_TARGET_DIR` to a path without spaces.
+On Windows the MSVC toolchain (Visual Studio Build Tools) works as usual. The `x86_64-pc-windows-gnu` toolchain also works, but `windows-sys` builds its import libraries with `dlltool`, and the copy inside the Rust toolchain needs an assembler that it does not ship: install MinGW-w64 binutils (`as` and `dlltool`) and point rustc at its `dlltool` with `-C dlltool=PATH` (for example `rustflags` for `x86_64-pc-windows-gnu` in `.cargo/config.toml`). If the checkout path has spaces in it and you still get `dlltool` errors, set `CARGO_TARGET_DIR` to a path without spaces.
 
 The Linux and macOS packages are built by the release workflow on their own operating systems, one architecture per job; electron-builder does not cross-compile the desktop app. The Linux engine is static (musl), like the CLI, so it does not depend on the build machine's glibc. These platforms are new to the release pipeline: no tagged release had been built with them when this was written, so the first tag run is the proof.
 
