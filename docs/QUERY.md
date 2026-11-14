@@ -26,7 +26,7 @@ paranoia query sample.exe xrefs CreateFileW      # references to an address or n
 
 | Question | `result` |
 | --- | --- |
-| `inventory` | `functions`: `address`, `name`, `size`, `instructions`, `thunk` (jumps to an import), `library` (recognised runtime code). `imports`: `address` of the slot, `name`, `library`. `strings`: `address` (null when not mapped), `offset`, `value`, `encoding` (`ascii` or `utf16`), `xrefs` (number of code references). `calls`: `[caller, target]` pairs, the caller being a function start and the target a function start or an import slot |
+| `inventory` | `functions`: `address`, `name`, `size`, `instructions`, `thunk` (jumps to an import), `library` (recognised runtime code). `imports`: `address` of the slot, `name`, `library`. `strings`: `address` (null when not mapped), `offset`, `value`, `encoding` (`ascii` or `utf16`), `xrefs` (number of code references). `calls`: `[caller, target]` pairs, the caller being a function start and the target a function start or an import slot. `tail_calls`: the same shape for jumps from one function straight to another function's start or through an import slot (`jmp [__imp_X]`) |
 | `function SEL` | `address`, `name`, `size`, `pseudocode` (null where there is no decompiler), `assembly` (the function's blocks in address order, with labels) |
 | `xrefs SEL` | `address`, and `references`: `from`, `kind` (`call`, `jump` or `data`), `function` (start of the function containing `from`, or null) |
 

@@ -63,6 +63,10 @@ pub struct Loaded {
     /// 32-bit ARM: `(address, is_thumb)` points where the instruction set is known; it holds
     /// until the next point (mapping symbols `$a` / `$t`, symbol mode bits, entry, exports).
     pub arm_modes: Vec<(u64, bool)>,
+    /// Addresses the image's base relocations point at: the targets of function pointers, vtable
+    /// entries and `push offset` immediates, among other things. Used to find functions that no
+    /// call reaches.
+    pub pointers: Vec<u64>,
 }
 
 impl Loaded {

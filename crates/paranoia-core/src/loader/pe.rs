@@ -248,6 +248,8 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
         out.warnings.push(".NET assembly: native disassembly only covers the loader stub; IL decompilation is planned.".into());
     }
 
+    out.pointers = base_relocation_targets(bytes, &pe);
+
     // GNU ld (MinGW, Rust's `-gnu` targets) leaves the COFF symbol table in the file.
     let (names, functions) = coff_symbols(bytes, &pe, &mut out);
     if names > 0 {
@@ -255,6 +257,54 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
     }
 
     Ok(out)
+}
+
+/// Most relocations read from one image; a large DLL has a few hundred thousand.
+const MAX_RELOCATIONS: usize = 8_000_000;
+
+/// The addresses the base relocations point at: each relocation patches a stored address, and
+/// the value stored there is where it points. Parsed by hand with bounds checks, like `.pdata`.
+fn base_relocation_targets(bytes: &[u8], pe: &PE<'_>) -> Vec<u64> {
+    let Some(dir) = pe.header.optional_header.and_then(|o| o.data_directories.get_base_relocation_table().copied()) else {
+        return Vec::new();
+    };
+    let Some(start) = rva_to_offset(&pe.sections, dir.virtual_address) else { return Vec::new() };
+    let table = &bytes[start.min(bytes.len())..];
+    let table = &table[..(dir.size as usize).min(table.len())];
+    let wide = pe.is_64;
+    let image_end = pe.image_base.saturating_add(
+        pe.sections.iter().map(|s| s.virtual_address as u64 + s.virtual_size.max(s.size_of_raw_data) as u64).max().unwrap_or(0),
+    );
+    let mut out = Vec::new();
+    let (mut at, mut seen) = (0usize, 0usize);
+    while at + 8 <= table.len() && seen < MAX_RELOCATIONS {
+        let page = u32::from_le_bytes([table[at], table[at + 1], table[at + 2], table[at + 3]]);
+        let size = u32::from_le_bytes([table[at + 4], table[at + 5], table[at + 6], table[at + 7]]) as usize;
+        if size < 8 || at + size > table.len() {
+            break;
+        }
+        for entry in table[at + 8..at + size].chunks_exact(2) {
+            seen += 1;
+            let e = u16::from_le_bytes([entry[0], entry[1]]);
+            // HIGHLOW (3) in a 32-bit image, DIR64 (10) in a 64-bit one.
+            if e >> 12 != if wide { 10 } else { 3 } {
+                continue;
+            }
+            let Some(off) = page.checked_add((e & 0x0fff) as u32).and_then(|rva| rva_to_offset(&pe.sections, rva)) else { continue };
+            let value = if wide {
+                bytes.get(off..off + 8).map(|b| u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+            } else {
+                bytes.get(off..off + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64)
+            };
+            if let Some(v) = value.filter(|v| *v >= pe.image_base && *v < image_end) {
+                out.push(v);
+            }
+        }
+        at += size;
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 /// Most COFF records a file may declare. A real image has some hundreds of thousands at most.
