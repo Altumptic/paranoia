@@ -166,6 +166,8 @@ export interface DesktopBridge {
   openDialog(): Promise<string | null>;
   pdbDialog(): Promise<string | null>;
   info(): Promise<{ version: string; engine: string; electron: string; platform: string }>;
+  /** `process.platform` of the shell, available before the first paint. */
+  platform: string;
   reveal(path: string): Promise<void>;
   saveDialog(defaultName: string, filters: { name: string; extensions: string[] }[]): Promise<string | null>;
   writeText(path: string, text: string): Promise<void>;

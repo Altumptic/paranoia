@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("paranoia", {
   openDialog: () => ipcRenderer.invoke("dialog:open"),
   pdbDialog: () => ipcRenderer.invoke("dialog:pdb"),
   info: () => ipcRenderer.invoke("app:info"),
+  // Known before the first paint, so the title bar can reserve room for the traffic lights.
+  platform: process.platform,
   reveal: (p) => ipcRenderer.invoke("app:reveal", p),
   saveDialog: (name, filters) => ipcRenderer.invoke("dialog:save", name, filters),
   writeText: (p, text) => ipcRenderer.invoke("file:write-text", p, text),
