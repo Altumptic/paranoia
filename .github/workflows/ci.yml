@@ -20,7 +20,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu-24.04-arm: the AArch64 decoder and pseudocode are tested on real ARM64 binaries
+        # and the engine is built and tested natively there (the debugger is x86-64 only).
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,6 +87,27 @@ jobs:
       - name: npm advisories
         working-directory: apps/desktop
         run: node ../../scripts/npm-audit-gate.mjs
+
+  # Version numbers (Cargo.toml, Cargo.lock, package.json and its lockfile) must agree, and on
+  # a tag the tag must match them and the CHANGELOG must have its section. docs/RELEASING.md.
+  release-metadata:
+    name: Release metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: node --test scripts/release.test.mjs
+      - name: Versions agree
+        run: node scripts/release.mjs check
+      - name: Tag matches the files and the changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release.mjs check --tag "$TAG"
 
   # The command-line tool for Linux and macOS, built natively on each platform. Linux builds
   # are static (musl), so they run on any distribution. Pure Rust, no C toolchain needed.
@@ -341,6 +364,34 @@ jobs:
               *) echo "expected an x86_64 engine, got: $arch"; exit 1 ;;
             esac
           fi
+      # A real launch: start the packaged app, open a file in it, and check from outside (over the
+      # DevTools protocol) that the bridge, the packaged engine and the version are right, that
+      # the three panels and a function list appear, and that nothing threw. Skipped for the
+      # Intel macOS package, which the Apple Silicon runner cannot run.
+      - name: Libraries for a headless Linux window
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgbm1 libnss3 libasound2t64 libgtk-3-0t64 libxss1
+      - name: Launch the packaged app
+        if: matrix.run_engine
+        shell: bash
+        run: |
+          version=$(node -p 'require("./apps/desktop/package.json").version')
+          sample=target/release/paranoia-engine
+          [ "${{ matrix.platform }}" = "win" ] && sample=$sample.exe
+          cmd=(node scripts/smoke-app.mjs --dir "apps/desktop/out/${{ matrix.app_dir }}" --file "$sample" --version "$version" --shot "$RUNNER_TEMP/launch-${{ matrix.name }}.png")
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            xvfb-run -a "${cmd[@]}" --no-sandbox
+          else
+            "${cmd[@]}"
+          fi
+      - name: Screenshot of the launched app
+        if: always() && matrix.run_engine
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: launch-${{ matrix.name }}
+          path: ${{ runner.temp }}/launch-${{ matrix.name }}.png
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.name }}
@@ -358,7 +409,7 @@ jobs:
   publish:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [engine, frontend, audit, cli, cli-windows, desktop]
+    needs: [engine, frontend, audit, release-metadata, cli, cli-windows, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write # upload release assets
@@ -385,6 +436,13 @@ jobs:
           merge-multiple: true
       - name: List release files
         run: ls -l release
+      # The notes are the CHANGELOG section plus the download table and verification steps.
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/release.mjs notes --tag "$TAG" --out "$RUNNER_TEMP/NOTES.md"
+          cat "$RUNNER_TEMP/NOTES.md"
       - name: Checksums
         shell: bash
         run: |
@@ -456,8 +514,14 @@ jobs:
             release/*.dmg
             release/*.zip
           sbom-path: release/paranoia-${{ github.ref_name }}-npm.cdx.json
+      # A tag with a suffix (v0.10.0-rc.1) is a release candidate: marked pre-release and never
+      # "latest", so the in-app update check and the Releases page keep pointing at the last release.
       - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
+          name: Paranoia ${{ github.ref_name }}
+          body_path: ${{ runner.temp }}/NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           files: |
             release/*.exe
             release/*.tar.gz
