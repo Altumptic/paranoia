@@ -14,7 +14,10 @@
     "test": "node --test electron/plugins.test.cjs electron/ai.test.cjs electron/policy.test.cjs",
     "app": "npm run build && electron .",
     "app:dev": "node ../../scripts/dev-desktop.mjs",
-    "dist": "npm run wasm && npm run engine && npm run build && electron-builder --win --publish never"
+    "dist": "npm run dist:win",
+    "dist:win": "npm run wasm && npm run engine && npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run wasm && npm run engine && npm run build && electron-builder --linux --publish never",
+    "dist:mac": "npm run wasm && npm run engine && npm run build && electron-builder --mac --publish never"
   },
   "devDependencies": {
     "@dagrejs/dagre": "^1.1.8",
@@ -37,7 +40,7 @@
   },
   "description": "Paranoia — open-source reverse engineering platform",
   "author": "Paranoia contributors",
-  "homepage": "https://github.com/paranoia-re/paranoia",
+  "homepage": "https://github.com/Altumptic/paranoia",
   "main": "electron/main.cjs",
   "build": {
     "appId": "app.paranoia.desktop",
@@ -52,12 +55,6 @@
       "electron/**/*",
       "!electron/**/*.test.cjs",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "../../target/release/paranoia-engine.exe",
-        "to": "engine/paranoia-engine.exe"
-      }
     ],
     "asar": true,
     "win": {
@@ -86,7 +83,13 @@
           "sha256"
         ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
-      }
+      },
+      "extraResources": [
+        {
+          "from": "../../target/release/paranoia-engine.exe",
+          "to": "engine/paranoia-engine.exe"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -106,7 +109,12 @@
         "AppImage",
         "deb"
       ],
+      "icon": "build/icon.png",
       "category": "Development",
+      "executableName": "paranoia",
+      "maintainer": "Paranoia contributors <thefear078@gmail.com>",
+      "synopsis": "Local-first reverse-engineering tool for PE, ELF and Mach-O",
+      "artifactName": "Paranoia-${version}-linux-${arch}.${ext}",
       "extraResources": [
         {
           "from": "../../target/release/paranoia-engine",
@@ -114,8 +122,21 @@
         }
       ]
     },
+    "deb": {
+      "packageName": "paranoia",
+      "packageCategory": "devel"
+    },
     "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
+      "artifactName": "Paranoia-${version}-mac-${arch}.${ext}",
+      "binaries": [
+        "Contents/Resources/engine/paranoia-engine"
+      ],
       "extraResources": [
         {
           "from": "../../target/release/paranoia-engine",

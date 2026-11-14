@@ -4,6 +4,22 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+### Added
+- Desktop builds for Linux and macOS in the tag workflow, next to Windows: AppImage and `.deb` for x64 and ARM64, `.dmg` and `.zip` for Apple silicon and Intel. One publish job now collects every platform and hashes, signs and attests the whole release. The first tagged release after this change is the verification; macOS stays ad-hoc signed until a Developer ID exists (PSB-EX-5).
+- Ready-made signatures built into the engine: the MSVC x64 static CRT (4 664 signatures), the Rust standard library (580) and musl libc (1 023), generated from public toolchains by `scripts/build-sigpack.mjs` and re-measured by CI. On programs they were not built from they name 53 %, 85 % and 91 % of the relevant library functions at ≥99 % precision. Go needs no pack: its function table already names stripped Go binaries. See [docs/SIGNATURES.md](docs/SIGNATURES.md).
+- `bench/`: a reproducible decompiler benchmark against Ghidra on real binaries (Go, Rust and Windows PE; ground truth from the Go pclntab, COFF symbols and PE exports), with the raw JSON committed. The first published run covers 13 binaries, 23 085 functions and 3 393 sampled decompilations; [docs/BENCHMARK.md](docs/BENCHMARK.md) has the numbers, the failures and the gaps it found.
+- `paranoia mcp --redact-ips`: tool answers replace IPv4/IPv6 literals with `<ip#N>` and count them with string redactions in the disclosure ledger. `paranoia ledger` reports the combined count.
+- AI assistant privacy: opt-in hiding of the file's strings (`<str#N len=L>`, `aRedactedN`) and IP-like numbers (`<ip#N>`), applied in the main process before the prompt leaves; every request and answer is recorded in a hash-chained `assistant-ledger.jsonl` in the app's data folder, and the request is withheld if it cannot be recorded.
+- Function memory now carries the local struct and enum declarations a remembered function's typed variables need: recalling a known function restores `MY_STRUCT *` variables and their `->field` accesses instead of plain integers. A type the file already defines wins and old knowledge bases load unchanged. Function prototypes are not carried yet (the model has no user-set signature).
+- [docs/CASE-STUDIES.md](docs/CASE-STUDIES.md): three reproducible walk-throughs — a stripped Go binary, an MSVC `/MT` binary and a real fzf version diff — with commands and SHA-256 hashes.
+
+### Changed
+- Minimum Rust version 1.82 → 1.88 (gimli 0.32 → 0.34, required by the DWARF reader).
+- Linux and macOS data folders documented; release, verification and signing docs updated for the new packages.
+
+### Security
+- macOS builds are ad-hoc signed and not notarised while there is no Developer ID; recorded as PSB-EX-5, with the Gatekeeper limitation stated in the README.
+
 ## 0.8.0 — 2026-11-12
 
 ### Added
