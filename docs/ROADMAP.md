@@ -118,8 +118,8 @@ Moved to the next releases: redaction of symbol and function names on request. S
 
 The first published run names its own weaknesses ([BENCHMARK.md](BENCHMARK.md)); these are the concrete follow-ups, in order:
 
-- [ ] Import the COFF symbol table that GNU ld leaves in PE images. Rust PE naming is 5.6 % against Ghidra's 33.8 %; the fix is in the loader, not the decompiler
-- [ ] 32-bit PE function discovery: `comctl32` yields 380 functions against Ghidra's 1 883, and PE32 has no `.pdata` to seed the recursive descent
+- [x] Import the COFF symbol table that GNU ld leaves in PE images: GNU-linked Rust PE naming went from 5.6 % to 84.2 % (Ghidra 83.7 % on the same files)
+- [x] 32-bit PE function discovery: a scan for prologues and relocation targets takes `comctl32` from 380 to 1 913 functions (Ghidra 1 883) and agrees with Ghidra on five system DLLs at about 98 % both ways
 - [ ] A correctness metric for decompiled C (differential execution or round-trip recompilation), not just coverage
 - [ ] A larger, less PE-heavy corpus, later including a malware corpus published as hashes
 

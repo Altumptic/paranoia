@@ -115,7 +115,7 @@ export interface Edge {
   kind: EdgeKind;
 }
 
-export type FunctionSource = "entry" | "export" | "symbol" | "exceptiontable" | "call" | "user";
+export type FunctionSource = "entry" | "export" | "symbol" | "exceptiontable" | "call" | "scan" | "user";
 
 export interface FunctionSummary {
   address: number;

@@ -227,6 +227,23 @@ impl Binary {
         edges
     }
 
+    /// Tail calls: jumps from one function straight to another function's start, or through an
+    /// import slot (`jmp [__imp_X]`), as (jumping function's start, target). Sorted and without
+    /// duplicates; a jump to the function's own start (a loop) is not one.
+    pub fn tail_call_edges(&self) -> Vec<(u64, u64)> {
+        let Some(a) = &self.analysis else { return Vec::new() };
+        let mut edges: Vec<(u64, u64)> = a
+            .xrefs
+            .iter()
+            .filter(|(target, _)| a.by_start.contains_key(target) || self.import_slots.contains_key(target))
+            .flat_map(|(target, refs)| refs.iter().filter(|r| r.kind == XrefKind::Jump).map(move |r| (r.from, *target)))
+            .filter_map(|(from, target)| a.function_containing(from).filter(|f| f.address != target).map(|f| (f.address, target)))
+            .collect();
+        edges.sort_unstable();
+        edges.dedup();
+        edges
+    }
+
     /// Defines a function at `va` (IDA's `P`) and re-runs auto-analysis.
     pub fn make_function(&mut self, va: u64) -> Result<(), String> {
         if !self.is_executable(va) {

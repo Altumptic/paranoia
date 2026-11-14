@@ -34,6 +34,40 @@ fn windows_pe64() {
     }
 }
 
+/// A 32-bit PE has no `.pdata`: functions come from calls, exports, and the scan for prologues and
+/// relocation targets. The scan must add functions, and every one it adds must be real code that
+/// starts where nothing else already covers.
+#[test]
+fn pe32_scan_adds_functions_that_decode() {
+    use paranoia_core::model::FunctionSource;
+    let Some((p, b)) = sample(&["C:/Windows/SysWOW64/notepad.exe"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    bin.analyze();
+    let all = bin.functions();
+    let scanned: Vec<_> = all.iter().filter(|f| f.source == FunctionSource::Scan).collect();
+    assert!(scanned.len() >= 100, "{p}: the scan found only {} functions", scanned.len());
+    assert!(all.len() > 500, "{p}: only {} functions in total", all.len());
+    let mut starts = std::collections::HashSet::new();
+    for f in &all {
+        assert!(starts.insert(f.address), "{p}: function {:#x} listed twice", f.address);
+    }
+    for f in scanned {
+        // The `push ebp` after a hot-patch `mov edi, edi` belongs to the function that starts there.
+        if let Ok(before) = bin.disassemble(f.address - 2, 1) {
+            let text =
+                |i: &paranoia_core::Instruction| format!("{} {}", i.mnemonic, i.operands.iter().map(|t| t.t.as_str()).collect::<String>());
+            assert!(
+                !(before[0].size == 2 && text(&before[0]) == "mov edi, edi"),
+                "{p}: {:#x} is the second half of a hot-patch prologue",
+                f.address
+            );
+        }
+        let insns = bin.disassemble(f.address, 4).unwrap();
+        assert!(insns.iter().all(|i| i.mnemonic != "db"), "{p}: scan function {:#x} starts with undecodable bytes", f.address);
+        assert!(f.instructions >= 1 && f.blocks >= 1, "{p}: scan function {:#x} has no code", f.address);
+    }
+}
+
 #[test]
 fn windows_pe32() {
     if let Some((p, b)) = sample(&["C:/Windows/SysWOW64/notepad.exe"]) {

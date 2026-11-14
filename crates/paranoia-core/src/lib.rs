@@ -22,6 +22,7 @@ pub mod api;
 mod asm_x86;
 mod demangle;
 pub mod disasm;
+mod discover;
 mod dwarf;
 mod flirt_sig;
 mod frame;
@@ -170,6 +171,8 @@ pub struct Binary {
     ssa_facts: bool,
     /// 32-bit ARM: where ARM / Thumb code starts (`true` = Thumb); see `loader::fix_arm_thumb`.
     arm_modes: BTreeMap<u64, bool>,
+    /// Relocation targets from the loader (see `discover`).
+    code_pointers: Vec<u64>,
     call_args: HashMap<u64, HashMap<u64, Vec<Option<String>>>>,
     /// Result types harvested when a caller stores a known-typed variable from a call
     /// (callee address → C type). Same runtime-cache rules as `call_args`.
@@ -184,6 +187,7 @@ impl Binary {
             loader::fix_arm_thumb(&mut loaded, format);
         }
         let arm_modes: BTreeMap<u64, bool> = loaded.arm_modes.iter().copied().collect();
+        let code_pointers = std::mem::take(&mut loaded.pointers);
         let slice = loaded.slice.unwrap_or((0, bytes.len()));
         let data = &bytes[slice.0..slice.0 + slice.1];
 
@@ -299,8 +303,9 @@ impl Binary {
                         seeds.push(Seed { address: f.entry, source: FunctionSource::Symbol, end: (f.end > f.entry).then_some(f.end) });
                         added += 1;
                     }
-                    if !f.name.starts_with("go_func_") && !static_names.contains_key(&f.entry) {
-                        static_names.insert(f.entry, f.name.clone());
+                    // The function table is what the Go runtime prints, so its spelling wins over a
+                    // symbol table's (`.abi0` suffixes): a function has one name, stripped or not.
+                    if !f.name.starts_with("go_func_") && static_names.insert(f.entry, f.name.clone()).as_ref() != Some(&f.name) {
                         names += 1;
                     }
                 }
@@ -338,6 +343,7 @@ impl Binary {
             ssa_vars: true,
             ssa_facts: true,
             arm_modes,
+            code_pointers,
             call_args: HashMap::new(),
             ret_types: HashMap::new(),
         })
@@ -437,15 +443,26 @@ impl Binary {
                     Arch::X86_64 => 64,
                     _ => 0,
                 };
-                let r = analysis::run(
-                    &Source(self),
-                    &mut dis,
-                    &seeds,
-                    &skip,
-                    matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb | Arch::RiscV | Arch::Mips | Arch::PowerPc),
-                    bits,
-                );
+                let arm = matches!(self.info.arch, Arch::Arm64 | Arch::Arm | Arch::Thumb | Arch::RiscV | Arch::Mips | Arch::PowerPc);
+                let mut r = analysis::run(&Source(self), &mut dis, &seeds, &skip, arm, bits);
                 learned = dis.take_learned_modes();
+                // Code nothing points at: scan what the descent left uncovered, analyse again with
+                // what the scan found, and repeat while it finds more.
+                for _ in 0..discover::MAX_ROUNDS {
+                    let known: HashSet<u64> = seeds.iter().map(|s| s.address).collect();
+                    let found: Vec<Seed> = self
+                        .scan_function_starts(&r)
+                        .into_iter()
+                        .filter(|a| !known.contains(a) && !skip.contains(a))
+                        .map(|address| Seed { address, source: FunctionSource::Scan, end: None })
+                        .collect();
+                    if found.is_empty() {
+                        break;
+                    }
+                    seeds.extend(found);
+                    let mut dis = Disassembler::with_mode(self.info.arch, self.info.bits, self.info.endian == Endian::Big);
+                    r = analysis::run(&Source(self), &mut dis, &seeds, &skip, arm, bits);
+                }
                 r
             } else {
                 Analysis::default()

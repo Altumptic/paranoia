@@ -259,6 +259,8 @@ pub enum FunctionSource {
     Symbol,
     ExceptionTable,
     Call,
+    /// Found by scanning uncovered code for a prologue or a relocation target.
+    Scan,
     User,
 }
 

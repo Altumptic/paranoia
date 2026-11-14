@@ -704,11 +704,12 @@ the gaps that remain, quoting the project's own measured results where they exis
   typed-variable work shown for x86/x64 covers scalars, locals and pointer fields,
   not class hierarchies. [ROADMAP.md](ROADMAP.md) lists C++ decompilation as out
   of scope; AArch64 pseudocode is experimental.
-- **Symbol recovery gaps.** The benchmark measures what is missing: GNU COFF
-  symbols in Rust PE binaries are not imported (5.6 % named vs Ghidra's 33.8 %),
-  and PE32 function discovery finds 380 functions in `comctl32` where Ghidra finds
-  1 883. Those are the cases where IDA/Ghidra's loaders still do more of the work.
-  See the tables in [BENCHMARK.md](BENCHMARK.md).
+- **Symbol recovery.** The benchmark measured two gaps against Ghidra and they are
+  closed: GNU COFF symbols in Rust PE binaries are read (84.2 % named, Ghidra
+  83.7 %), and 32-bit PE function discovery finds 1 913 functions in `comctl32`
+  where Ghidra finds 1 883 (it found 380 before). What remains is what a
+  heuristic scan cannot know: functions reached only through data it can't
+  resolve. See [BENCHMARK.md](BENCHMARK.md).
 - **Hard targets.** Packed/obfuscated binaries, JIT code, cross-architecture
   firmware and raw images are on the roadmap as future work; the decompiler
   covers x86/x64, with AArch64 experimental, and other architectures have

@@ -109,7 +109,8 @@ export async function loadOrRun({ repoRoot, binaryPath, sha256, workDir, force =
     const records = readJsonl(jsonlPath).filter((r) => r.kind === 'function');
     const inventory = JSON.parse(fs.readFileSync(inventoryPath, 'utf8'));
     const callsByAddr = new Map();
-    for (const [from, to] of inventory.result?.calls ?? []) {
+    // Tail calls (`jmp` to another function or an import) read as calls in the decompiled C.
+    for (const [from, to] of [...(inventory.result?.calls ?? []), ...(inventory.result?.tail_calls ?? [])]) {
         if (!callsByAddr.has(from)) callsByAddr.set(from, []);
         callsByAddr.get(from).push({ addr: to });
     }

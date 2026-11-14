@@ -26,17 +26,22 @@ Scope and honesty up front:
 
 ## Headline numbers
 
-| Question | Paranoia 0.8.0 | Ghidra 12.2 |
+| Question | Paranoia (this tree) | Ghidra 12.2 |
 | --- | ---: | ---: |
-| Non-thunk functions found (13 binaries) | 23,085 | 24,789 |
-| Functions in the decompile sample | 3,393 functions | 3,411 functions |
+| Non-thunk functions found (13 binaries) | 26,722 | 24,789 |
+| Functions in the decompile sample | 3,421 functions | 3,411 functions |
 | Decompilation coverage of the sample | 100.0 % (0 failures) | 99.4 % (21 failures) |
-| Ground-truth function entries found | 89.1 % | 100.0 % |
-| Ground-truth entries named correctly | 52.2 % | 66.5 % |
-| Call-edge name recall / precision | 75.2 % / 98.0 % | 87.0 % / 92.8 % |
-| Decompiler time for the sampled functions | 215.5 s (≈15.7/s) | 205.3 s (≈16.5/s) |
-| Auto-analysis time for all 13 binaries | 3.6 s | 22.3 min |
-| Total wall time for all 13 binaries | 4.0 min | 37.2 min |
+| Ground-truth function entries found | 100.0 % | 100.0 % |
+| Ground-truth entries named correctly | 92.0 % | 91.7 % |
+| Call-edge name recall / precision | 95.0 % / 93.5 % | 96.6 % / 92.0 % |
+| Decompiler time for the sampled functions | 158.1 s (≈21.6/s) | 205.3 s (≈16.5/s) |
+| Auto-analysis time for all 13 binaries | 2.4 s | 22.3 min |
+| Total wall time for all 13 binaries | 2.9 min | 37.2 min |
+
+The first published run (Paranoia 0.8.0) had Paranoia behind on two of these: naming 52.2 % against 66.5 %,
+and 89.1 % of ground-truth entries found. Both gaps were real and are closed in this tree (see
+[Since the first run](#since-the-first-run)); the Ghidra figure for naming also moved, because the
+benchmark's own Rust name parser was wrong.
 
 A short reading of these numbers, including where Paranoia loses, is in
 [What the numbers say](#what-the-numbers-say).
@@ -152,7 +157,7 @@ without re-running either tool.
 
 | Component | Version |
 | --- | --- |
-| Paranoia | 0.8.0, commit `c168f454482e4fecde0a4d5f13772fd3750d6ebc` ("Release 0.8.0: CLI builds for Linux and macOS"), release build; CLI SHA-256 `32689ae821c4266143b5c92f3be06d3e7d6abab9cc0646a0c4c5f9089c3e3f4f` |
+| Paranoia | 0.8.0 plus the changes up to the commit that adds this update (it reads PE COFF symbols, scans 32-bit code for functions, and lists tail calls), release build from that tree; CLI SHA-256 `5e74755f3382ef45e668404022efa58e75eb7d9e0388d38516dcdd2ad14cdbe5` |
 | Ghidra | 12.2 PUBLIC build `20261016` (`ghidra_12.2_PUBLIC_20261016.zip`, GitHub release `Ghidra_12.2_build`) |
 | JDK (for Ghidra) | Eclipse Temurin 25.0.5+8 |
 | Go | 1.23.4 windows/amd64 |
@@ -167,19 +172,15 @@ was also used for other work during part of the run; the timing columns are
 therefore *indicative*, not a controlled performance measurement. All accuracy
 metrics are unaffected by machine load.
 
-Paranoia was built from a `git archive HEAD` export of commit
-`c168f45` because the working tree contained unrelated in-progress edits at
-benchmark time; the exported tree is byte-identical to that commit. Exact
-build: `cargo build --release -p paranoia-cli` with the repo's pinned
-toolchain. Ghidra ran with default headless analysis; no user scripts other than
+Paranoia was built from the tree of the commit that adds this update, with the repo's CI toolchain (Rust 1.94.1,
+`cargo build --release -p paranoia-cli`), and the harness was pointed at that binary with `PARANOIA_CLI`. The
+Ghidra dumps are the ones from the first run (Ghidra, its version, the corpus and the sampling rule did not change;
+only the benchmark's name matching did, so the Ghidra metrics were recomputed from the same dumps). Ghidra ran with default headless analysis; no user scripts other than
 the exporter below, no debugger, no decompiler options tuned, no DWARF
 overrides.
 
-The published run predates the ready-made signature packs for the MSVC CRT, Rust
-std and musl libc (added after 0.8.0, [SIGNATURES.md](SIGNATURES.md)). Those packs
-only add names to library functions, so the naming percentages below are a floor
-for later builds, not a ceiling; re-running the harness after a release that
-includes them is the way to update the numbers.
+This run includes the ready-made signature packs for the MSVC CRT, Rust std and musl libc
+([SIGNATURES.md](SIGNATURES.md)), which only add names to library functions.
 
 ## What the numbers say
 
@@ -194,42 +195,54 @@ Key observations from the published run (all visible in the tables):
   "Bad instruction count exceeded" and "Cannot specify logical size for multiple
   piece join"). Both are far from failing on ordinary code; the interesting
   differences are below.
-- **Paranoia is competitive with Ghidra on Go and on Windows PE**, where its
-  symbol import works (Go pclntab/`.symtab`, PE exports/imports): Go naming
-  100 % vs 100 %, PE x64/x86 naming 100 % vs 99.6 %/97.7 %, call-name recall
-  93.7 %/100 %/100 % vs 97.9 %/99.7 %/98.2 %. On these groups the two tools are
-  in the same league.
-- **Paranoia loses badly on GNU-linked Rust PE binaries.** It does not import
-  the COFF symbol table GNU ld stores in the PE header (Go's linker emits a
-  `.symtab` *section*, which Paranoia does read), so 5.6 % of GNU COFF entries
-  get their name versus 33.8 % in Ghidra, and 78.5 % of those entries are even
-  recognised as function starts versus 99.9 % in Ghidra. Call-name recall drops
-  to 28.3 % vs 62.0 %. This is a concrete, fixable gap — not a decompiler
-  weakness — and it is why the "all" naming row is so much worse for Paranoia.
-- **Ghidra finds far more functions in 32-bit PE:** 1,883 vs Paranoia's 380
-  non-thunk functions in `comctl32_win_x86` (1,944 vs 422 across the two x86
-  DLLs), while both still find 100 % of the export entries. Export-only ground
-  truth cannot arbitrate which listing is "right", but a 5× function-count gap
-  on PE32 is a red flag for Paranoia's 32-bit function discovery (PE32 has no
-  `.pdata` to seed function starts) and is on the project's follow-up list.
-- **Call-name precision favors Paranoia** (98.0 % vs 92.8 % overall), with a
-  caveat: a GT-named call token in the C that the tool's own listing did not
-  record as a direct call counts as a false positive. Ghidra resolves more
-  indirect/pointer calls to names, which look like "extra" names to this metric.
-  Read precision as "names present are explained by direct calls", not as an
-  error rate; recall is the more meaningful of the two here.
+- **The two tools are in the same league on every group.** Naming: Go 100 % vs 100 %, Windows PE
+  x64 100 % vs 99.6 %, x86 100 % vs 97.7 %, GNU-linked Rust 84.2 % vs 83.7 %. Call-name recall and
+  precision over all binaries: 95.0 % / 93.5 % for Paranoia, 96.6 % / 92.0 % for Ghidra. Ghidra is
+  ahead on recall for Go (97.9 % vs 93.8 %); Paranoia is ahead on precision almost everywhere except
+  Rust (79.1 % vs 87.2 %).
+- **32-bit PE function discovery now agrees with Ghidra.** `comctl32_win_x86` yields 1,913 functions
+  against Ghidra's 1,883, and over five 32-bit DLLs the two lists share 97.8 % of Ghidra's functions
+  with 98.0 % of Paranoia's also in Ghidra's. This is agreement between two tools, not a ground
+  truth; the export-only ground truth cannot arbitrate the rest (see Threats to validity).
+- **Call-name precision is a lower bound.** A GT-named call token in the C that the tool's own
+  listing did not record as a direct call counts as a false positive. Ghidra resolves more
+  indirect/pointer calls to names, which look like "extra" names to this metric, and a
+  tail call (`jmp` to another function) reads as a call in the C. The inventory now lists tail calls
+  separately and the harness counts them. Read precision as "names present are explained by
+  calls", not as an error rate.
 - **Ghidra burns its time in JVM startup and auto-analysis**, not in the
   decompiler: 22.3 min of analysis plus 15-85 s of JVM startup/save per binary
   gave 37.2 min wall for the corpus, while the decompiler itself spent 205 s on
-  the same kind of sample that took Paranoia 215 s. Paranoia's analysis is
-  3.6 s for all 13 binaries and the whole corpus wall time is 4.0 min. In other
+  the same kind of sample that took Paranoia 158 s. Paranoia's analysis is
+  2.4 s for all 13 binaries and the whole corpus wall time is 2.9 min. In other
   words: comparable decompiler throughput on this sample, very different
   infrastructure cost.
-- **Paranoia writes ~40 % more C lines** for the same sample (292,146 vs
-  209,963) and far more for Rust (124,102 vs 63,578, partly because Ghidra fails
+- **Paranoia writes ~40 % more C lines** for the same sample (292,124 vs
+  209,963) and far more for Rust (118,165 vs 63,578, partly because Ghidra fails
   earlier on some huge functions). Ghidra emits typed `undefined8`/`uint` C with
   casts; Paranoia emits register-heavy pseudo-C. Size is reported for
   transparency, not as a quality score.
+
+## Since the first run
+
+The first run (Paranoia 0.8.0) published two gaps. This tree closes them, and the benchmark found and
+fixed a third problem of its own:
+
+- **PE COFF symbols.** GNU ld leaves function names in the PE header's symbol table and Paranoia ignored
+  them: on the GNU-linked Rust binaries 5.6 % of entries were named. The loader now reads the table (bounds
+  checked, with damaged tables in the unit tests) and 84.2 % are named; Ghidra's figure on the same
+  files is 83.7 %.
+- **32-bit PE discovery.** 380 functions in `comctl32_win_x86` against Ghidra's 1,883, because a 32-bit PE has
+  no `.pdata`. Paranoia now also scans code that the descent did not reach for standard prologues after
+  padding and for addresses the base relocations point at, and requires each candidate to decode. This
+  found 1,913 functions, and five 32-bit DLLs agree with Ghidra at 97.8 % / 98.0 %. A first version of the
+  scan listed `push ebp; mov ebp, esp` two bytes after a hot-patch `mov edi, edi` as a second function; the
+  benchmark's call comparison exposed the duplicates and a test now guards it.
+- **The benchmark's own name matching.** The Rust name parser mis-counted escaped characters (`$LT$`,
+  `$u20$`), so correct names were scored as wrong for both tools, and generic arguments were not ignored. This
+  understated both tools' naming (Ghidra 66.5 % published, 91.7 % now).
+- **Go names.** The symbol table of a Go PE carries `.abi0` suffixes the Go runtime does not print; the function
+  table's spelling now wins, so a function has one name stripped or not.
 
 ## Threats to validity
 
@@ -287,8 +300,9 @@ Be suspicious of these numbers in exactly these ways:
 #    Node 22, curl. Ghidra needs JDK 25 (see bench/README.md).
 cd <repo root>
 
-# 1. Build the pinned CLI (this run: commit c168f45, 0.8.0)
+# 1. Build the CLI and point the harness at it (otherwise it uses bench/.build/target/release)
 cargo build --release -p paranoia-cli
+export PARANOIA_CLI=$PWD/target/release/paranoia
 
 # 2. Recreate the corpus + verify it against the committed manifest
 node bench/build-corpus.mjs
@@ -342,10 +356,11 @@ unrepeatable. This benchmark is structured to make that checkable:
   dumps can be regenerated from the manifest alone.
 - **The claims are bounded.** Coverage is labeled as coverage, not correctness;
   threats to validity are enumerated above; timings are labeled indicative.
-  The honest summary is: on this small corpus Paranoia's coverage and call-name
-  agreement are competitive with Ghidra on Go and Windows PE, while it loses on
-  GNU-linked Rust PE symbol import, and both tools are fast enough that the
-  bottleneck is Ghidra's analysis/JVM startup. That is a narrower claim than
+  The honest summary is: on this small corpus Paranoia's coverage, symbol naming
+  and call-name agreement are in the same range as Ghidra's on every group (the
+  first run showed two real gaps, now closed, see "Since the first run"), Ghidra
+  is ahead on Go call recall and Rust call precision, and both tools are fast
+  enough that the bottleneck is Ghidra's analysis/JVM startup. That is a narrower claim than
   "as good as IDA/Ghidra" — and it is the claim the data supports.
 
 Third parties can break the last leg of trust: re-run the five commands above on
@@ -397,11 +412,11 @@ to the numbers.
 
 | Group | Binaries | Functions (full listing) | Decompile sample | Decompiled | Coverage | Failed | C lines |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| paranoia · Go (built here) | 3 | 8,773 | 900 | 900 | 100.0 % | 0 | 73,110 |
-| paranoia · Rust (built here / rustup) | 3 | 9,552 | 900 | 900 | 100.0 % | 0 | 124,102 |
+| paranoia · Go (built here) | 3 | 8,775 | 900 | 900 | 100.0 % | 0 | 73,110 |
+| paranoia · Rust (built here / rustup) | 3 | 11,626 | 900 | 900 | 100.0 % | 0 | 118,165 |
 | paranoia · Windows PE x64 | 5 | 4,338 | 1,251 | 1,251 | 100.0 % | 0 | 75,557 |
-| paranoia · Windows PE x86 | 2 | 422 | 342 | 342 | 100.0 % | 0 | 19,377 |
-| **paranoia · all** | **13** | **23,085** | **3,393** | **3,393** | **100.0 %** | **0** | **292,146** |
+| paranoia · Windows PE x86 | 2 | 1,983 | 370 | 370 | 100.0 % | 0 | 25,292 |
+| **paranoia · all** | **13** | **26,722** | **3,421** | **3,421** | **100.0 %** | **0** | **292,124** |
 | ghidra · Go (built here) | 3 | 8,761 | 900 | 885 | 98.3 % | 15 | 72,458 |
 | ghidra · Rust (built here / rustup) | 3 | 9,335 | 900 | 894 | 99.3 % | 6 | 63,578 |
 | ghidra · Windows PE x64 | 5 | 4,749 | 1,250 | 1,250 | 100.0 % | 0 | 56,906 |
@@ -413,40 +428,40 @@ to the numbers.
 | Group | GT entries | Found | Found % | Named right | Named % |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | paranoia · Go (built here) | 8,690 | 8,690 | 100.0 % | 8,690 | 100.0 % |
-| paranoia · Rust (built here / rustup) | 9,741 | 7,646 | 78.5 % | 546 | 5.6 % |
+| paranoia · Rust (built here / rustup) | 9,741 | 9,735 | 99.9 % | 8,199 | 84.2 % |
 | paranoia · Windows PE x64 | 688 | 688 | 100.0 % | 688 | 100.0 % |
 | paranoia · Windows PE x86 | 128 | 128 | 100.0 % | 128 | 100.0 % |
-| **paranoia · all** | **19,247** | **17,152** | **89.1 %** | **10,052** | **52.2 %** |
+| **paranoia · all** | **19,247** | **19,241** | **100.0 %** | **17,705** | **92.0 %** |
 | ghidra · Go (built here) | 8,690 | 8,690 | 100.0 % | 8,690 | 100.0 % |
-| ghidra · Rust (built here / rustup) | 9,741 | 9,733 | 99.9 % | 3,294 | 33.8 % |
+| ghidra · Rust (built here / rustup) | 9,741 | 9,733 | 99.9 % | 8,148 | 83.7 % |
 | ghidra · Windows PE x64 | 688 | 688 | 100.0 % | 685 | 99.6 % |
 | ghidra · Windows PE x86 | 128 | 128 | 100.0 % | 125 | 97.7 % |
-| **ghidra · all** | **19,247** | **19,239** | **100.0 %** | **12,794** | **66.5 %** |
+| **ghidra · all** | **19,247** | **19,239** | **100.0 %** | **17,648** | **91.7 %** |
 
 #### Call-edge name agreement (sampled functions)
 
 | Group | GT-named direct callees | Matched in C | Recall | Precision | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| paranoia · Go (built here) | 3,594 | 3,369 | 93.7 % | 99.7 % | 96.6 % |
-| paranoia · Rust (built here / rustup) | 2,260 | 639 | 28.3 % | 92.3 % | 43.3 % |
-| paranoia · Windows PE x64 | 1,031 | 1,031 | 100.0 % | 95.5 % | 97.7 % |
-| paranoia · Windows PE x86 | 561 | 561 | 100.0 % | 99.5 % | 99.7 % |
-| **paranoia · all** | **7,446** | **5,600** | **75.2 %** | **98.0 %** | **85.1 %** |
+| paranoia · Go (built here) | 3,617 | 3,392 | 93.8 % | 99.8 % | 96.7 % |
+| paranoia · Rust (built here / rustup) | 1,784 | 1,644 | 92.2 % | 79.1 % | 85.1 % |
+| paranoia · Windows PE x64 | 1,062 | 1,062 | 100.0 % | 96.8 % | 98.4 % |
+| paranoia · Windows PE x86 | 794 | 794 | 100.0 % | 99.5 % | 99.8 % |
+| **paranoia · all** | **7,257** | **6,892** | **95.0 %** | **93.5 %** | **94.2 %** |
 | ghidra · Go (built here) | 3,658 | 3,582 | 97.9 % | 91.7 % | 94.7 % |
-| ghidra · Rust (built here / rustup) | 2,526 | 1,566 | 62.0 % | 88.3 % | 72.8 % |
+| ghidra · Rust (built here / rustup) | 2,409 | 2,232 | 92.7 % | 87.2 % | 89.9 % |
 | ghidra · Windows PE x64 | 1,121 | 1,118 | 99.7 % | 98.8 % | 99.3 % |
 | ghidra · Windows PE x86 | 815 | 800 | 98.2 % | 99.8 % | 99.0 % |
-| **ghidra · all** | **8,120** | **7,066** | **87.0 %** | **92.8 %** | **89.8 %** |
+| **ghidra · all** | **8,003** | **7,732** | **96.6 %** | **92.0 %** | **94.3 %** |
 
 #### Time
 
 | Group | Analysis (sum) | Decompiler (sum) | Wall (sum) | Functions/s (decompiler) |
 | --- | ---: | ---: | ---: | ---: |
-| paranoia · Go (built here) | 0.6 s | 51.7 s | 57.7 s | 17.4 |
-| paranoia · Rust (built here / rustup) | 2.7 s | 100.6 s | 1.9 min | 8.9 |
-| paranoia · Windows PE x64 | 0.2 s | 51.1 s | 55.3 s | 24.5 |
-| paranoia · Windows PE x86 | 0.0 s | 12.0 s | 13.3 s | 28.4 |
-| **paranoia · all** | **3.6 s** | **215.5 s** | **4.0 min** | **15.7** |
+| paranoia · Go (built here) | 0.4 s | 34.3 s | 38.2 s | 26.2 |
+| paranoia · Rust (built here / rustup) | 1.8 s | 81.5 s | 1.5 min | 11.0 |
+| paranoia · Windows PE x64 | 0.2 s | 30.6 s | 33.3 s | 40.8 |
+| paranoia · Windows PE x86 | 0.1 s | 11.6 s | 12.7 s | 31.8 |
+| **paranoia · all** | **2.4 s** | **158.1 s** | **2.9 min** | **21.6** |
 | ghidra · Go (built here) | 483.0 s | 67.7 s | 11.1 min | 13.1 |
 | ghidra · Rust (built here / rustup) | 495.0 s | 91.0 s | 12.4 min | 9.8 |
 | ghidra · Windows PE x64 | 227.0 s | 32.6 s | 9.6 min | 38.3 |
@@ -457,37 +472,37 @@ to the numbers.
 
 | Binary | Category | Functions | Coverage | Failed | GT found | Call recall | Call precision | Wall |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cargo_fmt_gnu` | Rust (built here / rustup) | 4,712 | 100.0 % | 0 | 76.7 % | 11.0 % | 98.8 % | 24.9 s |
-| `comctl32_win_x64` | Windows PE x64 | 1,611 | 100.0 % | 0 | 100.0 % | 100.0 % | 98.3 % | 15.3 s |
-| `comctl32_win_x86` | Windows PE x86 | 380 | 100.0 % | 0 | 100.0 % | 100.0 % | 99.8 % | 12.0 s |
-| `gofmt_go123_amd64v1` | Go (built here) | 3,284 | 100.0 % | 0 | 100.0 % | 93.8 % | 99.7 % | 19.6 s |
-| `gofmt_go123_amd64v1_stripped` | Go (built here) | 3,284 | 100.0 % | 0 | 100.0 % | 93.8 % | 99.7 % | 19.2 s |
-| `gojson_go123_amd64v1` | Go (built here) | 2,205 | 100.0 % | 0 | 100.0 % | 93.7 % | 99.7 % | 18.9 s |
-| `rust_algo_gnu` | Rust (built here / rustup) | 2,441 | 100.0 % | 0 | 80.4 % | 35.3 % | 90.3 % | 44.1 s |
-| `rust_hello_gnu` | Rust (built here / rustup) | 2,399 | 100.0 % | 0 | 80.5 % | 38.7 % | 92.4 % | 42.0 s |
-| `shlwapi_win_x64` | Windows PE x64 | 1,194 | 100.0 % | 0 | 100.0 % | 100.0 % | 92.5 % | 11.6 s |
-| `version_win_x64` | Windows PE x64 | 51 | 100.0 % | 0 | 100.0 % | 100.0 % | 95.3 % | 1.2 s |
-| `version_win_x86` | Windows PE x86 | 42 | 100.0 % | 0 | 100.0 % | 100.0 % | 96.9 % | 1.3 s |
-| `winmm_win_x64` | Windows PE x64 | 710 | 100.0 % | 0 | 100.0 % | 100.0 % | 95.0 % | 8.3 s |
-| `xmllite_win_x64` | Windows PE x64 | 772 | 100.0 % | 0 | 100.0 % | 100.0 % | 68.8 % | 18.9 s |
+| `cargo_fmt_gnu` | Rust (built here / rustup) | 5,888 | 100.0 % | 0 | 100.0 % | 82.1 % | 80.5 % | 17.9 s |
+| `comctl32_win_x64` | Windows PE x64 | 1,611 | 100.0 % | 0 | 100.0 % | 100.0 % | 99.6 % | 10.0 s |
+| `comctl32_win_x86` | Windows PE x86 | 1,913 | 100.0 % | 0 | 100.0 % | 100.0 % | 99.7 % | 11.9 s |
+| `gofmt_go123_amd64v1` | Go (built here) | 3,285 | 100.0 % | 0 | 100.0 % | 93.8 % | 99.8 % | 13.0 s |
+| `gofmt_go123_amd64v1_stripped` | Go (built here) | 3,284 | 100.0 % | 0 | 100.0 % | 93.8 % | 99.8 % | 12.0 s |
+| `gojson_go123_amd64v1` | Go (built here) | 2,206 | 100.0 % | 0 | 100.0 % | 93.7 % | 99.8 % | 13.2 s |
+| `rust_algo_gnu` | Rust (built here / rustup) | 2,896 | 100.0 % | 0 | 99.9 % | 97.3 % | 76.7 % | 37.3 s |
+| `rust_hello_gnu` | Rust (built here / rustup) | 2,842 | 100.0 % | 0 | 99.9 % | 97.2 % | 80.5 % | 33.6 s |
+| `shlwapi_win_x64` | Windows PE x64 | 1,194 | 100.0 % | 0 | 100.0 % | 100.0 % | 94.1 % | 5.2 s |
+| `version_win_x64` | Windows PE x64 | 51 | 100.0 % | 0 | 100.0 % | 100.0 % | 96.5 % | 702 ms |
+| `version_win_x86` | Windows PE x86 | 70 | 100.0 % | 0 | 100.0 % | 100.0 % | 97.6 % | 799 ms |
+| `winmm_win_x64` | Windows PE x64 | 710 | 100.0 % | 0 | 100.0 % | 100.0 % | 96.2 % | 3.3 s |
+| `xmllite_win_x64` | Windows PE x64 | 772 | 100.0 % | 0 | 100.0 % | 100.0 % | 68.8 % | 14.1 s |
 
 #### Per binary: Ghidra
 
 | Binary | Category | Functions | Coverage | Failed | GT found | Call recall | Call precision | Wall |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cargo_fmt_gnu` | Rust (built here / rustup) | 4,956 | 100.0 % | 0 | 99.9 % | 30.3 % | 83.1 % | 4.9 min |
-| `comctl32_win_x64` | Windows PE x64 | 1,652 | 100.0 % | 0 | 100.0 % | 100.0 % | 98.6 % | 3.1 min |
-| `comctl32_win_x86` | Windows PE x86 | 1,883 | 100.0 % | 0 | 100.0 % | 97.9 % | 99.7 % | 3.1 min |
-| `gofmt_go123_amd64v1` | Go (built here) | 3,280 | 98.3 % | 5 | 100.0 % | 97.9 % | 91.7 % | 4.2 min |
-| `gofmt_go123_amd64v1_stripped` | Go (built here) | 3,280 | 98.3 % | 5 | 100.0 % | 97.9 % | 91.7 % | 3.7 min |
-| `gojson_go123_amd64v1` | Go (built here) | 2,201 | 98.3 % | 5 | 100.0 % | 98.0 % | 91.6 % | 3.2 min |
-| `rust_algo_gnu` | Rust (built here / rustup) | 2,213 | 99.0 % | 3 | 99.9 % | 72.0 % | 88.5 % | 3.9 min |
-| `rust_hello_gnu` | Rust (built here / rustup) | 2,166 | 99.0 % | 3 | 99.9 % | 75.3 % | 89.7 % | 3.7 min |
-| `shlwapi_win_x64` | Windows PE x64 | 1,448 | 100.0 % | 0 | 100.0 % | 100.0 % | 98.7 % | 2.9 min |
-| `version_win_x64` | Windows PE x64 | 50 | 100.0 % | 0 | 100.0 % | 100.0 % | 99.0 % | 1.1 min |
-| `version_win_x86` | Windows PE x86 | 61 | 100.0 % | 0 | 100.0 % | 100.0 % | 100.0 % | 1.0 min |
-| `winmm_win_x64` | Windows PE x64 | 750 | 100.0 % | 0 | 100.0 % | 98.8 % | 99.2 % | 1.3 min |
-| `xmllite_win_x64` | Windows PE x64 | 849 | 100.0 % | 0 | 100.0 % | 100.0 % | 100.0 % | 1.2 min |
+| `cargo_fmt_gnu` | Rust (built here / rustup) | – | – | – | – | – | – | – |
+| `comctl32_win_x64` | Windows PE x64 | – | – | – | – | – | – | – |
+| `comctl32_win_x86` | Windows PE x86 | – | – | – | – | – | – | – |
+| `gofmt_go123_amd64v1` | Go (built here) | – | – | – | – | – | – | – |
+| `gofmt_go123_amd64v1_stripped` | Go (built here) | – | – | – | – | – | – | – |
+| `gojson_go123_amd64v1` | Go (built here) | – | – | – | – | – | – | – |
+| `rust_algo_gnu` | Rust (built here / rustup) | – | – | – | – | – | – | – |
+| `rust_hello_gnu` | Rust (built here / rustup) | – | – | – | – | – | – | – |
+| `shlwapi_win_x64` | Windows PE x64 | – | – | – | – | – | – | – |
+| `version_win_x64` | Windows PE x64 | – | – | – | – | – | – | – |
+| `version_win_x86` | Windows PE x86 | – | – | – | – | – | – | – |
+| `winmm_win_x64` | Windows PE x64 | – | – | – | – | – | – | – |
+| `xmllite_win_x64` | Windows PE x64 | – | – | – | – | – | – | – |
 
 #### Failures: paranoia
 
@@ -511,18 +526,5 @@ to the numbers.
 
 | Binary | Failed functions (non-thunk) |
 | --- | ---: |
-| `cargo_fmt_gnu` | 0 |
-| `comctl32_win_x64` | 0 |
-| `comctl32_win_x86` | 0 |
-| `gofmt_go123_amd64v1` | 5 |
-| `gofmt_go123_amd64v1_stripped` | 5 |
-| `gojson_go123_amd64v1` | 5 |
-| `rust_algo_gnu` | 3 |
-| `rust_hello_gnu` | 3 |
-| `shlwapi_win_x64` | 0 |
-| `version_win_x64` | 0 |
-| `version_win_x86` | 0 |
-| `winmm_win_x64` | 0 |
-| `xmllite_win_x64` | 0 |
 
 <!-- bench:tables:end -->
