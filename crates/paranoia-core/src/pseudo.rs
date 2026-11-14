@@ -601,6 +601,12 @@ impl Binary {
         // AArch64: the C text comes from the SSA form (the line lifter below is x86 only).
         if self.info.arch == Arch::Arm64 {
             let mut lines = self.a64_c(idx, &name)?;
+            // Types set with `Y` rewrite the signature, the declarations and member access, the
+            // same way as on x86. (Types do not yet flow across calls on AArch64.)
+            if let Some(user) = self.annotations.var_types.get(&f_addr).filter(|u| !u.is_empty()) {
+                crate::pseudo_structs::split_for_types(&mut lines);
+                crate::pseudo_structs::member_access(&mut lines, &self.type_view(), user);
+            }
             if let Some(names) = self.annotations.var_names.get(&f_addr) {
                 crate::pseudo_types::apply_var_names(&mut lines, names);
             }

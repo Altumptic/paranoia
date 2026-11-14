@@ -42,7 +42,7 @@ When two things compete, they're done in this order:
 | Search | ✅ | Bytes, text, immediates |
 | Hex view, patching, assembler | ✅ | NOP/invert/force-jump on x86 and AArch64; an x86 assembler for anything else |
 | Pseudocode, x86/x64 | 🟡 | Typed variables, API constants, loops and `switch`, struct member access, types across calls. An SSA view and a second C view built from it (C·SSA) |
-| Pseudocode, AArch64 | 🟡 | Experimental, built from the SSA form. Types come from the prototypes of called libc and WinAPI functions |
+| Pseudocode, AArch64 | 🟡 | Experimental, built from the SSA form. Types come from the prototypes of called libc and WinAPI functions and from the types you set (`Y`: signature, declaration, `->field`); they do not follow calls yet |
 | Operand display (`H` `R` `B` `M`) | ✅ | Windows and POSIX enums applied to API arguments |
 | Local types, structs, enums | ✅ | C declarations; apply a struct to data |
 | Stack frames | ✅ | Same names as the pseudocode |
@@ -88,6 +88,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] C, C·SSA and SSA views for AArch64. On two Go binaries, 5 700 of 5 720 functions call the same functions as the listing
 - [ ] Check signatures against symbols on Go, Rust and clang binaries (target: 90 % right)
 - [x] Types from the prototypes of called functions: argument counts, `void` results, parameter and variable types (C·SSA on x64 and AArch64)
+- [x] Variable types you set (`Y`) apply to AArch64 pseudocode and travel with function memory; not yet across calls
 - [ ] More prototypes: Apple and Android APIs
 - [ ] A corpus of clang and Rust arm64 binaries on CI
 - [ ] Make C·SSA the default on x86/x64 once it has `else`, `while` and `switch`

@@ -32,7 +32,7 @@ Paranoia does disassembly, control-flow graphs, decompilation, debugging and scr
 - **Architectures:** x86, x86-64, AArch64, ARM32/Thumb-2, RISC-V, MIPS, PowerPC.
 - **Analysis:** functions from entry points, exports, symbols and unwind tables (so stripped ELF and Mach-O files keep their functions), Go's function table (stripped Go programs keep their functions and names), switch tables, cross references, auto names in the IDA style.
 - **Function memory:** compare two binaries (what changed, was added or removed, both versions side by side) and keep a local database of the functions you named, so their names and comments carry over to new versions and related samples — together with the struct types their variables need. Nothing leaves your machine. See [docs/FUNCTION-MEMORY.md](docs/FUNCTION-MEMORY.md).
-- **Decompiler:** x86 and x64, with typed variables, API constants, loops and `switch`, struct member access (`Y` on a variable) and types that follow calls. AArch64 is experimental.
+- **Decompiler:** x86 and x64, with typed variables, API constants, loops and `switch`, struct member access (`Y` on a variable) and types that follow calls. AArch64 is experimental: it applies your variable types and renames, but types do not follow calls there.
 - **Measured:** a reproducible benchmark compares the decompiler, symbol recovery and call-name agreement with Ghidra on real binaries, includes the failures and commits the raw results ([docs/BENCHMARK.md](docs/BENCHMARK.md)).
 - **Case studies:** three real walk-throughs — a stripped Go binary, an MSVC `/MT` binary and a version diff — with commands and hashes ([docs/CASE-STUDIES.md](docs/CASE-STUDIES.md)).
 - **Editing:** rename, comments, bookmarks, define code/data/strings, create functions, local C types, undo and redo. Everything is saved per file hash.
@@ -46,7 +46,7 @@ Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analy
 
 ## Limits
 
-- Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental: types come only from known library calls, and it has been measured on Go binaries only. Other architectures have disassembly and graphs only.
+- Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental: it has been measured on Go binaries only and tested on system programs of the CI's ARM runners. Types come from known library calls and from the types you set; they do not flow from caller to callee yet. Other architectures have disassembly and graphs only.
 - MIPS has only been tested on known instruction encodings, not on a full binary.
 - On a 32-bit PE, functions that nothing calls are found by a scan for prologues and relocation targets, not from an unwind table, so that list is a heuristic: on five system DLLs it agrees with Ghidra's at about 98 % in both directions ([docs/BENCHMARK.md](docs/BENCHMARK.md)).
 - The debugger runs local programs only. Remote debugging is planned.
