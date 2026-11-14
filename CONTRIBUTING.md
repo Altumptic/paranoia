@@ -45,7 +45,7 @@ CI runs the same checks on Windows, Linux and macOS, plus `cargo audit` and `npm
 
 ## Releases
 
-Bump `version` in the root `Cargo.toml` and in `apps/desktop/package.json`, then push a `vX.Y.Z` tag. CI builds the installer, the portable exe and the CLI, signs the checksums and attaches the SBOMs. [docs/VERIFY.md](docs/VERIFY.md) describes what a release contains.
+Releases follow [docs/RELEASING.md](docs/RELEASING.md): `node scripts/release.mjs bump X.Y.Z`, a release candidate tag (`vX.Y.Z-rc.1`), then the `vX.Y.Z` tag on the same commit. CI builds every package, signs the checksums and attaches the SBOMs and notes generated from the CHANGELOG. Add your change under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md). [docs/VERIFY.md](docs/VERIFY.md) describes what a release contains.
 
 ## Bugs and security issues
 
