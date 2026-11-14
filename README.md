@@ -107,8 +107,8 @@ More in [docs/VERIFY.md](docs/VERIFY.md).
 The command-line tool for Linux and macOS is in the same release, as `paranoia-cli-<version>-<os>-<arch>.tar.gz` (Linux x64 and ARM64, macOS ARM64 and x64), checked the same way:
 
 ```bash
-tar -xzf paranoia-cli-v0.8.0-linux-x64.tar.gz
-./paranoia-cli-v0.8.0-linux-x64/paranoia --version
+tar -xzf paranoia-cli-v0.9.0-linux-x64.tar.gz
+./paranoia-cli-v0.9.0-linux-x64/paranoia --version
 ```
 
 On macOS, the CLI binary is quarantined too because it isn't notarised; `xattr -d com.apple.quarantine paranoia` clears that after you have checked the checksum.
