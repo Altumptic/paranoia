@@ -573,7 +573,7 @@ impl Worker {
                     let len = (info.nDebugStringLength as usize).min(4096);
                     if let Some(b) = self.read_mem(info.lpDebugStringData as u64, if info.fUnicode != 0 { len * 2 } else { len }) {
                         let s = if info.fUnicode != 0 {
-                            String::from_utf16_lossy(&b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>())
+                            String::from_utf16_lossy(&b.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect::<Vec<_>>())
                         } else {
                             String::from_utf8_lossy(&b).into_owned()
                         };

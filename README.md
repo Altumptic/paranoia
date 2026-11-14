@@ -157,7 +157,7 @@ paranoia query sample.exe inventory        # JSON for other tools (docs/QUERY.md
 
 ## Building
 
-You need Rust 1.88+ and Node.js 20+.
+You need Rust 1.88+ and Node.js 20+. CI builds with Rust 1.94.1, pinned so that a new compiler's lints can't break a build on their own; the pin is moved on purpose.
 
 ```bash
 cargo build --release -p paranoia-engine -p paranoia-cli
