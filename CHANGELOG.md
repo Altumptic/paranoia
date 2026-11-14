@@ -20,6 +20,10 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 ### Security
 - macOS builds are ad-hoc signed and not notarised while there is no Developer ID; recorded as PSB-EX-5, with the Gatekeeper limitation stated in the README.
 
+### Fixed
+- macOS showed "A JavaScript error occurred in the main process" (`TypeError: win.setTitleBarOverlay is not a function`) at start-up and on every theme change: the method is documented for Windows and Linux only, and the IPC handler called it unconditionally. `policy.titleBarOverlaySupported` now gates it.
+- The title bar no longer covers the macOS traffic lights, and the command centre stays in the flow there so a narrow window cannot overlap the menus.
+
 ## 0.8.0 — 2026-11-12
 
 ### Added
