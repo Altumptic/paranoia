@@ -1,0 +1,6 @@
+# Benchmark working directories: built/copied binaries, tool dumps, Ghidra and
+# JDK installations, cached projects. Only corpus/manifest.json, the build and
+# analysis scripts, and results/*.json are committed.
+.build/
+.ghidra/
+work/

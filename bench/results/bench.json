@@ -1,0 +1,2975 @@
+{
+  "schema": "paranoia-bench/1",
+  "generatedAt": "2026-11-12T21:20:18.231Z",
+  "host": {
+    "platform": "win32",
+    "arch": "x64",
+    "release": "10.0.26200",
+    "cpus": 12,
+    "cpuModel": "12th Gen Intel(R) Core(TM) i5-12450H",
+    "totalMemGiB": 15.7
+  },
+  "jobs": 1,
+  "maxFunctions": 300,
+  "runNotes": {
+    "sampling": "decompile metrics use the first 300 non-thunk functions per binary by address; discovery/naming use the full listing",
+    "jobs": "the adapter dumps behind this file were produced with --jobs 6 (paranoia) and --jobs 3 (ghidra); the final aggregation pass used --jobs 1 with cached dumps",
+    "timing": "wall/analysis times are indicative: machine shared with other work and several tool instances ran in parallel"
+  },
+  "versions": {
+    "paranoia": {
+      "version": "paranoia 0.8.0",
+      "cli": "D:\\WorkSpace - IT\\Paranoia\\bench\\.build\\target\\release\\paranoia.exe",
+      "cliSha256": "32689ae821c4266143b5c92f3be06d3e7d6abab9cc0646a0c4c5f9089c3e3f4f",
+      "builtFrom": "git archive HEAD of the paranoia repository at benchmark time (see docs/BENCHMARK.md)"
+    },
+    "ghidra": {
+      "version": "ghidra_12.2_PUBLIC",
+      "home": "D:\\WorkSpace - IT\\Paranoia\\bench\\.ghidra\\ghidra_12.2_PUBLIC"
+    },
+    "java": {
+      "version": "25.0.5",
+      "home": "D:\\WorkSpace - IT\\Paranoia\\bench\\.ghidra\\jdk-25.0.5+8"
+    },
+    "node": "v22.14.0",
+    "corpus": {
+      "go": "go version go1.23.4 windows/amd64",
+      "goRoot": "D:\\goland",
+      "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+      "rustSysroot": "D:\\rust\\rustup\\toolchains\\stable-x86_64-pc-windows-gnu",
+      "node": "v22.14.0"
+    }
+  },
+  "corpus": {
+    "manifestSchema": "paranoia-bench-corpus/1",
+    "corpusVersion": 1,
+    "binaries": 13,
+    "note": "SHA-256 per binary is in bench/corpus/manifest.json"
+  },
+  "aggregate": {
+    "all": {
+      "binaries": 26,
+      "functions": {
+        "nonThunk": 47874,
+        "sampled": 6804,
+        "decompiled": 6783,
+        "failed": 21,
+        "coveragePct": 99.69
+      },
+      "discovery": {
+        "gtEntries": 38494,
+        "gtFound": 36391,
+        "gtFoundPct": 94.54,
+        "gtNamed": 22846,
+        "gtNamedPct": 59.35
+      },
+      "calls": {
+        "expected": 15566,
+        "matched": 12666,
+        "missing": 2900,
+        "extra": 663,
+        "recallPct": 81.37,
+        "precisionPct": 95.03,
+        "f1Pct": 87.67
+      },
+      "output": {
+        "cLines": 502109,
+        "cChars": 14822300
+      },
+      "timing": {
+        "analysisMs": 1338563,
+        "decompileMs": 420797.91599999997,
+        "wallMs": 2468550.5000000005
+      }
+    },
+    "rust": {
+      "binaries": 6,
+      "functions": {
+        "nonThunk": 18887,
+        "sampled": 1800,
+        "decompiled": 1794,
+        "failed": 6,
+        "coveragePct": 99.67
+      },
+      "discovery": {
+        "gtEntries": 19482,
+        "gtFound": 17379,
+        "gtFoundPct": 89.21,
+        "gtNamed": 3840,
+        "gtNamedPct": 19.71
+      },
+      "calls": {
+        "expected": 4786,
+        "matched": 2205,
+        "missing": 2581,
+        "extra": 261,
+        "recallPct": 46.07,
+        "precisionPct": 89.42,
+        "f1Pct": 60.81
+      },
+      "output": {
+        "cLines": 187680,
+        "cChars": 5586076
+      },
+      "timing": {
+        "analysisMs": 497701,
+        "decompileMs": 191605.203,
+        "wallMs": 852872.1
+      }
+    },
+    "tool:paranoia": {
+      "binaries": 13,
+      "functions": {
+        "nonThunk": 23085,
+        "sampled": 3393,
+        "decompiled": 3393,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 19247,
+        "gtFound": 17152,
+        "gtFoundPct": 89.12,
+        "gtNamed": 10052,
+        "gtNamedPct": 52.23
+      },
+      "calls": {
+        "expected": 7446,
+        "matched": 5600,
+        "missing": 1846,
+        "extra": 114,
+        "recallPct": 75.21,
+        "precisionPct": 98,
+        "f1Pct": 85.11
+      },
+      "output": {
+        "cLines": 292146,
+        "cChars": 8060410
+      },
+      "timing": {
+        "analysisMs": 3563,
+        "decompileMs": 215450.91599999997,
+        "wallMs": 237368.3
+      }
+    },
+    "tool:paranoia:rust": {
+      "binaries": 3,
+      "functions": {
+        "nonThunk": 9552,
+        "sampled": 900,
+        "decompiled": 900,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 9741,
+        "gtFound": 7646,
+        "gtFoundPct": 78.49,
+        "gtNamed": 546,
+        "gtNamedPct": 5.61
+      },
+      "calls": {
+        "expected": 2260,
+        "matched": 639,
+        "missing": 1621,
+        "extra": 53,
+        "recallPct": 28.27,
+        "precisionPct": 92.34,
+        "f1Pct": 43.29
+      },
+      "output": {
+        "cLines": 124102,
+        "cChars": 3447916
+      },
+      "timing": {
+        "analysisMs": 2701,
+        "decompileMs": 100638.20300000001,
+        "wallMs": 111041.5
+      }
+    },
+    "system-pe-x64": {
+      "binaries": 10,
+      "functions": {
+        "nonThunk": 9087,
+        "sampled": 2501,
+        "decompiled": 2501,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 1376,
+        "gtFound": 1376,
+        "gtFoundPct": 100,
+        "gtNamed": 1373,
+        "gtNamedPct": 99.78
+      },
+      "calls": {
+        "expected": 2152,
+        "matched": 2149,
+        "missing": 3,
+        "extra": 62,
+        "recallPct": 99.86,
+        "precisionPct": 97.2,
+        "f1Pct": 98.51
+      },
+      "output": {
+        "cLines": 132463,
+        "cChars": 3620674
+      },
+      "timing": {
+        "analysisMs": 227214,
+        "decompileMs": 83687.008,
+        "wallMs": 632175.2000000001
+      }
+    },
+    "tool:paranoia:system-pe-x64": {
+      "binaries": 5,
+      "functions": {
+        "nonThunk": 4338,
+        "sampled": 1251,
+        "decompiled": 1251,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 688,
+        "gtFound": 688,
+        "gtFoundPct": 100,
+        "gtNamed": 688,
+        "gtNamedPct": 100
+      },
+      "calls": {
+        "expected": 1031,
+        "matched": 1031,
+        "missing": 0,
+        "extra": 49,
+        "recallPct": 100,
+        "precisionPct": 95.46,
+        "f1Pct": 97.68
+      },
+      "output": {
+        "cLines": 75557,
+        "cChars": 2000574
+      },
+      "timing": {
+        "analysisMs": 214,
+        "decompileMs": 51060.008,
+        "wallMs": 55336.1
+      }
+    },
+    "system-pe-x86": {
+      "binaries": 4,
+      "functions": {
+        "nonThunk": 2366,
+        "sampled": 703,
+        "decompiled": 703,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 256,
+        "gtFound": 256,
+        "gtFoundPct": 100,
+        "gtNamed": 253,
+        "gtNamedPct": 98.83
+      },
+      "calls": {
+        "expected": 1376,
+        "matched": 1361,
+        "missing": 15,
+        "extra": 5,
+        "recallPct": 98.91,
+        "precisionPct": 99.63,
+        "f1Pct": 99.27
+      },
+      "output": {
+        "cLines": 36398,
+        "cChars": 996926
+      },
+      "timing": {
+        "analysisMs": 130029,
+        "decompileMs": 26050.97,
+        "wallMs": 260695.90000000002
+      }
+    },
+    "tool:paranoia:system-pe-x86": {
+      "binaries": 2,
+      "functions": {
+        "nonThunk": 422,
+        "sampled": 342,
+        "decompiled": 342,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 128,
+        "gtFound": 128,
+        "gtFoundPct": 100,
+        "gtNamed": 128,
+        "gtNamedPct": 100
+      },
+      "calls": {
+        "expected": 561,
+        "matched": 561,
+        "missing": 0,
+        "extra": 3,
+        "recallPct": 100,
+        "precisionPct": 99.47,
+        "f1Pct": 99.73
+      },
+      "output": {
+        "cLines": 19377,
+        "cChars": 534599
+      },
+      "timing": {
+        "analysisMs": 29,
+        "decompileMs": 12023.97,
+        "wallMs": 13281.699999999999
+      }
+    },
+    "go": {
+      "binaries": 6,
+      "functions": {
+        "nonThunk": 17534,
+        "sampled": 1800,
+        "decompiled": 1785,
+        "failed": 15,
+        "coveragePct": 99.17
+      },
+      "discovery": {
+        "gtEntries": 17380,
+        "gtFound": 17380,
+        "gtFoundPct": 100,
+        "gtNamed": 17380,
+        "gtNamedPct": 100
+      },
+      "calls": {
+        "expected": 7252,
+        "matched": 6951,
+        "missing": 301,
+        "extra": 335,
+        "recallPct": 95.85,
+        "precisionPct": 95.4,
+        "f1Pct": 95.63
+      },
+      "output": {
+        "cLines": 145568,
+        "cChars": 4618624
+      },
+      "timing": {
+        "analysisMs": 483619,
+        "decompileMs": 119454.735,
+        "wallMs": 722807.2999999999
+      }
+    },
+    "tool:paranoia:go": {
+      "binaries": 3,
+      "functions": {
+        "nonThunk": 8773,
+        "sampled": 900,
+        "decompiled": 900,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 8690,
+        "gtFound": 8690,
+        "gtFoundPct": 100,
+        "gtNamed": 8690,
+        "gtNamedPct": 100
+      },
+      "calls": {
+        "expected": 3594,
+        "matched": 3369,
+        "missing": 225,
+        "extra": 9,
+        "recallPct": 93.74,
+        "precisionPct": 99.73,
+        "f1Pct": 96.64
+      },
+      "output": {
+        "cLines": 73110,
+        "cChars": 2077321
+      },
+      "timing": {
+        "analysisMs": 619,
+        "decompileMs": 51728.735,
+        "wallMs": 57709
+      }
+    },
+    "tool:ghidra": {
+      "binaries": 13,
+      "functions": {
+        "nonThunk": 24789,
+        "sampled": 3411,
+        "decompiled": 3390,
+        "failed": 21,
+        "coveragePct": 99.38
+      },
+      "discovery": {
+        "gtEntries": 19247,
+        "gtFound": 19239,
+        "gtFoundPct": 99.96,
+        "gtNamed": 12794,
+        "gtNamedPct": 66.47
+      },
+      "calls": {
+        "expected": 8120,
+        "matched": 7066,
+        "missing": 1054,
+        "extra": 549,
+        "recallPct": 87.02,
+        "precisionPct": 92.79,
+        "f1Pct": 89.81
+      },
+      "output": {
+        "cLines": 209963,
+        "cChars": 6761890
+      },
+      "timing": {
+        "analysisMs": 1335000,
+        "decompileMs": 205347,
+        "wallMs": 2231182.1999999997
+      }
+    },
+    "tool:ghidra:rust": {
+      "binaries": 3,
+      "functions": {
+        "nonThunk": 9335,
+        "sampled": 900,
+        "decompiled": 894,
+        "failed": 6,
+        "coveragePct": 99.33
+      },
+      "discovery": {
+        "gtEntries": 9741,
+        "gtFound": 9733,
+        "gtFoundPct": 99.92,
+        "gtNamed": 3294,
+        "gtNamedPct": 33.82
+      },
+      "calls": {
+        "expected": 2526,
+        "matched": 1566,
+        "missing": 960,
+        "extra": 208,
+        "recallPct": 62,
+        "precisionPct": 88.28,
+        "f1Pct": 72.84
+      },
+      "output": {
+        "cLines": 63578,
+        "cChars": 2138160
+      },
+      "timing": {
+        "analysisMs": 495000,
+        "decompileMs": 90967,
+        "wallMs": 741830.6
+      }
+    },
+    "tool:ghidra:system-pe-x64": {
+      "binaries": 5,
+      "functions": {
+        "nonThunk": 4749,
+        "sampled": 1250,
+        "decompiled": 1250,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 688,
+        "gtFound": 688,
+        "gtFoundPct": 100,
+        "gtNamed": 685,
+        "gtNamedPct": 99.56
+      },
+      "calls": {
+        "expected": 1121,
+        "matched": 1118,
+        "missing": 3,
+        "extra": 13,
+        "recallPct": 99.73,
+        "precisionPct": 98.85,
+        "f1Pct": 99.29
+      },
+      "output": {
+        "cLines": 56906,
+        "cChars": 1620100
+      },
+      "timing": {
+        "analysisMs": 227000,
+        "decompileMs": 32627,
+        "wallMs": 576839.1000000001
+      }
+    },
+    "tool:ghidra:system-pe-x86": {
+      "binaries": 2,
+      "functions": {
+        "nonThunk": 1944,
+        "sampled": 361,
+        "decompiled": 361,
+        "failed": 0,
+        "coveragePct": 100
+      },
+      "discovery": {
+        "gtEntries": 128,
+        "gtFound": 128,
+        "gtFoundPct": 100,
+        "gtNamed": 125,
+        "gtNamedPct": 97.66
+      },
+      "calls": {
+        "expected": 815,
+        "matched": 800,
+        "missing": 15,
+        "extra": 2,
+        "recallPct": 98.16,
+        "precisionPct": 99.75,
+        "f1Pct": 98.95
+      },
+      "output": {
+        "cLines": 17021,
+        "cChars": 462327
+      },
+      "timing": {
+        "analysisMs": 130000,
+        "decompileMs": 14027,
+        "wallMs": 247414.2
+      }
+    },
+    "tool:ghidra:go": {
+      "binaries": 3,
+      "functions": {
+        "nonThunk": 8761,
+        "sampled": 900,
+        "decompiled": 885,
+        "failed": 15,
+        "coveragePct": 98.33
+      },
+      "discovery": {
+        "gtEntries": 8690,
+        "gtFound": 8690,
+        "gtFoundPct": 100,
+        "gtNamed": 8690,
+        "gtNamedPct": 100
+      },
+      "calls": {
+        "expected": 3658,
+        "matched": 3582,
+        "missing": 76,
+        "extra": 326,
+        "recallPct": 97.92,
+        "precisionPct": 91.66,
+        "f1Pct": 94.69
+      },
+      "output": {
+        "cLines": 72458,
+        "cChars": 2541303
+      },
+      "timing": {
+        "analysisMs": 483000,
+        "decompileMs": 67726,
+        "wallMs": 665098.2999999999
+      }
+    }
+  },
+  "binaries": [
+    {
+      "id": "cargo_fmt_gnu",
+      "category": "rust",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 3847302,
+      "gtSource": "coff-symbols",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 4712,
+          "sampled": 300,
+          "thunks": 166,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 5086,
+          "gtFoundPct": 76.74,
+          "gtNamedPct": 3.62,
+          "callRecallPct": 11.01,
+          "callPrecisionPct": 98.82,
+          "expectedEdges": 763,
+          "matchedEdges": 84,
+          "cLines": 25357,
+          "cChars": 666577,
+          "wallMs": 24919.9,
+          "analysisMs": 1130,
+          "decompileMs": 20379.623,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x140001010",
+              "name": "sub_140001010",
+              "expected": 5,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001180",
+              "name": "sub_140001180",
+              "expected": 12,
+              "matched": 8
+            },
+            {
+              "entry": "0x1400013d0",
+              "name": "sub_1400013D0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400013f0",
+              "name": "start",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001450",
+              "name": "sub_140001450",
+              "expected": 3,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400014a0",
+              "name": "sub_1400014A0",
+              "expected": 3,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400014f0",
+              "name": "sub_1400014F0",
+              "expected": 3,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001540",
+              "name": "sub_140001540",
+              "expected": 8,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001a60",
+              "name": "sub_140001A60",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001c50",
+              "name": "sub_140001C50",
+              "expected": 4,
+              "matched": 2
+            },
+            {
+              "entry": "0x140001fa0",
+              "name": "sub_140001FA0",
+              "expected": 8,
+              "matched": 2
+            },
+            {
+              "entry": "0x140002c60",
+              "name": "sub_140002C60",
+              "expected": 8,
+              "matched": 2
+            },
+            {
+              "entry": "0x1400036b0",
+              "name": "sub_1400036B0",
+              "expected": 8,
+              "matched": 2
+            },
+            {
+              "entry": "0x140004340",
+              "name": "sub_140004340",
+              "expected": 8,
+              "matched": 2
+            },
+            {
+              "entry": "0x140004970",
+              "name": "sub_140004970",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004d40",
+              "name": "sub_140004D40",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004dd0",
+              "name": "sub_140004DD0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004f40",
+              "name": "sub_140004F40",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004fc0",
+              "name": "sub_140004FC0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005130",
+              "name": "sub_140005130",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400051b0",
+              "name": "sub_1400051B0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005320",
+              "name": "sub_140005320",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400053b0",
+              "name": "sub_1400053B0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005520",
+              "name": "sub_140005520",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400055b0",
+              "name": "sub_1400055B0",
+              "expected": 1,
+              "matched": 0
+            }
+          ]
+        },
+        "ghidra": {
+          "functions": 4956,
+          "sampled": 300,
+          "thunks": 171,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 5086,
+          "gtFoundPct": 99.92,
+          "gtNamedPct": 21.65,
+          "callRecallPct": 30.34,
+          "callPrecisionPct": 83.06,
+          "expectedEdges": 679,
+          "matchedEdges": 206,
+          "cLines": 23056,
+          "cChars": 815529,
+          "wallMs": 291253.5,
+          "analysisMs": 206000,
+          "decompileMs": 21829,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x140001180",
+              "name": "__tmainCRTStartup",
+              "expected": 14,
+              "matched": 13
+            },
+            {
+              "entry": "0x140001450",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 3,
+              "matched": 1
+            },
+            {
+              "entry": "0x1400014a0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 3,
+              "matched": 1
+            },
+            {
+              "entry": "0x1400014f0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 3,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001540",
+              "name": "<alloc[9e164c9bfeb997e1]::collections::btree::dedup_sorted_iter::DedupSortedIter<&alloc[9e164c9bfeb997e1]::string::String,alloc[9e164c9bfeb997e1]::collections::btree::set_val::SetValZST,core[c837da1e27180748]::iter::adapters::map::Map<alloc[9e164c9bfeb997e1]::vec::into_iter::IntoIter<&alloc[9e164c9bfeb997e1]::string::String>,<alloc[9e164c9bfeb997e1]::collections::btree::set::BTreeSet<&alloc[9e164c9bfeb997e1]::string::String>>::from_sorted_iter<alloc[9e164c9bfeb997e1]::vec::into_iter::IntoIter<&alloc[9e164c9bfeb997e1]::string::String>>::{closure#0}>>,alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 8,
+              "matched": 4
+            },
+            {
+              "entry": "0x140001a60",
+              "name": "<<alloc[9e164c9bfeb997e1]::collections::btree::map::entry::OccupiedEntry<&alloc[9e164c9bfeb997e1]::string::String,alloc[9e164c9bfeb997e1]::collections::btree::set_val::SetValZST>>::remove_kv::{closure#0},alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001c50",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x140001fa0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global,<alloc[9e164c9bfeb997e1]::collections::btree::map::entry::VacantEntry<cargo_fmt[1457944032e3ae46]::Target,alloc[9e164c9bfeb997e1]::collections::btree::set_val::SetValZST>>::insert_entry::{closure#0}>",
+              "expected": 8,
+              "matched": 6
+            },
+            {
+              "entry": "0x140002c60",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global,<alloc[9e164c9bfeb997e1]::collections::btree::map::entry::VacantEntry<alloc[9e164c9bfeb997e1]::string::String,alloc[9e164c9bfeb997e1]::collections::btree::set_val::SetValZST>>::insert_entry::{closure#0}>",
+              "expected": 8,
+              "matched": 6
+            },
+            {
+              "entry": "0x1400036b0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global,<alloc[9e164c9bfeb997e1]::collections::btree::map::entry::VacantEntry<&cargo_metadata[8b8d384b50e58bf8]::Edition,alloc[9e164c9bfeb997e1]::vec::Vec<&std[ab7ac10af2ddb94f]::path::PathBuf>>>::insert_entry::{closure#0}>",
+              "expected": 8,
+              "matched": 6
+            },
+            {
+              "entry": "0x140004340",
+              "name": "<<alloc[9e164c9bfeb997e1]::collections::btree::map::entry::OccupiedEntry<&alloc[9e164c9bfeb997e1]::string::String,alloc[9e164c9bfeb997e1]::collections::btree::set_val::SetValZST>>::remove_kv::{closure#0},alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 8,
+              "matched": 4
+            },
+            {
+              "entry": "0x140004d40",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004dd0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004f40",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004fc0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005130",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400051b0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005320",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400053b0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005520",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400055b0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005720",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400057a0",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005910",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140005990",
+              "name": "<alloc[9e164c9bfeb997e1]::alloc::Global>",
+              "expected": 1,
+              "matched": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "comctl32_win_x64",
+      "category": "system-pe-x64",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 742904,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 1611,
+          "sampled": 300,
+          "thunks": 3,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 114,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 98.28,
+          "expectedEdges": 458,
+          "matchedEdges": 458,
+          "cLines": 19192,
+          "cChars": 533822,
+          "wallMs": 15305.6,
+          "analysisMs": 111,
+          "decompileMs": 14264.443,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 1652,
+          "sampled": 300,
+          "thunks": 43,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 114,
+          "gtFoundPct": 100,
+          "gtNamedPct": 97.37,
+          "callRecallPct": 100,
+          "callPrecisionPct": 98.57,
+          "expectedEdges": 413,
+          "matchedEdges": 413,
+          "cLines": 14054,
+          "cChars": 393907,
+          "wallMs": 187817.1,
+          "analysisMs": 114000,
+          "decompileMs": 10342,
+          "failureSamples": [],
+          "missingCallSamples": []
+        }
+      }
+    },
+    {
+      "id": "comctl32_win_x86",
+      "category": "system-pe-x86",
+      "format": "pe",
+      "arch": "x86",
+      "size": 584664,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 380,
+          "sampled": 300,
+          "thunks": 0,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 113,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 99.8,
+          "expectedEdges": 498,
+          "matchedEdges": 498,
+          "cLines": 17361,
+          "cChars": 484682,
+          "wallMs": 12019.3,
+          "analysisMs": 26,
+          "decompileMs": 11320.372,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 1883,
+          "sampled": 300,
+          "thunks": 29,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 113,
+          "gtFoundPct": 100,
+          "gtNamedPct": 97.35,
+          "callRecallPct": 97.94,
+          "callPrecisionPct": 99.72,
+          "expectedEdges": 729,
+          "matchedEdges": 714,
+          "cLines": 15057,
+          "cChars": 411175,
+          "wallMs": 187362.6,
+          "analysisMs": 116000,
+          "decompileMs": 12315,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x10004efc",
+              "name": "FUN_10004efc",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x10004f40",
+              "name": "FUN_10004f40",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x10005420",
+              "name": "AddMRUStringW",
+              "expected": 5,
+              "matched": 4
+            },
+            {
+              "entry": "0x10005950",
+              "name": "FUN_10005950",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x100077f0",
+              "name": "FUN_100077f0",
+              "expected": 9,
+              "matched": 7
+            },
+            {
+              "entry": "0x10007c7f",
+              "name": "FUN_10007c7f",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x10008023",
+              "name": "FUN_10008023",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x100087f6",
+              "name": "FUN_100087f6",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x100099f9",
+              "name": "FUN_100099f9",
+              "expected": 31,
+              "matched": 30
+            },
+            {
+              "entry": "0x1000be7d",
+              "name": "FUN_1000be7d",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x1000c389",
+              "name": "FUN_1000c389",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1000d06f",
+              "name": "FUN_1000d06f",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x1000d674",
+              "name": "FUN_1000d674",
+              "expected": 21,
+              "matched": 20
+            },
+            {
+              "entry": "0x1000dc2d",
+              "name": "FUN_1000dc2d",
+              "expected": 1,
+              "matched": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gofmt_go123_amd64v1",
+      "category": "go",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 4520960,
+      "gtSource": "go-pclntab",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 3284,
+          "sampled": 300,
+          "thunks": 0,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 3254,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 93.79,
+          "callPrecisionPct": 99.73,
+          "expectedEdges": 1175,
+          "matchedEdges": 1102,
+          "cLines": 23956,
+          "cChars": 679301,
+          "wallMs": 19584.1,
+          "analysisMs": 255,
+          "decompileMs": 17235.22,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x404ec0",
+              "name": "runtime.init.0",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x404f20",
+              "name": "runtime.(*mspan).setUserArenaChunkToFault",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x4053e0",
+              "name": "runtime.cgocallbackg",
+              "expected": 12,
+              "matched": 11
+            },
+            {
+              "entry": "0x405a80",
+              "name": "runtime.makechan",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x405c80",
+              "name": "runtime.chansend",
+              "expected": 18,
+              "matched": 17
+            },
+            {
+              "entry": "0x406ac0",
+              "name": "runtime.chanrecv",
+              "expected": 22,
+              "matched": 21
+            },
+            {
+              "entry": "0x408040",
+              "name": "runtime.debugCallWrap.func1",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x4088a0",
+              "name": "runtime.gogetenv",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x40a0e0",
+              "name": "runtime.panicwrap",
+              "expected": 13,
+              "matched": 12
+            },
+            {
+              "entry": "0x40ad80",
+              "name": "runtime.itabAdd",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x40c040",
+              "name": "runtime.unreachableMethod",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x40c080",
+              "name": "runtime.(*lfstack).push",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40c1e0",
+              "name": "runtime.lfnodeValidate",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40c300",
+              "name": "runtime.lock2",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40c560",
+              "name": "runtime.unlock2",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40c660",
+              "name": "runtime.notewakeup",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x40c6e0",
+              "name": "runtime.notesleep",
+              "expected": 5,
+              "matched": 4
+            },
+            {
+              "entry": "0x40c820",
+              "name": "runtime.notetsleep_internal",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40caa0",
+              "name": "runtime.notetsleep",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40cb20",
+              "name": "runtime.notetsleepg",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x40cc20",
+              "name": "runtime.mallocinit",
+              "expected": 10,
+              "matched": 9
+            },
+            {
+              "entry": "0x40cfa0",
+              "name": "runtime.(*mheap).sysAlloc",
+              "expected": 17,
+              "matched": 16
+            },
+            {
+              "entry": "0x40d760",
+              "name": "runtime.sysReserveAligned",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40d940",
+              "name": "runtime.(*mcache).nextFree",
+              "expected": 10,
+              "matched": 9
+            },
+            {
+              "entry": "0x40dca0",
+              "name": "runtime.profilealloc",
+              "expected": 4,
+              "matched": 3
+            }
+          ]
+        },
+        "ghidra": {
+          "functions": 3280,
+          "sampled": 300,
+          "thunks": 3,
+          "coveragePct": 98.33,
+          "failed": 5,
+          "gtEntries": 3254,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 97.9,
+          "callPrecisionPct": 91.68,
+          "expectedEdges": 1193,
+          "matchedEdges": 1168,
+          "cLines": 24241,
+          "cChars": 870976,
+          "wallMs": 250934.9,
+          "analysisMs": 190000,
+          "decompileMs": 21060,
+          "failureSamples": [
+            {
+              "entry": "0x407a80",
+              "name": "runtime.GOMAXPROCS",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x4123c0",
+              "name": "runtime.progToPointerMask",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x4176c0",
+              "name": "runtime.gcStart.func1",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x417c20",
+              "name": "runtime.gcMarkDone.func2",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x41b0a0",
+              "name": "runtime.markroot.func1",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            }
+          ],
+          "missingCallSamples": [
+            {
+              "entry": "0x4055e0",
+              "name": "runtime.cgocallbackg1",
+              "expected": 9,
+              "matched": 7
+            },
+            {
+              "entry": "0x407a80",
+              "name": "runtime.GOMAXPROCS",
+              "expected": 5,
+              "matched": 0
+            },
+            {
+              "entry": "0x408200",
+              "name": "runtime.debugCallWrap2",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x4123c0",
+              "name": "runtime.progToPointerMask",
+              "expected": 6,
+              "matched": 0
+            },
+            {
+              "entry": "0x4176c0",
+              "name": "runtime.gcStart.func1",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x417c20",
+              "name": "runtime.gcMarkDone.func2",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x41b0a0",
+              "name": "runtime.markroot.func1",
+              "expected": 7,
+              "matched": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gofmt_go123_amd64v1_stripped",
+      "category": "go",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 2978304,
+      "gtSource": "go-pclntab",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 3284,
+          "sampled": 300,
+          "thunks": 0,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 3254,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 93.79,
+          "callPrecisionPct": 99.73,
+          "expectedEdges": 1175,
+          "matchedEdges": 1102,
+          "cLines": 23956,
+          "cChars": 679299,
+          "wallMs": 19234,
+          "analysisMs": 213,
+          "decompileMs": 17196.958,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x404ec0",
+              "name": "runtime.init.0",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x404f20",
+              "name": "runtime.(*mspan).setUserArenaChunkToFault",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x4053e0",
+              "name": "runtime.cgocallbackg",
+              "expected": 12,
+              "matched": 11
+            },
+            {
+              "entry": "0x405a80",
+              "name": "runtime.makechan",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x405c80",
+              "name": "runtime.chansend",
+              "expected": 18,
+              "matched": 17
+            },
+            {
+              "entry": "0x406ac0",
+              "name": "runtime.chanrecv",
+              "expected": 22,
+              "matched": 21
+            },
+            {
+              "entry": "0x408040",
+              "name": "runtime.debugCallWrap.func1",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x4088a0",
+              "name": "runtime.gogetenv",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x40a0e0",
+              "name": "runtime.panicwrap",
+              "expected": 13,
+              "matched": 12
+            },
+            {
+              "entry": "0x40ad80",
+              "name": "runtime.itabAdd",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x40c040",
+              "name": "runtime.unreachableMethod",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x40c080",
+              "name": "runtime.(*lfstack).push",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40c1e0",
+              "name": "runtime.lfnodeValidate",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40c300",
+              "name": "runtime.lock2",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40c560",
+              "name": "runtime.unlock2",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40c660",
+              "name": "runtime.notewakeup",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x40c6e0",
+              "name": "runtime.notesleep",
+              "expected": 5,
+              "matched": 4
+            },
+            {
+              "entry": "0x40c820",
+              "name": "runtime.notetsleep_internal",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40caa0",
+              "name": "runtime.notetsleep",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40cb20",
+              "name": "runtime.notetsleepg",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x40cc20",
+              "name": "runtime.mallocinit",
+              "expected": 10,
+              "matched": 9
+            },
+            {
+              "entry": "0x40cfa0",
+              "name": "runtime.(*mheap).sysAlloc",
+              "expected": 17,
+              "matched": 16
+            },
+            {
+              "entry": "0x40d760",
+              "name": "runtime.sysReserveAligned",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40d940",
+              "name": "runtime.(*mcache).nextFree",
+              "expected": 10,
+              "matched": 9
+            },
+            {
+              "entry": "0x40dca0",
+              "name": "runtime.profilealloc",
+              "expected": 4,
+              "matched": 3
+            }
+          ]
+        },
+        "ghidra": {
+          "functions": 3280,
+          "sampled": 300,
+          "thunks": 3,
+          "coveragePct": 98.33,
+          "failed": 5,
+          "gtEntries": 3254,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 97.9,
+          "callPrecisionPct": 91.68,
+          "expectedEdges": 1193,
+          "matchedEdges": 1168,
+          "cLines": 22995,
+          "cChars": 769292,
+          "wallMs": 222926.3,
+          "analysisMs": 161000,
+          "decompileMs": 22102,
+          "failureSamples": [
+            {
+              "entry": "0x407a80",
+              "name": "runtime.GOMAXPROCS",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x4123c0",
+              "name": "runtime.progToPointerMask",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x4176c0",
+              "name": "runtime.gcStart.func1",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x417c20",
+              "name": "runtime.gcMarkDone.func2",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x41b0a0",
+              "name": "runtime.markroot.func1",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            }
+          ],
+          "missingCallSamples": [
+            {
+              "entry": "0x4055e0",
+              "name": "runtime.cgocallbackg1",
+              "expected": 9,
+              "matched": 7
+            },
+            {
+              "entry": "0x407a80",
+              "name": "runtime.GOMAXPROCS",
+              "expected": 5,
+              "matched": 0
+            },
+            {
+              "entry": "0x408200",
+              "name": "runtime.debugCallWrap2",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x4123c0",
+              "name": "runtime.progToPointerMask",
+              "expected": 6,
+              "matched": 0
+            },
+            {
+              "entry": "0x4176c0",
+              "name": "runtime.gcStart.func1",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x417c20",
+              "name": "runtime.gcMarkDone.func2",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x41b0a0",
+              "name": "runtime.markroot.func1",
+              "expected": 7,
+              "matched": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gojson_go123_amd64v1",
+      "category": "go",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 2818048,
+      "gtSource": "go-pclntab",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 2205,
+          "sampled": 300,
+          "thunks": 0,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 2182,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 93.65,
+          "callPrecisionPct": 99.74,
+          "expectedEdges": 1244,
+          "matchedEdges": 1165,
+          "cLines": 25198,
+          "cChars": 718721,
+          "wallMs": 18890.9,
+          "analysisMs": 151,
+          "decompileMs": 17296.557,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x404b80",
+              "name": "runtime.init.0",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x404be0",
+              "name": "runtime.(*mspan).setUserArenaChunkToFault",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x4050a0",
+              "name": "runtime.cgocallbackg",
+              "expected": 12,
+              "matched": 11
+            },
+            {
+              "entry": "0x405740",
+              "name": "runtime.makechan",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x405940",
+              "name": "runtime.chansend",
+              "expected": 18,
+              "matched": 17
+            },
+            {
+              "entry": "0x406780",
+              "name": "runtime.chanrecv",
+              "expected": 22,
+              "matched": 21
+            },
+            {
+              "entry": "0x407780",
+              "name": "runtime.debugCallWrap.func1",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x407fe0",
+              "name": "runtime.gogetenv",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x409820",
+              "name": "runtime.panicwrap",
+              "expected": 13,
+              "matched": 12
+            },
+            {
+              "entry": "0x40a2e0",
+              "name": "runtime.itabAdd",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x40b540",
+              "name": "runtime.unreachableMethod",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x40b580",
+              "name": "runtime.(*lfstack).push",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40b6e0",
+              "name": "runtime.lfnodeValidate",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40b800",
+              "name": "runtime.lock2",
+              "expected": 8,
+              "matched": 7
+            },
+            {
+              "entry": "0x40ba60",
+              "name": "runtime.unlock2",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40bb60",
+              "name": "runtime.notewakeup",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x40bbe0",
+              "name": "runtime.notesleep",
+              "expected": 5,
+              "matched": 4
+            },
+            {
+              "entry": "0x40bd20",
+              "name": "runtime.notetsleep_internal",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40bfa0",
+              "name": "runtime.notetsleep",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40c020",
+              "name": "runtime.notetsleepg",
+              "expected": 6,
+              "matched": 5
+            },
+            {
+              "entry": "0x40c120",
+              "name": "runtime.mallocinit",
+              "expected": 10,
+              "matched": 9
+            },
+            {
+              "entry": "0x40c4a0",
+              "name": "runtime.(*mheap).sysAlloc",
+              "expected": 17,
+              "matched": 16
+            },
+            {
+              "entry": "0x40cc60",
+              "name": "runtime.sysReserveAligned",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x40ce40",
+              "name": "runtime.(*mcache).nextFree",
+              "expected": 10,
+              "matched": 9
+            },
+            {
+              "entry": "0x40d1a0",
+              "name": "runtime.profilealloc",
+              "expected": 4,
+              "matched": 3
+            }
+          ]
+        },
+        "ghidra": {
+          "functions": 2201,
+          "sampled": 300,
+          "thunks": 3,
+          "coveragePct": 98.33,
+          "failed": 5,
+          "gtEntries": 2182,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 97.96,
+          "callPrecisionPct": 91.62,
+          "expectedEdges": 1272,
+          "matchedEdges": 1246,
+          "cLines": 25222,
+          "cChars": 901035,
+          "wallMs": 191237.1,
+          "analysisMs": 132000,
+          "decompileMs": 24564,
+          "failureSamples": [
+            {
+              "entry": "0x4071c0",
+              "name": "runtime.GOMAXPROCS",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x411c00",
+              "name": "runtime.progToPointerMask",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x416f00",
+              "name": "runtime.gcStart.func1",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x417460",
+              "name": "runtime.gcMarkDone.func2",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            },
+            {
+              "entry": "0x41a880",
+              "name": "runtime.markroot.func1",
+              "reason": "Low-level Error: Cannot specify logical size for multiple piece join"
+            }
+          ],
+          "missingCallSamples": [
+            {
+              "entry": "0x4052a0",
+              "name": "runtime.cgocallbackg1",
+              "expected": 9,
+              "matched": 7
+            },
+            {
+              "entry": "0x4071c0",
+              "name": "runtime.GOMAXPROCS",
+              "expected": 5,
+              "matched": 0
+            },
+            {
+              "entry": "0x407940",
+              "name": "runtime.debugCallWrap2",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x411c00",
+              "name": "runtime.progToPointerMask",
+              "expected": 6,
+              "matched": 0
+            },
+            {
+              "entry": "0x416f00",
+              "name": "runtime.gcStart.func1",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x417460",
+              "name": "runtime.gcMarkDone.func2",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x41a880",
+              "name": "runtime.markroot.func1",
+              "expected": 7,
+              "matched": 0
+            },
+            {
+              "entry": "0x41c3a0",
+              "name": "runtime.gcDrain",
+              "expected": 10,
+              "matched": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "rust_algo_gnu",
+      "category": "rust",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 2128626,
+      "gtSource": "coff-symbols",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 2441,
+          "sampled": 300,
+          "thunks": 163,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 2352,
+          "gtFoundPct": 80.36,
+          "gtNamedPct": 7.7,
+          "callRecallPct": 35.26,
+          "callPrecisionPct": 90.25,
+          "expectedEdges": 709,
+          "matchedEdges": 250,
+          "cLines": 50911,
+          "cChars": 1432467,
+          "wallMs": 44141.6,
+          "analysisMs": 787,
+          "decompileMs": 41136.105,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x140001010",
+              "name": "sub_140001010",
+              "expected": 5,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001180",
+              "name": "sub_140001180",
+              "expected": 12,
+              "matched": 8
+            },
+            {
+              "entry": "0x1400013d0",
+              "name": "sub_1400013D0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400013f0",
+              "name": "start",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001430",
+              "name": "sub_140001430",
+              "expected": 7,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001fc0",
+              "name": "sub_140001FC0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001ff0",
+              "name": "sub_140001FF0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002040",
+              "name": "sub_140002040",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002060",
+              "name": "sub_140002060",
+              "expected": 8,
+              "matched": 3
+            },
+            {
+              "entry": "0x140002180",
+              "name": "sub_140002180",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002260",
+              "name": "sub_140002260",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400024d0",
+              "name": "sub_1400024D0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002570",
+              "name": "sub_140002570",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002660",
+              "name": "sub_140002660",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002780",
+              "name": "sub_140002780",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002800",
+              "name": "sub_140002800",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002910",
+              "name": "sub_140002910",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002a40",
+              "name": "sub_140002A40",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002b30",
+              "name": "sub_140002B30",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002cc0",
+              "name": "sub_140002CC0",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x140003250",
+              "name": "sub_140003250",
+              "expected": 6,
+              "matched": 0
+            },
+            {
+              "entry": "0x140003370",
+              "name": "sub_140003370",
+              "expected": 4,
+              "matched": 2
+            },
+            {
+              "entry": "0x140003b30",
+              "name": "sub_140003B30",
+              "expected": 10,
+              "matched": 3
+            },
+            {
+              "entry": "0x140004980",
+              "name": "sub_140004980",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x140004b10",
+              "name": "sub_140004B10",
+              "expected": 2,
+              "matched": 0
+            }
+          ]
+        },
+        "ghidra": {
+          "functions": 2213,
+          "sampled": 300,
+          "thunks": 167,
+          "coveragePct": 99,
+          "failed": 3,
+          "gtEntries": 2352,
+          "gtFoundPct": 99.91,
+          "gtNamedPct": 46.98,
+          "callRecallPct": 71.99,
+          "callPrecisionPct": 88.52,
+          "expectedEdges": 921,
+          "matchedEdges": 663,
+          "cLines": 22467,
+          "cChars": 755030,
+          "wallMs": 231015.7,
+          "analysisMs": 147000,
+          "decompileMs": 38611,
+          "failureSamples": [
+            {
+              "entry": "0x140009180",
+              "name": "fmt",
+              "reason": "Low-level Error: Bad instruction count exceeded:\n    ...\n    No pcode could be generated at address: r0x000140011abe"
+            },
+            {
+              "entry": "0x140009c40",
+              "name": "fmt",
+              "reason": "Low-level Error: Bad instruction count exceeded:\n    ...\n    Instruction at (ram,0x00014001134b) overlaps instruction at (ram,0x00014001134a)\n"
+            },
+            {
+              "entry": "0x14000e520",
+              "name": "_create",
+              "reason": "Low-level Error: Bad instruction count exceeded:\n    ...\n    Instruction at (ram,0x000140011236) overlaps instruction at (ram,0x000140011231)\n"
+            }
+          ],
+          "missingCallSamples": [
+            {
+              "entry": "0x140001180",
+              "name": "__tmainCRTStartup",
+              "expected": 14,
+              "matched": 13
+            },
+            {
+              "entry": "0x140001430",
+              "name": "next",
+              "expected": 7,
+              "matched": 2
+            },
+            {
+              "entry": "0x140002020",
+              "name": "fmt",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002150",
+              "name": "call_once",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002160",
+              "name": "call_once",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002180",
+              "name": "drop_in_place<std::collections::hash::map::HashMap<alloc::string::String,rust_algo::Item>>",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002260",
+              "name": "drop_in_place<std::collections::hash::map::IntoValues<alloc::string::String,rust_algo::Item>>",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400024d0",
+              "name": "drop_in_place<rust_algo::Item>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002570",
+              "name": "drop_in_place<rust_algo::Weighted>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002660",
+              "name": "drop_in_place<alloc::vec::Vec<rust_algo::Item>>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002780",
+              "name": "drop_in_place<alloc::vec::Vec<alloc::string::String>>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002800",
+              "name": "drop_in_place<(alloc::string::String,rust_algo::Item)>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400028b0",
+              "name": "drop_in_place<alloc::boxed::Box<dyn_core::error::Error>>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002910",
+              "name": "drop_in_place<alloc::vec::into_iter::IntoIter<rust_algo::Item>>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002a40",
+              "name": "drop_in_place<alloc::vec::in_place_drop::InPlaceDrop<rust_algo::Item>>",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002b30",
+              "name": "hash_one",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140003250",
+              "name": "driftsort_main",
+              "expected": 6,
+              "matched": 2
+            },
+            {
+              "entry": "0x140004b10",
+              "name": "dying_next",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x140004eb0",
+              "name": "finish_grow",
+              "expected": 3,
+              "matched": 0
+            },
+            {
+              "entry": "0x140004f70",
+              "name": "do_reserve_and_handle",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x140005000",
+              "name": "fmt",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400053f0",
+              "name": "insert",
+              "expected": 4,
+              "matched": 2
+            },
+            {
+              "entry": "0x140005920",
+              "name": "fallible_with_capacity",
+              "expected": 5,
+              "matched": 3
+            },
+            {
+              "entry": "0x140005a90",
+              "name": "reserve_rehash",
+              "expected": 5,
+              "matched": 4
+            },
+            {
+              "entry": "0x140005d60",
+              "name": "reserve_rehash",
+              "expected": 5,
+              "matched": 4
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "rust_hello_gnu",
+      "category": "rust",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 2086986,
+      "gtSource": "coff-symbols",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 2399,
+          "sampled": 300,
+          "thunks": 163,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 2303,
+          "gtFoundPct": 80.46,
+          "gtNamedPct": 7.86,
+          "callRecallPct": 38.71,
+          "callPrecisionPct": 92.42,
+          "expectedEdges": 788,
+          "matchedEdges": 305,
+          "cLines": 47834,
+          "cChars": 1348872,
+          "wallMs": 41980,
+          "analysisMs": 784,
+          "decompileMs": 39122.475,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x140001010",
+              "name": "sub_140001010",
+              "expected": 5,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001180",
+              "name": "sub_140001180",
+              "expected": 12,
+              "matched": 8
+            },
+            {
+              "entry": "0x1400013d0",
+              "name": "sub_1400013D0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400013f0",
+              "name": "start",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001430",
+              "name": "sub_140001430",
+              "expected": 3,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001580",
+              "name": "sub_140001580",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400015d0",
+              "name": "sub_1400015D0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001610",
+              "name": "sub_140001610",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400016b0",
+              "name": "sub_1400016B0",
+              "expected": 3,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001710",
+              "name": "sub_140001710",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400017b0",
+              "name": "sub_1400017B0",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x140001860",
+              "name": "sub_140001860",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001920",
+              "name": "sub_140001920",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001940",
+              "name": "sub_140001940",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400019a0",
+              "name": "sub_1400019A0",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001a60",
+              "name": "sub_140001A60",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001bd0",
+              "name": "sub_140001BD0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140001d10",
+              "name": "sub_140001D10",
+              "expected": 43,
+              "matched": 7
+            },
+            {
+              "entry": "0x1400020d0",
+              "name": "sub_1400020D0",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002190",
+              "name": "sub_140002190",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002230",
+              "name": "sub_140002230",
+              "expected": 4,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002440",
+              "name": "sub_140002440",
+              "expected": 5,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002730",
+              "name": "sub_140002730",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x140002790",
+              "name": "sub_140002790",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400027d0",
+              "name": "sub_1400027D0",
+              "expected": 11,
+              "matched": 1
+            }
+          ]
+        },
+        "ghidra": {
+          "functions": 2166,
+          "sampled": 300,
+          "thunks": 167,
+          "coveragePct": 99,
+          "failed": 3,
+          "gtEntries": 2303,
+          "gtFoundPct": 99.91,
+          "gtNamedPct": 47.24,
+          "callRecallPct": 75.27,
+          "callPrecisionPct": 89.7,
+          "expectedEdges": 926,
+          "matchedEdges": 697,
+          "cLines": 18055,
+          "cChars": 567601,
+          "wallMs": 219561.4,
+          "analysisMs": 142000,
+          "decompileMs": 30527,
+          "failureSamples": [
+            {
+              "entry": "0x140001d10",
+              "name": "fmt",
+              "reason": "Low-level Error: Bad instruction count exceeded:\n    ...\n    No pcode could be generated at address: r0x000140009b44"
+            },
+            {
+              "entry": "0x1400027d0",
+              "name": "fmt",
+              "reason": "Low-level Error: Bad instruction count exceeded:\n    ...\n    Instruction at (ram,0x000140009bfb) overlaps instruction at (ram,0x000140009bf9)\n"
+            },
+            {
+              "entry": "0x1400070b0",
+              "name": "_create",
+              "reason": "Low-level Error: Bad instruction count exceeded:\n    ...\n    Instruction at (ram,0x000140009dc6) overlaps instruction at (ram,0x000140009dc1)\n"
+            }
+          ],
+          "missingCallSamples": [
+            {
+              "entry": "0x140001180",
+              "name": "__tmainCRTStartup",
+              "expected": 14,
+              "matched": 13
+            },
+            {
+              "entry": "0x140001430",
+              "name": "main",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x1400015b0",
+              "name": "fmt",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400015f0",
+              "name": "fmt",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400016b0",
+              "name": "rust_panic",
+              "expected": 3,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001860",
+              "name": "__rust_drop_panic",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x1400019a0",
+              "name": "__rust_foreign_exception",
+              "expected": 2,
+              "matched": 1
+            },
+            {
+              "entry": "0x140001d10",
+              "name": "fmt",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400020d0",
+              "name": "from",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002190",
+              "name": "from",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002230",
+              "name": "from_iter",
+              "expected": 4,
+              "matched": 1
+            },
+            {
+              "entry": "0x140002440",
+              "name": "from_iter",
+              "expected": 5,
+              "matched": 1
+            },
+            {
+              "entry": "0x1400027d0",
+              "name": "fmt",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x140002e60",
+              "name": "search_symtab",
+              "expected": 4,
+              "matched": 2
+            },
+            {
+              "entry": "0x140002f80",
+              "name": "section",
+              "expected": 5,
+              "matched": 1
+            },
+            {
+              "entry": "0x140003100",
+              "name": "mmap",
+              "expected": 9,
+              "matched": 8
+            },
+            {
+              "entry": "0x140003399",
+              "name": "with_global",
+              "expected": 43,
+              "matched": 17
+            },
+            {
+              "entry": "0x1400070b0",
+              "name": "_create",
+              "expected": 2,
+              "matched": 0
+            },
+            {
+              "entry": "0x1400077e0",
+              "name": "inner",
+              "expected": 7,
+              "matched": 6
+            },
+            {
+              "entry": "0x140007a50",
+              "name": "buffer_capacity_required",
+              "expected": 4,
+              "matched": 3
+            },
+            {
+              "entry": "0x140007fe0",
+              "name": "inner",
+              "expected": 7,
+              "matched": 4
+            },
+            {
+              "entry": "0x140008200",
+              "name": "inner",
+              "expected": 5,
+              "matched": 4
+            },
+            {
+              "entry": "0x1400083e0",
+              "name": "read_to_end",
+              "expected": 3,
+              "matched": 2
+            },
+            {
+              "entry": "0x140008520",
+              "name": "read_to_string",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x140008710",
+              "name": "path",
+              "expected": 4,
+              "matched": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shlwapi_win_x64",
+      "category": "system-pe-x64",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 440968,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 1194,
+          "sampled": 300,
+          "thunks": 226,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 373,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 92.52,
+          "expectedEdges": 235,
+          "matchedEdges": 235,
+          "cLines": 15794,
+          "cChars": 405944,
+          "wallMs": 11632.6,
+          "analysisMs": 39,
+          "decompileMs": 10462.872,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 1448,
+          "sampled": 300,
+          "thunks": 711,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 373,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 98.68,
+          "expectedEdges": 300,
+          "matchedEdges": 300,
+          "cLines": 11792,
+          "cChars": 318015,
+          "wallMs": 172406.7,
+          "analysisMs": 46000,
+          "decompileMs": 9355,
+          "failureSamples": [],
+          "missingCallSamples": []
+        }
+      }
+    },
+    {
+      "id": "version_win_x64",
+      "category": "system-pe-x64",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 55192,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 51,
+          "sampled": 51,
+          "thunks": 16,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 15,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 95.35,
+          "expectedEdges": 82,
+          "matchedEdges": 82,
+          "cLines": 2152,
+          "cChars": 56938,
+          "wallMs": 1249.5,
+          "analysisMs": 3,
+          "decompileMs": 847.08,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 50,
+          "sampled": 50,
+          "thunks": 22,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 15,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 98.95,
+          "expectedEdges": 94,
+          "matchedEdges": 94,
+          "cLines": 1838,
+          "cChars": 49294,
+          "wallMs": 68925.7,
+          "analysisMs": 13000,
+          "decompileMs": 1047,
+          "failureSamples": [],
+          "missingCallSamples": []
+        }
+      }
+    },
+    {
+      "id": "version_win_x86",
+      "category": "system-pe-x86",
+      "format": "pe",
+      "arch": "x86",
+      "size": 28976,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 42,
+          "sampled": 42,
+          "thunks": 2,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 15,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 96.92,
+          "expectedEdges": 63,
+          "matchedEdges": 63,
+          "cLines": 2016,
+          "cChars": 49917,
+          "wallMs": 1262.4,
+          "analysisMs": 3,
+          "decompileMs": 703.598,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 61,
+          "sampled": 61,
+          "thunks": 6,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 15,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 100,
+          "expectedEdges": 86,
+          "matchedEdges": 86,
+          "cLines": 1964,
+          "cChars": 51152,
+          "wallMs": 60051.6,
+          "analysisMs": 14000,
+          "decompileMs": 1712,
+          "failureSamples": [],
+          "missingCallSamples": []
+        }
+      }
+    },
+    {
+      "id": "winmm_win_x64",
+      "category": "system-pe-x64",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 240912,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 710,
+          "sampled": 300,
+          "thunks": 32,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 180,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 94.96,
+          "expectedEdges": 245,
+          "matchedEdges": 245,
+          "cLines": 12029,
+          "cChars": 314950,
+          "wallMs": 8293.8,
+          "analysisMs": 23,
+          "decompileMs": 7527.191,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 750,
+          "sampled": 300,
+          "thunks": 182,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 180,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 98.82,
+          "callPrecisionPct": 99.21,
+          "expectedEdges": 254,
+          "matchedEdges": 251,
+          "cLines": 9259,
+          "cChars": 251747,
+          "wallMs": 76834.7,
+          "analysisMs": 24000,
+          "decompileMs": 3545,
+          "failureSamples": [],
+          "missingCallSamples": [
+            {
+              "entry": "0x1800066cc",
+              "name": "FUN_1800066cc",
+              "expected": 1,
+              "matched": 0
+            },
+            {
+              "entry": "0x1800078b4",
+              "name": "FUN_1800078b4",
+              "expected": 12,
+              "matched": 11
+            },
+            {
+              "entry": "0x18000a184",
+              "name": "FUN_18000a184",
+              "expected": 2,
+              "matched": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "xmllite_win_x64",
+      "category": "system-pe-x64",
+      "format": "pe",
+      "arch": "x86_64",
+      "size": 295088,
+      "gtSource": "pe-exports",
+      "errors": null,
+      "tools": {
+        "paranoia": {
+          "functions": 772,
+          "sampled": 300,
+          "thunks": 18,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 6,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 68.75,
+          "expectedEdges": 11,
+          "matchedEdges": 11,
+          "cLines": 26390,
+          "cChars": 688920,
+          "wallMs": 18854.6,
+          "analysisMs": 38,
+          "decompileMs": 17958.422,
+          "failureSamples": [],
+          "missingCallSamples": []
+        },
+        "ghidra": {
+          "functions": 849,
+          "sampled": 300,
+          "thunks": 36,
+          "coveragePct": 100,
+          "failed": 0,
+          "gtEntries": 6,
+          "gtFoundPct": 100,
+          "gtNamedPct": 100,
+          "callRecallPct": 100,
+          "callPrecisionPct": 100,
+          "expectedEdges": 60,
+          "matchedEdges": 60,
+          "cLines": 19963,
+          "cChars": 607137,
+          "wallMs": 70854.9,
+          "analysisMs": 30000,
+          "decompileMs": 8338,
+          "failureSamples": [],
+          "missingCallSamples": []
+        }
+      }
+    }
+  ]
+}
