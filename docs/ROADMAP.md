@@ -4,9 +4,11 @@ The goal is to cover the everyday IDA Pro workflow in an open tool that runs ent
 
 ## Direction
 
-Paranoia is aimed at people who analyse files they're not allowed to upload anywhere: incident responders, malware analysts, security engineers. That means it has to work offline, be quick, and be safe to point at hostile files. Work done on one sample should not be lost on the next: function memory carries names and comments to new versions and related samples, from a database that stays on the analyst's machine. It also means that when an AI agent helps with the analysis, the analyst decides what the agent sees and can show afterwards what it saw. That's what `--redact-strings` and `--ledger` in [MCP.md](MCP.md) are for.
+Paranoia is aimed at people who analyse files they're not allowed to upload anywhere: incident responders, malware analysts, security engineers. That means it has to work offline, be quick, and be safe to point at hostile files. Work done on one sample should not be lost on the next: function memory carries names, comments and now the struct types their variables need to new versions and related samples, from a database that stays on the analyst's machine. It also means that when an AI agent helps with the analysis, the analyst decides what the agent sees and can show afterwards what it saw. That's what `--redact-strings`, `--redact-ips` and `--ledger` in [MCP.md](MCP.md) are for, and the in-app assistant follows the same rule: it can hide the file's strings and IP-like numbers from the model and records what it sent in a local disclosure ledger ([ASSISTANT.md](ASSISTANT.md)).
 
 We don't try to match IDA or Ghidra on the number of architectures or on C++ decompilation. The decompiler work concentrates on x86/x64 and AArch64, which cover Windows, Linux servers, Android and Apple silicon.
+
+Claims on this page are measured, not asserted: a reproducible benchmark compares the decompiler, symbol recovery and call-name agreement with Ghidra on real binaries, and commits the raw results and the failures ([BENCHMARK.md](BENCHMARK.md)).
 
 When two things compete, they're done in this order:
 
@@ -31,7 +33,7 @@ When two things compete, they're done in this order:
 | MIPS | ✅ | 32/64-bit, both byte orders, delay slots. Not tested on a full binary yet |
 | PowerPC | ✅ | 32/64-bit, both byte orders, common AltiVec/VSX. No pseudocode |
 | Function discovery | ✅ | Entry, exports, symbols, `.pdata`, ELF `.eh_frame_hdr`, Mach-O `LC_FUNCTION_STARTS`, Go's function table. A stripped GNU `ls` goes from 18 functions to 446 with the unwind table; a stripped Go program keeps all its functions and names |
-| Function memory | ✅ | Binary diff and a local knowledge base of named functions, with measured accuracy. See [FUNCTION-MEMORY.md](FUNCTION-MEMORY.md) |
+| Function memory | ✅ | Binary diff and a local knowledge base of named functions, with measured accuracy. Remembers the struct types its typed variables need. See [FUNCTION-MEMORY.md](FUNCTION-MEMORY.md) |
 | Switch tables | ✅ | Absolute, MSVC RVA and PIC relative tables |
 | Listing, graph, cross references | ✅ | |
 | Rename, comments, bookmarks | ✅ | Also pseudocode variables (`N` on a selected variable) |
@@ -46,12 +48,15 @@ When two things compete, they're done in this order:
 | Stack frames | ✅ | Same names as the pseudocode |
 | API prototypes | ✅ | About 250 WinAPI and libc functions |
 | FLIRT signatures | ✅ | IDA `.sig` (v5–10) and `.pat`; writes `.pat`. Referenced-function checks not used yet |
+| Ready-made signatures | ✅ | MSVC x64 static CRT (4 664), Rust std (580) and musl libc (1 023) packs built in, ≥99 % precision when measured on independent builds; Go names come from the pclntab. See [SIGNATURES.md](SIGNATURES.md) |
+| Benchmark | ✅ | Reproducible comparison with Ghidra on real binaries: coverage, naming, call-name agreement, time. Raw JSON and the failures are included. See [BENCHMARK.md](BENCHMARK.md) |
+| Case studies | ✅ | Three worked walk-throughs with commands and hashes: a stripped Go binary, an MSVC `/MT` binary and a real version diff. See [CASE-STUDIES.md](CASE-STUDIES.md) |
 | PDB, DWARF | ✅ | Names, globals, source lines, struct/union/enum types |
 | Call graph | ✅ | |
 | Scripting | ✅ | Python (`idc`/`idautils` names), JavaScript, headless batch mode |
 | Plugins | ✅ | Commands only. See [PLUGINS.md](PLUGINS.md) |
-| AI assistant | ✅ | Local or hosted models, with a model list and a connection test. Tested live with llama.cpp and a small local model; see [ASSISTANT.md](ASSISTANT.md) |
-| MCP server | ✅ | Read-only by default, string redaction, disclosure log, names shared with the app. See [MCP.md](MCP.md) |
+| AI assistant | ✅ | Local or hosted models, with a model list and a connection test. Opt-in string and IP-like number redaction, and a local hash-chained disclosure ledger. Tested live with llama.cpp and a small local model; see [ASSISTANT.md](ASSISTANT.md) |
+| MCP server | ✅ | Read-only by default, string and IP-like number redaction (`--redact-ips`), disclosure log, names shared with the app. See [MCP.md](MCP.md) |
 | Debugger | 🟡 | Local Windows (x64, 32-bit) and Linux x86-64 programs. No remote targets, no macOS |
 | IDC export, undo/redo | ✅ | |
 | Collaboration | ⏳ | |
@@ -69,7 +74,7 @@ Version numbers are targets. A step counts as done when its check passes on CI.
 - [x] Function memory: binary diff and a local knowledge base ([FUNCTION-MEMORY.md](FUNCTION-MEMORY.md))
 - [x] Go's function table; `paranoia query` for other tools ([QUERY.md](QUERY.md)), used by the REA provider
 
-Moved to the next releases: redaction beyond strings (symbol names on request; numbers that look like IP addresses need a way to tell them from other constants first), and the same redaction and log for the AI assistant in the app.
+Moved to the next releases: redaction of symbol and function names on request. Strings and numbers that look like IP addresses are redacted now, in both the MCP server and the in-app assistant, with a disclosure log for each.
 
 ### 0.9: AArch64 decompiler
 
@@ -83,10 +88,10 @@ Moved to the next releases: redaction beyond strings (symbol names on request; n
 
 ### 0.10: Linux and macOS builds
 
-- [ ] AppImage and `.deb` built and signed by CI (the electron-builder targets exist but were never built)
+- [ ] AppImage and `.deb` built and signed by CI — wired in the tag workflow for x64 and ARM64; the first tag run is the verification
 - [ ] Flatpak, submitted to Flathub
-- [ ] Unsigned macOS `.dmg` for arm64 and x64
-- [ ] macOS notarisation. This needs a paid Apple Developer ID, so it waits until there is one
+- [ ] Unsigned macOS `.dmg` for arm64 and x64 — wired in the tag workflow as `.dmg` + `.zip`, ad-hoc signed; the first tag run is the verification
+- [ ] macOS notarisation. This needs a paid Apple Developer ID, so it waits until there is one. Signing and notarisation are already wired behind the secrets in [SIGNING.md](SIGNING.md)
 - [x] CLI builds for Linux and macOS (since 0.8.0)
 
 ### 0.11: firmware and raw images
@@ -104,9 +109,19 @@ Moved to the next releases: redaction beyond strings (symbol names on request; n
 
 ### Function memory, next steps
 
-- [ ] Recognise C runtime and standard library functions from a database built from debug builds, shipped as an optional download
+- [x] Recognise C runtime and standard library functions from a database built from debug builds — built in: MSVC x64 static CRT, Rust std and musl libc packs, 828 KiB in total, recorded with measured recognition in `sigs/manifest.json` and rebuilt by CI ([SIGNATURES.md](SIGNATURES.md))
 - [ ] Measure on more pairs: real version updates of open-source programs, clang and MSVC builds
-- [ ] Carry struct types and function prototypes along with names
+- [x] Carry struct types along with names: a remembered function brings the Local Types declarations its typed variables need, merged on recall without overwriting a type the file already defines
+- [ ] Function prototypes: needs a user-set signature in the model (an `Annotations` field, pseudocode honouring it, API/UI), then memory can carry it
+
+### Benchmark follow-ups
+
+The first published run names its own weaknesses ([BENCHMARK.md](BENCHMARK.md)); these are the concrete follow-ups, in order:
+
+- [ ] Import the COFF symbol table that GNU ld leaves in PE images. Rust PE naming is 5.6 % against Ghidra's 33.8 %; the fix is in the loader, not the decompiler
+- [ ] 32-bit PE function discovery: `comctl32` yields 380 functions against Ghidra's 1 883, and PE32 has no `.pdata` to seed the recursive descent
+- [ ] A correctness metric for decompiled C (differential execution or round-trip recompilation), not just coverage
+- [ ] A larger, less PE-heavy corpus, later including a malware corpus published as hashes
 
 ### Later
 

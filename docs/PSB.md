@@ -4,13 +4,13 @@ Paranoia is in class C, local-first tooling (a reverse-engineering tool, offline
 
 Status key: ✅ met · ⚠️ met with an exception · ➖ not applicable to class C · ❌ not met
 
-Last reviewed: 2026-10-28 · Applies from release v0.5.1.
+Last reviewed: 2026-11-12 · Applies from release v0.5.1.
 
 ## Labels
 
 `PSB-C` · `SIGNED` · `ATTESTED` · `SBOM` · `NO-TELEMETRY` · `LOCAL-FIRST` · `AUDIT:NONE` · `DISCLOSURE:OK`
 
-`SIGNED` means signed checksums: `SHA256SUMS` carries a Sigstore keyless signature whose identity is this repository's release workflow (see [VERIFY.md](VERIFY.md)). The Windows executables themselves are **not** Authenticode-signed yet (exception PSB-EX-1).
+`SIGNED` means signed checksums: `SHA256SUMS` carries a Sigstore keyless signature whose identity is this repository's release workflow (see [VERIFY.md](VERIFY.md)). The Windows executables themselves are **not** Authenticode-signed yet (exception PSB-EX-1), and the macOS builds are ad-hoc signed rather than Developer ID-signed and notarised (exception PSB-EX-5).
 
 ## 0. Principles
 
@@ -36,12 +36,13 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| `SHA256SUMS` | ✅ | Release job, `.github/workflows/ci.yml` |
+| `SHA256SUMS` | ✅ | Publish job, `.github/workflows/ci.yml` |
 | Signed checksums, published identity | ✅ | `SHA256SUMS.sigstore.json` (cosign keyless, Rekor log); identity documented in [VERIFY.md](VERIFY.md) |
-| Provenance | ✅ | `actions/attest-build-provenance` for every executable and `SHA256SUMS` |
+| Provenance | ✅ | `actions/attest-build-provenance` for every package and `SHA256SUMS` |
 | SBOM | ✅ | CycloneDX JSON for Rust crates and npm packages, attached to the release and attested (v0.5.1's SBOM lacked the npm packages; fixed from v0.6.0) |
 | Security changes in release notes | ✅ | Release checklist below |
 | Windows Authenticode | ⚠️ | PSB-EX-1 |
+| macOS Developer ID signing and notarisation | ⚠️ | PSB-EX-5 |
 
 ## 5. Hardened surfaces (desktop)
 
@@ -60,7 +61,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | Data inventory | ✅ | [SECURITY-DESIGN.md § Data inventory](SECURITY-DESIGN.md#data-inventory) |
 | No silent PII | ✅ | The recent-files list stores full paths locally; this is stated in the inventory |
 | No analytics SDKs | ✅ | None in the dependency tree (see SBOM) |
-| Export / delete | ✅ | Delete `%APPDATA%\Paranoia` |
+| Export / delete | ✅ | Delete the app's data folder: `%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS |
 
 ## 7. Secure development lifecycle
 
@@ -68,7 +69,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | --- | --- | --- |
 | Threat model | ✅ | [SECURITY-DESIGN.md](SECURITY-DESIGN.md) (not required for class C, provided anyway) |
 | Pinned dependencies | ✅ | `Cargo.lock`, `package-lock.json`; GitHub Actions pinned to commit SHAs |
-| Audit in CI, critical CVEs block release | ✅ | `audit` job: `cargo audit`, and `npm audit` through `scripts/npm-audit-gate.mjs` (any advisory fails; accepted ones carry an expiry date, see PSB-EX-4); the release job depends on it |
+| Audit in CI, critical CVEs block release | ✅ | `audit` job: `cargo audit`, and `npm audit` through `scripts/npm-audit-gate.mjs` (any advisory fails; accepted ones carry an expiry date, see PSB-EX-4); the publish job depends on it |
 | CI secrets short-lived | ✅ | Signing and attestations use OIDC; release job has the only write permissions |
 | Second pair of eyes on security diffs | ⚠️ | Single-maintainer project: security-relevant changes are recorded in commit messages and release notes (founder sign-off) |
 | Negative tests for untrusted input | ✅ | Noise and mutation tests in `paranoia-core` (decoders, loaders, type and `.pat` parsers) |
@@ -89,6 +90,7 @@ Last reviewed: 2026-10-28 · Applies from release v0.5.1.
 | PSB-EX-2 | CSP allows `'wasm-unsafe-eval'` | The browser build runs the engine as WebAssembly; the directive allows compiling WebAssembly only, not JavaScript `eval` | No `'unsafe-eval'`, no inline script; the desktop app uses the native engine | 2027-04-30 (review: split desktop and web CSP) |
 | PSB-EX-3 | Electron fuse `grantFileProtocolExtraPrivileges` left on | The app is loaded from `file://` and starts workers from it | Navigation blocked, no remote content, CSP; plan: move to a custom `app://` protocol | 2027-04-30 |
 | PSB-EX-4 | `npm audit` accepts GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through glob amplification) | Only electron-builder's packaging tools (`@electron/asar`, `@electron/universal`, `dir-compare`, `filelist`) use it, with fixed glob patterns from our own `package.json`; upstream pins minimatch 3 / 5 / 9, which have no fix. The app has no runtime dependencies and `app.asar` contains no `node_modules` (checked: 34 own files) | The gate script fails on every other advisory and on this one after the expiry date; Dependabot proposes electron-builder updates | 2027-01-31 |
+| PSB-EX-5 | macOS builds are ad-hoc signed, not Developer ID-signed or notarised | No Apple Developer Program membership / Developer ID certificate yet ([SIGNING.md](SIGNING.md)); CI signing and notarisation are wired but gated on secrets | `SHA256SUMS` + Sigstore signature + GitHub attestations cover the `.dmg`/`.zip`; the Gatekeeper limitation is stated in the README and [VERIFY.md](VERIFY.md); the app runs after the user allows it once | 2027-04-30 |
 
 An exception without an expiry date is a violation of the baseline; these are reviewed before every release.
 

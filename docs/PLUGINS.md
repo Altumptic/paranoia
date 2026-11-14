@@ -6,7 +6,7 @@ desktop app. Plugins use the same APIs as the consoles (the JavaScript `pn` obje
 
 ## Where they live
 
-`%APPDATA%\Paranoia\plugins\<id>\` (**Plugins → Open plugins folder…**). Two examples are in
+The app's plugins folder (**Plugins → Open plugins folder…**) — `%APPDATA%\Paranoia\plugins\<id>\` on Windows, `~/.config/Paranoia/plugins/<id>/` on Linux, `~/Library/Application Support/Paranoia/plugins/<id>/` on macOS. Two examples are in
 [`examples/plugins`](../examples/plugins): copy a folder there and choose **Plugins → Reload plugins**.
 
 ```text

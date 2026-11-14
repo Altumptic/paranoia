@@ -31,14 +31,16 @@ Paranoia does disassembly, control-flow graphs, decompilation, debugging and scr
 - **Formats:** PE/PE32+ (forwarders, TLS callbacks, `.pdata`, .NET detection), ELF (PIE, PLT/GOT, symbol versions), Mach-O (universal binaries, bind opcodes, chained fixups, export trie).
 - **Architectures:** x86, x86-64, AArch64, ARM32/Thumb-2, RISC-V, MIPS, PowerPC.
 - **Analysis:** functions from entry points, exports, symbols and unwind tables (so stripped ELF and Mach-O files keep their functions), Go's function table (stripped Go programs keep their functions and names), switch tables, cross references, auto names in the IDA style.
-- **Function memory:** compare two binaries (what changed, was added or removed, both versions side by side) and keep a local database of the functions you named, so their names and comments carry over to new versions and related samples. Nothing leaves your machine. See [docs/FUNCTION-MEMORY.md](docs/FUNCTION-MEMORY.md).
+- **Function memory:** compare two binaries (what changed, was added or removed, both versions side by side) and keep a local database of the functions you named, so their names and comments carry over to new versions and related samples — together with the struct types their variables need. Nothing leaves your machine. See [docs/FUNCTION-MEMORY.md](docs/FUNCTION-MEMORY.md).
 - **Decompiler:** x86 and x64, with typed variables, API constants, loops and `switch`, struct member access (`Y` on a variable) and types that follow calls. AArch64 is experimental.
+- **Measured:** a reproducible benchmark compares the decompiler, symbol recovery and call-name agreement with Ghidra on real binaries, includes the failures and commits the raw results ([docs/BENCHMARK.md](docs/BENCHMARK.md)).
+- **Case studies:** three real walk-throughs — a stripped Go binary, an MSVC `/MT` binary and a version diff — with commands and hashes ([docs/CASE-STUDIES.md](docs/CASE-STUDIES.md)).
 - **Editing:** rename, comments, bookmarks, define code/data/strings, create functions, local C types, undo and redo. Everything is saved per file hash.
 - **Patching:** hex view, byte patches, NOP/invert/force-jump, an x86 assembler, save the patched file.
-- **Debug info:** PDB and DWARF names and types, FLIRT signatures (`.sig` and `.pat`).
+- **Debug info:** PDB and DWARF names and types, FLIRT signatures (`.sig` and `.pat`), and built-in signature packs for the MSVC static CRT, Rust std and musl libc ([docs/SIGNATURES.md](docs/SIGNATURES.md)).
 - **Debugger:** local Windows (x64 and 32-bit) and Linux x86-64 programs.
 - **Scripting:** Python in your own interpreter (`idc` and `idautils` work for common calls), JavaScript, plugins, and a headless batch mode.
-- **AI:** an optional assistant in the app ([local or hosted model](docs/ASSISTANT.md): Ollama, LM Studio, llama.cpp, Claude, OpenAI, OpenCode and others), and `paranoia mcp` for agents such as Claude Code, which can hide the sample's strings from the model and keep a log of everything the agent was shown. See [docs/MCP.md](docs/MCP.md).
+- **AI:** an optional assistant in the app ([local or hosted model](docs/ASSISTANT.md): Ollama, LM Studio, llama.cpp, Claude, OpenAI, OpenCode and others), and `paranoia mcp` for agents such as Claude Code, which can hide the sample's strings and IP-like numbers from the model and keep a log of everything the agent was shown. The in-app assistant has the same opt-in redaction and keeps a local hash-chained disclosure ledger. See [docs/MCP.md](docs/MCP.md) and [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
 Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analysed in 45 ms, `shell32.dll` (7.7 MB, 24 449 functions) in about a second.
 
@@ -46,16 +48,48 @@ Speed, measured on a Core i5-12450H with a release build: `notepad.exe` is analy
 
 - Pseudocode exists for x86 and x64. AArch64 pseudocode is experimental: types come only from known library calls, and it has been measured on Go binaries only. Other architectures have disassembly and graphs only.
 - MIPS has only been tested on known instruction encodings, not on a full binary.
+- The benchmark found two gaps we have not closed yet: symbols from the PE COFF table (GNU-linked Rust binaries) are not imported, and 32-bit PE function discovery finds far fewer functions than Ghidra. Both are on the roadmap and measured by [docs/BENCHMARK.md](docs/BENCHMARK.md).
 - The debugger runs local programs only. Remote debugging is planned.
-- The desktop app is released for Windows only; on Linux and macOS, run it from source. The command-line tool (with `diff`, function memory and the MCP server) is released for Windows, Linux and macOS.
+- The desktop app is built for Windows (x64), Linux (x64 and ARM64) and macOS (arm64 and x64). The Linux and macOS packages are new and have had much less testing than the Windows build. The command-line tool (with `diff`, function memory and the MCP server) is released for Windows, Linux and macOS.
 - Raw firmware images without a PE/ELF/Mach-O header can't be loaded yet.
-- The Windows executables aren't Authenticode-signed yet.
+- The Windows executables aren't Authenticode-signed yet (SmartScreen may warn), and the macOS app is signed ad-hoc rather than with a Developer ID, so it isn't notarised (Gatekeeper will warn). The checksums, Sigstore signature and attestations cover every platform.
 
 The [roadmap](docs/ROADMAP.md) has the full list.
 
 ## Install
 
-Download the installer or the portable build from [Releases](https://github.com/Altumptic/paranoia/releases/latest). Since the executables aren't signed, SmartScreen may warn on first start. You can check the download against the signed checksums:
+Download the file for your system from [Releases](https://github.com/Altumptic/paranoia/releases/latest) and check it against the signed checksums before running it. Every platform is covered by `SHA256SUMS`, its Sigstore signature and the GitHub attestations, even where the OS vendor signature is still missing.
+
+### Windows
+
+`Paranoia-Setup-<version>.exe` (installer) or `Paranoia-<version>-portable.exe`. They aren't Authenticode-signed yet, so SmartScreen may warn on first start.
+
+### Linux
+
+`Paranoia-<version>-linux-x86_64.AppImage` or `Paranoia-<version>-linux-amd64.deb` for x64, and `Paranoia-<version>-linux-arm64.AppImage` or `Paranoia-<version>-linux-arm64.deb` for ARM64. The AppImage is a single file: make it executable and run it. The deb installs the app and a `paranoia` launcher:
+
+```bash
+chmod +x Paranoia-<version>-linux-x86_64.AppImage
+./Paranoia-<version>-linux-x86_64.AppImage
+
+sudo apt install ./Paranoia-<version>-linux-amd64.deb
+```
+
+### macOS
+
+`Paranoia-<version>-mac-arm64.dmg` for Apple Silicon and `Paranoia-<version>-mac-x64.dmg` for Intel Macs; `.zip` archives of the same apps are in the release too. The app is signed ad-hoc rather than with a Developer ID and is not notarised, so Gatekeeper blocks the first launch. After checking the checksum, clear the quarantine flag (the reliable way on every macOS version):
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Paranoia.app
+```
+
+On macOS versions that still offer it, right-clicking the app in Finder and choosing **Open** has the same effect.
+
+There is no Apple Developer ID yet; if one is added, later releases can be signed and notarised normally ([docs/SIGNING.md](docs/SIGNING.md)).
+
+### Check a download
+
+PowerShell:
 
 ```powershell
 Get-FileHash .\Paranoia-<version>-portable.exe -Algorithm SHA256   # compare with SHA256SUMS
@@ -77,11 +111,11 @@ tar -xzf paranoia-cli-v0.8.0-linux-x64.tar.gz
 ./paranoia-cli-v0.8.0-linux-x64/paranoia --version
 ```
 
-On macOS, a file downloaded with a browser is quarantined because it isn't notarised; `xattr -d com.apple.quarantine paranoia` clears that after you've checked the checksum.
+On macOS, the CLI binary is quarantined too because it isn't notarised; `xattr -d com.apple.quarantine paranoia` clears that after you have checked the checksum.
 
 ## Privacy and security
 
-The app makes no network connections. The only exception is the AI assistant, and only after you point it at a server. Your names, comments and recent files are stored in `%APPDATA%\Paranoia` and nowhere else.
+The app makes no network connections. The only exception is the AI assistant, and only after you point it at a server. Your names, comments and recent files are stored in the app's data folder — `%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS — and nowhere else. When you ask the assistant, its request and answer are recorded in a hash-chained `assistant-ledger.jsonl` in that folder, and the file's strings and IP-like numbers can be hidden from the request.
 
 The renderer is sandboxed, the engine runs in its own process and only opens files you chose, and starting the debugger or a Python script asks for confirmation first. The debugger runs the program you're analysing, so use a VM for malware. There has been no independent audit.
 
@@ -123,7 +157,7 @@ paranoia query sample.exe inventory        # JSON for other tools (docs/QUERY.md
 
 ## Building
 
-You need Rust 1.82+ and Node.js 20+.
+You need Rust 1.88+ and Node.js 20+.
 
 ```bash
 cargo build --release -p paranoia-engine -p paranoia-cli
@@ -132,10 +166,14 @@ cargo test --workspace
 cd apps/desktop
 npm ci
 npm run app:dev     # app with hot reload
-npm run dist        # Windows installer and portable exe in apps/desktop/out/
+npm run dist        # Windows installer and portable exe in apps/desktop/out/ (alias for dist:win)
+npm run dist:linux  # AppImage and .deb, built on Linux
+npm run dist:mac    # .dmg and .zip for the host architecture, built on macOS
 ```
 
 On Windows everything builds with the `x86_64-pc-windows-gnu` toolchain, no C compiler needed. If the checkout path has spaces in it and you get `dlltool` errors, set `CARGO_TARGET_DIR` to a path without spaces.
+
+The Linux and macOS packages are built by the release workflow on their own operating systems, one architecture per job; electron-builder does not cross-compile the desktop app. The Linux engine is static (musl), like the CLI, so it does not depend on the build machine's glibc. These platforms are new to the release pipeline: no tagged release had been built with them when this was written, so the first tag run is the proof.
 
 ```
 crates/paranoia-core     the engine: loaders, disassemblers, analysis, decompiler

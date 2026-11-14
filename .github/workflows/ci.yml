@@ -8,7 +8,7 @@ on:
   # Runs everything except publishing, to check the release builds before tagging.
   workflow_dispatch:
 
-# Least privilege by default; the release job asks for exactly what it needs.
+# Least privilege by default; the publish job asks for exactly what it needs.
 permissions:
   contents: read
 
@@ -134,15 +134,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  release:
-    name: Windows release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [engine, frontend, audit, cli]
+  # The Windows CLI is a plain .exe instead of a tarball, so it is built on its own runner.
+  cli-windows:
+    name: CLI (windows-x64)
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [engine]
     runs-on: windows-latest
-    permissions:
-      contents: write # upload release assets
-      id-token: write # Sigstore keyless signing and attestations (OIDC, no stored keys)
-      attestations: write # GitHub build provenance and SBOM attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -150,15 +147,85 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
         with:
           toolchain: stable
-          targets: wasm32-unknown-unknown
-      # No build cache in the release job: every release builds from a clean slate.
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked -p paranoia-cli
+      - name: Check
+        shell: bash
+        run: |
+          ./target/release/paranoia.exe --version
+          ./target/release/paranoia.exe query ./target/release/paranoia.exe inventory > /dev/null
+      - name: Package
+        shell: bash
+        run: cp target/release/paranoia.exe "paranoia-cli-${GITHUB_REF_NAME}-windows-x64.exe"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-windows-x64
+          path: paranoia-cli-*-windows-x64.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  # The desktop app for every platform we publish: Windows x64, Linux x64 and ARM64, macOS
+  # ARM64 and x64. Each job builds the engine for that package's target and stages it where
+  # package.json's extraResources expects it (target/release/paranoia-engine[.exe]), then lets
+  # electron-builder produce the packages. The packaged engine is smoke-tested before upload.
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # rust_target empty = build for the runner's own architecture.
+          # Linux engines are static (musl) like the CLI, so they do not require the
+          # runner's glibc version.
+          - { name: windows-x64, os: windows-latest, platform: win, arch: x64, rust_target: "", rust_targets: wasm32-unknown-unknown, app_dir: win-unpacked, run_engine: true }
+          - { name: linux-x64, os: ubuntu-latest, platform: linux, arch: x64, rust_target: x86_64-unknown-linux-musl, rust_targets: "wasm32-unknown-unknown x86_64-unknown-linux-musl", app_dir: linux-unpacked, appimage_arch: x86_64, deb_arch: amd64, run_engine: true }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, platform: linux, arch: arm64, rust_target: aarch64-unknown-linux-musl, rust_targets: "wasm32-unknown-unknown aarch64-unknown-linux-musl", app_dir: linux-arm64-unpacked, appimage_arch: arm64, deb_arch: arm64, run_engine: true }
+          - { name: macos-arm64, os: macos-latest, platform: mac, arch: arm64, rust_target: "", rust_targets: wasm32-unknown-unknown, app_dir: mac-arm64, run_engine: true }
+          - { name: macos-x64, os: macos-latest, platform: mac, arch: x64, rust_target: x86_64-apple-darwin, rust_targets: "wasm32-unknown-unknown x86_64-apple-darwin", app_dir: mac, run_engine: false }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
+      - name: Rust targets
+        shell: bash
+        run: rustup target add ${{ matrix.rust_targets }}
+      - name: musl linker
+        if: contains(matrix.rust_targets, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      # No build cache in the release jobs: every release builds from a clean slate.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      - name: Build engine
+        shell: bash
+        run: |
+          target="${{ matrix.rust_target }}"
+          if [ -n "$target" ]; then
+            cargo build --release --locked -p paranoia-engine --target "$target"
+            mkdir -p target/release
+            cp "target/$target/release/paranoia-engine" target/release/paranoia-engine
+            chmod +x target/release/paranoia-engine
+          else
+            cargo build --release --locked -p paranoia-engine
+          fi
+      - name: Build UI (web engine, type-checked bundle)
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          npm ci
+          npm run wasm
+          npm run build
       # Authenticode: add WINDOWS_CERTIFICATE (base64 .pfx) and WINDOWS_CERTIFICATE_PASSWORD as
-      # repository secrets and the executables are signed. Without them they stay unsigned and
-      # are verified through SHA256SUMS + Sigstore (docs/VERIFY.md).
-      - name: Configure code signing
+      # repository secrets and the Windows executables are signed. Without them they stay unsigned
+      # and are verified through SHA256SUMS + Sigstore (docs/VERIFY.md).
+      - name: Configure Windows code signing
+        if: matrix.platform == 'win'
         shell: bash
         env:
           CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -167,37 +234,169 @@ jobs:
           if [ -n "$CERT" ]; then
             echo "CSC_LINK=$CERT" >> "$GITHUB_ENV"
             echo "CSC_KEY_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
-            echo "Authenticode signing enabled"
+            echo "::notice::Authenticode signing enabled"
           else
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
             echo "::notice::No Authenticode certificate configured; executables are unsigned (SHA256SUMS + Sigstore still apply)"
           fi
-      - name: Build
-        working-directory: apps/desktop
+      # macOS: add MACOS_CERTIFICATE (base64 .p12), MACOS_CERTIFICATE_PASSWORD and the Apple
+      # notarization credentials as repository secrets and the app is signed with a Developer ID
+      # and notarized. Without them the build still succeeds: electron-builder signs ad-hoc (needed
+      # to run on Apple Silicon) and skips notarization (docs/SIGNING.md).
+      - name: Configure macOS signing and notarization
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          npm ci
-          npm run dist
-      # The command-line tool, which also serves the engine to AI agents (`paranoia mcp`).
-      - name: Build CLI
-        run: cargo build --release --locked -p paranoia-cli
-      - name: Collect release files
+          if [ -n "$CERT" ]; then
+            echo "CSC_LINK=$CERT" >> "$GITHUB_ENV"
+            echo "CSC_KEY_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
+            if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+              echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> "$GITHUB_ENV"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+              echo "::notice::Developer ID signing and notarization enabled"
+            else
+              echo "::warning::Developer ID certificate present but APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are incomplete; the app will be signed but not notarized"
+            fi
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "::notice::No Developer ID certificate configured; macOS builds are ad-hoc signed and not notarized"
+          fi
+      - name: Package
+        working-directory: apps/desktop
         shell: bash
         run: |
-          mkdir release
-          cp apps/desktop/out/Paranoia-Setup-*.exe apps/desktop/out/Paranoia-*-portable.exe release/
-          cp target/release/paranoia.exe "release/paranoia-cli-${GITHUB_REF_NAME}-windows-x64.exe"
-      - name: Linux and macOS CLI
+          args=(--publish never)
+          case "${{ matrix.platform }}" in
+            win)
+              args+=(--win --x64)
+              ;;
+            linux)
+              args+=(--linux --${{ matrix.arch }})
+              ;;
+            mac)
+              args+=(--mac --${{ matrix.arch }})
+              # No Developer ID certificate: sign ad-hoc so the app runs on Apple Silicon, and
+              # drop the hardened runtime that an ad-hoc signature cannot satisfy.
+              if [ -z "${CSC_LINK:-}" ]; then
+                args+=(--config.mac.identity=- --config.mac.hardenedRuntime=false)
+              fi
+              ;;
+          esac
+          npx electron-builder "${args[@]}"
+      - name: Smoke test the package
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          case "${{ matrix.platform }}" in
+            win)
+              engine="out/${{ matrix.app_dir }}/resources/engine/paranoia-engine.exe"
+              test -f "out/Paranoia-Setup-$version.exe"
+              test -f "out/Paranoia-$version-portable.exe"
+              ;;
+            linux)
+              engine="out/${{ matrix.app_dir }}/resources/engine/paranoia-engine"
+              test -x "$engine"
+              appimage="out/Paranoia-$version-linux-${{ matrix.appimage_arch }}.AppImage"
+              deb="out/Paranoia-$version-linux-${{ matrix.deb_arch }}.deb"
+              test -f "$appimage"
+              test -f "$deb"
+              # The deb must carry the engine and its control fields must be usable.
+              dpkg-deb --info "$deb" > /tmp/deb-info.txt
+              grep -q "Package: paranoia" /tmp/deb-info.txt
+              grep -q "Maintainer: Paranoia contributors" /tmp/deb-info.txt
+              dpkg-deb --contents "$deb" > /tmp/deb-contents.txt
+              grep -q "resources/engine/paranoia-engine" /tmp/deb-contents.txt
+              ;;
+            mac)
+              engine="out/${{ matrix.app_dir }}/Paranoia.app/Contents/Resources/engine/paranoia-engine"
+              test -x "$engine"
+              # An unsigned bundle will not start on Apple Silicon: the app must carry a valid
+              # signature (ad-hoc when no Developer ID is configured) and its nested code must
+              # verify. This fails the job before a broken .dmg/.zip is published.
+              codesign --verify --deep --strict "out/${{ matrix.app_dir }}/Paranoia.app"
+              test -f "out/Paranoia-$version-mac-${{ matrix.arch }}.dmg"
+              test -f "out/Paranoia-$version-mac-${{ matrix.arch }}.zip"
+              unzip -l "out/Paranoia-$version-mac-${{ matrix.arch }}.zip" > /tmp/zip-list.txt
+              grep -q "Paranoia.app/Contents/Resources/engine/paranoia-engine" /tmp/zip-list.txt
+              ;;
+          esac
+          if [ "${{ matrix.run_engine }}" = "true" ]; then
+            got=$("$engine" --version)
+            echo "$got"
+            test "$got" = "paranoia-engine $version"
+          else
+            # The Intel build cannot run on the Apple Silicon runner: check the file type instead.
+            arch=$(file "$engine")
+            echo "$arch"
+            case "$arch" in
+              *x86_64*) ;;
+              *) echo "expected an x86_64 engine, got: $arch"; exit 1 ;;
+            esac
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-${{ matrix.name }}
+          path: |
+            apps/desktop/out/*.exe
+            apps/desktop/out/*.AppImage
+            apps/desktop/out/*.deb
+            apps/desktop/out/*.dmg
+            apps/desktop/out/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # One publish job for every platform: collect the smoke-tested packages, checksum all of them,
+  # sign the checksums with Sigstore, attest provenance and both SBOMs, and create the release.
+  publish:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [engine, frontend, audit, cli, cli-windows, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload release assets
+      id-token: write # Sigstore keyless signing and attestations (OIDC, no stored keys)
+      attestations: write # GitHub build provenance and SBOM attestations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Collect desktop packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+      - name: Collect CLI packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: cli-*
           path: release
           merge-multiple: true
+      - name: List release files
+        run: ls -l release
       - name: Checksums
         shell: bash
         run: |
           cd release
-          sha256sum -- *.exe *.tar.gz > SHA256SUMS
+          sha256sum -- *.exe *.tar.gz *.AppImage *.deb *.dmg *.zip > SHA256SUMS
           cat SHA256SUMS
+          sha256sum --check --strict SHA256SUMS
+          # Every package file must be covered, not just the ones a glob happened to find.
+          expected=$(find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' -o -name '*.zip' \) | wc -l)
+          actual=$(wc -l < SHA256SUMS)
+          echo "packages: $expected, checksums: $actual"
+          test "$expected" -eq "$actual"
       # Two SBOMs: Rust crates from Cargo.lock, and npm packages from the lockfile. The npm
       # one includes development dependencies on purpose: Electron and the UI libraries are
       # devDependencies that end up inside the app.
@@ -209,6 +408,10 @@ jobs:
           output-file: release/paranoia-${{ github.ref_name }}-rust.cdx.json
           upload-artifact: false
           upload-release-assets: false
+      # Only the installed dependency tree is needed for `npm sbom`, not Electron's binaries.
+      - name: Install npm dependencies for the SBOM
+        working-directory: apps/desktop
+        run: npm ci --ignore-scripts
       - name: SBOM — npm packages (CycloneDX)
         shell: bash
         working-directory: apps/desktop
@@ -226,6 +429,10 @@ jobs:
           subject-path: |
             release/*.exe
             release/*.tar.gz
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
             release/SHA256SUMS
       - name: SBOM attestation (Rust)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
@@ -233,17 +440,31 @@ jobs:
           subject-path: |
             release/*.exe
             release/*.tar.gz
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
           sbom-path: release/paranoia-${{ github.ref_name }}-rust.cdx.json
       - name: SBOM attestation (npm)
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          subject-path: release/*.exe
+          subject-path: |
+            release/*.exe
+            release/*.tar.gz
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
           sbom-path: release/paranoia-${{ github.ref_name }}-npm.cdx.json
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             release/*.exe
             release/*.tar.gz
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
             release/SHA256SUMS
             release/SHA256SUMS.sigstore.json
             release/paranoia-*.cdx.json
