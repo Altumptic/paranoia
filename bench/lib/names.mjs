@@ -21,6 +21,15 @@ const KEYWORDS = new Set([
 
 const forRealKeyword = (s) => KEYWORDS.has(s.toLowerCase());
 
+// Escapes inside a legacy-mangled identifier: `$LT$` is `<`, `$u20$` a space, `..` is `::`.
+const LEGACY_ESCAPES = { SP: '@', BP: '*', RF: '&', LT: '<', GT: '>', LP: '(', RP: ')', C: ',' };
+function decodeLegacyEscapes(raw) {
+    return raw
+        .replace(/\$([A-Z]+)\$/g, (m, esc) => LEGACY_ESCAPES[esc] ?? m)
+        .replace(/\$u([0-9a-f]+)\$/gi, (_m, hex) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/\.\./g, '::');
+}
+
 // Legacy Rust symbol mangling: _ZN<len><name>...E, with an optional trailing
 // hash component (17h0123456789abcdef). Returns the path components, or null.
 function parseRustLegacy(name) {
@@ -37,26 +46,10 @@ function parseRustLegacy(name) {
         if (!m) return null;
         const len = parseInt(m[1], 10);
         i += m[1].length;
-        let part = '';
-        for (let k = 0; k < len && i < name.length; k++) {
-            if (name[i] === '$') {
-                const esc = name.slice(i + 1, i + 3);
-                if (esc === 'SP') { part += '@'; i += 3; }
-                else if (esc === 'BP') { part += '*'; i += 3; }
-                else if (esc === 'RF') { part += '&'; i += 3; }
-                else if (esc === 'LT') { part += '<'; i += 3; }
-                else if (esc === 'GT') { part += '>'; i += 3; }
-                else if (esc === 'LP') { part += '('; i += 3; }
-                else if (esc === 'RP') { part += ')'; i += 3; }
-                else if (esc === 'C') { part += ','; i += 3; }
-                else if (name[i + 1] === 'u') { part += String.fromCharCode(parseInt(name.slice(i + 2, i + 5), 16)); i += 5; }
-                else { part += name[i]; i += 1; }
-            } else {
-                part += name[i];
-                i += 1;
-            }
-        }
-        parts.push(part);
+        // The length counts the characters as mangled, escapes included.
+        if (i + len > name.length) return null;
+        parts.push(decodeLegacyEscapes(name.slice(i, i + len)));
+        i += len;
     }
     // The trailing component is a hash like 17h0011223344556677.
     while (parts.length && /^[0-9]+h[0-9a-f]{16}$/i.test(parts[parts.length - 1])) parts.pop();
@@ -64,16 +57,38 @@ function parseRustLegacy(name) {
     return parts.length ? parts : null;
 }
 
-// Very small Rust v0 demangler: only recovers the final path segment, which is
-// all the short-name comparison needs. Unknown/encoded segments are ignored.
+// Small Rust v0 reader: it recovers the identifiers of the path, which are
+// `<length>[_]<identifier>` pieces between tag letters, skipping the crate and
+// namespace disambiguators (`s<base62>_`) and back-references (`B<base62>_`).
+// The short-name comparison only needs the last identifier.
 function parseRustV0(name) {
     if (!name.startsWith('_R')) return null;
     const body = name.slice(2);
-    // Path components are not plain text in v0 (they may be back-references), but
-    // in practice the last component of a symbol is often readable. Split on the
-    // usual v0 separators and keep identifiers.
-    const ids = body.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g);
-    return ids && ids.length ? [ids[ids.length - 1]] : null;
+    const ids = [];
+    let i = 0;
+    while (i < body.length) {
+        const c = body[i];
+        if (c === 's' || c === 'B') {
+            i++;
+            while (i < body.length && /[0-9a-zA-Z]/.test(body[i])) i++;
+            if (body[i] === '_') i++;
+        } else if (c >= '0' && c <= '9') {
+            let j = i;
+            while (j < body.length && body[j] >= '0' && body[j] <= '9') j++;
+            const len = parseInt(body.slice(i, j), 10);
+            if (body[j] === '_') j++;
+            const id = body.slice(j, j + len);
+            if (len === 0 || j + len > body.length || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(id)) {
+                i++;
+                continue;
+            }
+            ids.push(id);
+            i = j + len;
+        } else {
+            i++;
+        }
+    }
+    return ids.length ? ids : null;
 }
 
 function parseMsvc(name) {
@@ -94,20 +109,59 @@ function parseItanium(name) {
 }
 
 // Full path components of a symbol name in whatever form it arrives.
+// Removes balanced generic arguments from a path component: `drop_in_place<A<B>>` becomes
+// `drop_in_place`. A component that starts with `<` (`<T as Trait>`) is left alone.
+function stripGenerics(part) {
+    if (part.startsWith('<') || !part.includes('<')) return part;
+    let depth = 0;
+    let out = '';
+    for (const ch of part) {
+        if (ch === '<') depth++;
+        else if (ch === '>' && depth > 0) depth--;
+        else if (depth === 0) out += ch;
+    }
+    return out || part;
+}
+
+// Splits a demangled path on `::` outside any brackets, so `core::ptr::drop_in_place<a::B>` has
+// three components, not four.
+function splitPath(n) {
+    const parts = [];
+    let depth = 0;
+    let cur = '';
+    for (let i = 0; i < n.length; i++) {
+        const ch = n[i];
+        if ('<({['.includes(ch)) depth++;
+        else if ('>)}]'.includes(ch) && depth > 0) depth--;
+        if (depth === 0 && ch === ':' && n[i + 1] === ':') {
+            if (cur) parts.push(cur);
+            cur = '';
+            i++;
+        } else {
+            cur += ch;
+        }
+    }
+    if (cur) parts.push(cur);
+    return parts;
+}
+
+const lastGenericFree = (parts) => (parts.length ? [...parts.slice(0, -1), stripGenerics(parts[parts.length - 1])] : parts);
+
 export function symbolPath(raw) {
     if (raw == null) return [];
     let name = String(raw).trim();
     if (!name) return [];
     if (name.startsWith('EXTERNAL::')) name = name.slice('EXTERNAL::'.length);
     const rust = parseRustV0(name) ?? parseRustLegacy(name) ?? parseItanium(name);
-    if (rust) return rust;
+    if (rust) return lastGenericFree(rust);
     const msvc = parseMsvc(name);
     if (msvc) return msvc;
     // Go / C++ / arbitrary dotted names: split on :: and .
     let n = name.replace(/^__imp_/, '').replace(/^imp_/, '');
     n = n.replace(/@\d+$/, '').replace(/@@.*$/, '');
-    const parts = n.split(/(?:::|\.)/).filter((p) => p.length > 0);
-    return parts.length ? parts : [n];
+    // Rust-style paths keep dots inside `{{vtable.shim}}`; Go and C++ names split on both.
+    const parts = (n.includes('::') ? splitPath(n) : n.split(/\./)).filter((p) => p.length > 0);
+    return parts.length ? lastGenericFree(parts) : [n];
 }
 
 // Canonical comparison key for a name in any representation.
