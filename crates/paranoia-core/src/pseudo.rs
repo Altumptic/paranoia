@@ -463,8 +463,8 @@ impl Binary {
             let bytes = self.bytes_at(b.start)?;
             let len = ((b.end.saturating_sub(b.start)) as usize).min(bytes.len());
             let mut v = Vec::new();
-            for (k, w) in bytes[..len].chunks_exact(4).enumerate() {
-                let word = if big { [w[3], w[2], w[1], w[0]] } else { [w[0], w[1], w[2], w[3]] };
+            for (k, w) in bytes[..len].as_chunks::<4>().0.iter().enumerate() {
+                let word = if big { [w[3], w[2], w[1], w[0]] } else { *w };
                 let Ok(i) = yaxpeax_arm::armv8::a64::InstDecoder::default().decode(&mut U8Reader::new(&word)) else { break };
                 v.push((b.start + 4 * k as u64, i));
             }

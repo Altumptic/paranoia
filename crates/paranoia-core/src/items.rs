@@ -214,7 +214,7 @@ impl Binary {
         match it.kind {
             ItemKind::Ascii => Some(String::from_utf8_lossy(&b[..(it.count as usize).min(b.len())]).into_owned()),
             ItemKind::Utf16 => {
-                let units: Vec<u16> = b.chunks_exact(2).take(it.count as usize).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                let units: Vec<u16> = b.as_chunks::<2>().0.iter().take(it.count as usize).map(|c| u16::from_le_bytes(*c)).collect();
                 Some(String::from_utf16_lossy(&units))
             }
             _ => None,
@@ -596,7 +596,7 @@ impl Binary {
     pub fn make_string(&mut self, va: u64) -> Result<(), String> {
         let b = self.bytes_at(va).ok_or("no file bytes at this address")?;
         let ascii = b.iter().take_while(|&&c| c != 0 && (c >= 0x20 || c == b'\t' || c == b'\n' || c == b'\r')).count();
-        let wide = b.chunks_exact(2).take_while(|c| c[1] == 0 && c[0] >= 0x20).count();
+        let wide = b.as_chunks::<2>().0.iter().take_while(|c| c[1] == 0 && c[0] >= 0x20).count();
         let (kind, n) = if wide >= 2 && wide >= ascii { (ItemKind::Utf16, wide) } else { (ItemKind::Ascii, ascii) };
         if n == 0 {
             return Err("no printable characters here".into());
