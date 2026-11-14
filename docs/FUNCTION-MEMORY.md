@@ -78,6 +78,7 @@ Where it is weak:
 - Functions shorter than 4 instructions aren't remembered or matched on their own.
 - Heavy changes in inlining or optimisation level change most of the code.
 - Obfuscated or packed code has to be unpacked first.
+- Names, comments and renamed variables carry over on every architecture. Variable *types* and the struct declarations behind them show up in the pseudocode only on x86 and x64: the experimental AArch64 pseudocode renames variables but does not apply user types yet.
 
 The numbers come from our own runs on the machine that wrote this page; run the same commands on your files to see how it does on them.
 
