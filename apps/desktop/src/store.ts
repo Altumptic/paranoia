@@ -45,6 +45,8 @@ interface State {
   search: SearchKind | null;
   menuOpen: boolean;
   aboutOpen: boolean;
+  /** Help → Check for updates (desktop app only). */
+  updateOpen: boolean;
   aiSettingsOpen: boolean;
   /** Analysis → Function memory dialog. */
   memoryOpen: boolean;
@@ -129,6 +131,7 @@ export const useStore = create<State>((set, get) => ({
   search: null,
   menuOpen: false,
   aboutOpen: false,
+  updateOpen: false,
   aiSettingsOpen: false,
   memoryOpen: false,
   compare: null,
