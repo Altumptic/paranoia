@@ -18,7 +18,7 @@ goblin = "0.10.7"
 hex = "0.4.3"
 iced-x86 = { version = "1.22.0", default-features = false, features = ["std", "decoder", "intel", "instr_info", "encoder", "op_code_info"] }
 md-5 = "0.11.0"
-miniz_oxide = { version = "0.8.9", default-features = false, features = ["with-alloc"] }
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
 msvc-demangler = "0.11.0"
 pdb = "0.8.0"
 rustc-demangle = "0.1.28"
