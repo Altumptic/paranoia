@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 paranoia-core.workspace = true
-redb = "4.4.0"
+redb = "4.5.0"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
