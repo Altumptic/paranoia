@@ -248,7 +248,128 @@ pub fn load(bytes: &[u8]) -> goblin::error::Result<Loaded> {
         out.warnings.push(".NET assembly: native disassembly only covers the loader stub; IL decompilation is planned.".into());
     }
 
+    // GNU ld (MinGW, Rust's `-gnu` targets) leaves the COFF symbol table in the file.
+    let (names, functions) = coff_symbols(bytes, &pe, &mut out);
+    if names > 0 {
+        out.header("COFF symbols", format!("{names} names, {functions} functions"));
+    }
+
     Ok(out)
+}
+
+/// Most COFF records a file may declare. A real image has some hundreds of thousands at most.
+const MAX_COFF_SYMBOLS: usize = 4_000_000;
+/// Longest symbol name read from the string table (Rust's mangled names reach a few hundred).
+const MAX_COFF_NAME: usize = 4096;
+const COFF_RECORD: usize = 18;
+/// Storage classes that name a definition: external and static.
+const SYM_CLASS_EXTERNAL: u8 = 2;
+const SYM_CLASS_STATIC: u8 = 3;
+/// `IMAGE_SYM_DTYPE_FUNCTION` in the high nibble of the type field.
+const SYM_TYPE_FUNCTION: u16 = 0x20;
+
+/// One section as the COFF reader needs it.
+struct CoffSection {
+    virtual_address: u32,
+    /// The larger of the virtual and raw sizes: no symbol points past it.
+    size: u32,
+    code: bool,
+}
+
+/// A symbol read from the COFF table.
+#[derive(Debug, PartialEq, Eq)]
+struct CoffSymbol {
+    name: String,
+    address: u64,
+    function: bool,
+    global: bool,
+}
+
+/// Reads the COFF symbol table into `out.symbols` and seeds. Returns how many names and how many
+/// of them are functions. A name from the table replaces the synthetic `TlsCallback_` one.
+fn coff_symbols(bytes: &[u8], pe: &PE<'_>, out: &mut Loaded) -> (usize, usize) {
+    let header = &pe.header.coff_header;
+    let sections: Vec<CoffSection> = pe
+        .sections
+        .iter()
+        .map(|s| CoffSection {
+            virtual_address: s.virtual_address,
+            size: s.virtual_size.max(s.size_of_raw_data),
+            code: s.characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE) != 0,
+        })
+        .collect();
+    let found =
+        read_coff_symbols(bytes, header.pointer_to_symbol_table as usize, header.number_of_symbol_table as usize, &sections, pe.image_base);
+    let functions = found.iter().filter(|s| s.function).count();
+    let named: std::collections::HashSet<u64> = found.iter().filter(|s| s.function).map(|s| s.address).collect();
+    out.symbols.retain(|s| !(s.name.starts_with("TlsCallback_") && named.contains(&s.address)));
+    for sym in &found {
+        let kind = if sym.function { SymbolKind::Function } else { SymbolKind::Object };
+        if sym.function {
+            out.seeds.push(Seed { address: sym.address, source: FunctionSource::Symbol, end: None });
+        }
+        out.symbols.push(Symbol { name: sym.name.clone(), address: sym.address, size: 0, kind, global: sym.global });
+    }
+    (found.len(), functions)
+}
+
+/// The COFF symbol table at `table` with `count` 18-byte records, followed by the string table.
+///
+/// In a linked image a symbol's value is the offset from the start of its section. A function is a
+/// symbol of function type in an executable section; an external symbol in code without a type
+/// (assembly labels) counts too, but a static untyped one is a local label and is skipped, like
+/// section and file records (names starting with a dot). Everything is bounds-checked against
+/// `bytes`: a damaged or hostile table gives fewer symbols, never a panic.
+fn read_coff_symbols(bytes: &[u8], table: usize, count: usize, sections: &[CoffSection], image_base: u64) -> Vec<CoffSymbol> {
+    if table == 0 || count == 0 || count > MAX_COFF_SYMBOLS {
+        return Vec::new();
+    }
+    let Some(table_end) = count.checked_mul(COFF_RECORD).and_then(|n| n.checked_add(table)) else { return Vec::new() };
+    if table_end > bytes.len() {
+        return Vec::new();
+    }
+    let strings = &bytes[table_end..];
+    let name_at = |offset: usize| -> Option<String> {
+        let rest = strings.get(offset..)?;
+        let len = rest.iter().take(MAX_COFF_NAME).position(|&b| b == 0)?;
+        std::str::from_utf8(&rest[..len]).ok().map(str::to_owned)
+    };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut i = 0usize;
+    while i < count {
+        let rec = &bytes[table + i * COFF_RECORD..table + (i + 1) * COFF_RECORD];
+        i += 1 + rec[17] as usize;
+        let (class, typ) = (rec[16], u16::from_le_bytes([rec[14], rec[15]]));
+        if class != SYM_CLASS_EXTERNAL && class != SYM_CLASS_STATIC {
+            continue;
+        }
+        let section_number = i16::from_le_bytes([rec[12], rec[13]]);
+        let Some(section) = usize::try_from(section_number).ok().and_then(|n| n.checked_sub(1)).and_then(|n| sections.get(n)) else {
+            continue;
+        };
+        let name = if rec[..4] == [0; 4] {
+            name_at(u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]) as usize)
+        } else {
+            let end = rec[..8].iter().position(|&b| b == 0).unwrap_or(8);
+            std::str::from_utf8(&rec[..end]).ok().map(str::to_owned)
+        };
+        let Some(name) = name.filter(|n| !n.is_empty() && !n.starts_with('.')) else { continue };
+        let value = u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]);
+        let Some(rva) = section.virtual_address.checked_add(value) else { continue };
+        if value >= section.size {
+            continue;
+        }
+        let address = image_base + rva as u64;
+        let function = section.code && (typ & 0xf0 == SYM_TYPE_FUNCTION || (typ == 0 && class == SYM_CLASS_EXTERNAL));
+        if !function && (section.code || class != SYM_CLASS_EXTERNAL) {
+            continue;
+        }
+        if seen.insert((address, name.clone())) {
+            out.push(CoffSymbol { name, address, function, global: class == SYM_CLASS_EXTERNAL });
+        }
+    }
+    out
 }
 
 /// For x64 unwind info chained to another entry (UNW_FLAG_CHAININFO), the RVA of the root function.
@@ -335,7 +456,101 @@ pub(crate) fn format_timestamp(ts: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_timestamp;
+    fn record(name: &[u8; 8], value: u32, section: i16, typ: u16, class: u8, aux: u8) -> Vec<u8> {
+        let mut r = Vec::new();
+        r.extend_from_slice(name);
+        r.extend_from_slice(&value.to_le_bytes());
+        r.extend_from_slice(&section.to_le_bytes());
+        r.extend_from_slice(&typ.to_le_bytes());
+        r.push(class);
+        r.push(aux);
+        r
+    }
+
+    fn short(s: &str) -> [u8; 8] {
+        let mut n = [0u8; 8];
+        n[..s.len()].copy_from_slice(s.as_bytes());
+        n
+    }
+
+    fn long(offset: u32) -> [u8; 8] {
+        let mut n = [0u8; 8];
+        n[4..].copy_from_slice(&offset.to_le_bytes());
+        n
+    }
+
+    fn sections() -> Vec<CoffSection> {
+        vec![
+            CoffSection { virtual_address: 0x1000, size: 0x800, code: true },
+            CoffSection { virtual_address: 0x2000, size: 0x100, code: false },
+        ]
+    }
+
+    /// A table with the usual shapes: a typed function, a long name from the string table, an
+    /// untyped static label, a section symbol, a data symbol, and a symbol with an aux record.
+    #[test]
+    fn coff_table_gives_functions_and_data() {
+        let mut t = Vec::new();
+        t.extend(record(&short("main"), 0x10, 1, 0x20, 2, 0));
+        t.extend(record(&long(4), 0x40, 1, 0x20, 3, 0));
+        t.extend(record(&short("label"), 0x50, 1, 0, 3, 0));
+        t.extend(record(&short(".text"), 0, 1, 0, 3, 1));
+        t.extend(record(&short("auxrec"), 0, 0, 0, 0, 0)); // the aux record of `.text`
+        t.extend(record(&short("table"), 0x20, 2, 0, 2, 0));
+        t.extend(record(&short("noext"), 0x20, 1, 0, 2, 0));
+        let count = t.len() / COFF_RECORD;
+        let mut file = vec![0u8; 8];
+        let table = file.len();
+        file.extend(&t);
+        let name = b"_ZN4core3fmt5write17h0123456789abcdefE\0";
+        file.extend((4 + name.len() as u32).to_le_bytes());
+        file.extend(name);
+        let got = read_coff_symbols(&file, table, count, &sections(), 0x1_4000_0000);
+        let summary: Vec<(&str, u64, bool, bool)> = got.iter().map(|s| (s.name.as_str(), s.address, s.function, s.global)).collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("main", 0x1_4000_1010, true, true),
+                ("_ZN4core3fmt5write17h0123456789abcdefE", 0x1_4000_1040, true, false),
+                ("table", 0x1_4000_2020, false, true),
+                ("noext", 0x1_4000_1020, true, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn hostile_coff_tables_are_ignored_cleanly() {
+        let secs = sections();
+        // No table, a count beyond the file, and a count that overflows the arithmetic.
+        assert!(read_coff_symbols(&[0; 64], 0, 3, &secs, 0).is_empty());
+        assert!(read_coff_symbols(&[0; 64], 8, 100, &secs, 0).is_empty());
+        assert!(read_coff_symbols(&[0; 64], usize::MAX - 4, 2, &secs, 0).is_empty());
+        assert!(read_coff_symbols(&[0; 64], 8, usize::MAX, &secs, 0).is_empty());
+        // A name offset outside the string table, a value past its section, an unterminated name.
+        let mut t = record(&long(9999), 0x10, 1, 0x20, 2, 0);
+        t.extend(record(&short("far"), 0xffff_fff0, 1, 0x20, 2, 0));
+        t.extend(record(&long(4), 0x10, 1, 0x20, 2, 0));
+        let count = t.len() / COFF_RECORD;
+        let mut file = t.clone();
+        file.extend(8u32.to_le_bytes());
+        file.extend(b"noend");
+        assert!(read_coff_symbols(&file, 0, count, &secs, 0).is_empty());
+        // Random damage to a valid table never panics.
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..2000 {
+            let mut f = file.clone();
+            for _ in 0..4 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let at = (seed as usize) % f.len();
+                f[at] = (seed >> 32) as u8;
+            }
+            let _ = read_coff_symbols(&f, 0, count, &secs, 0);
+        }
+    }
+
+    use super::*;
 
     #[test]
     fn timestamps() {
