@@ -11,6 +11,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # 0.61 builds its Windows bindings with dlltool, which the gnu toolchain used for local
+      # Windows builds does not have. Take it when that is no longer the case.
+      - dependency-name: windows-sys
+        update-types: ["version-update:semver-minor"]
   - package-ecosystem: npm
     directory: /apps/desktop
     schedule:
