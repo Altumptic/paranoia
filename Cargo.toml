@@ -6,9 +6,9 @@ members = ["crates/*"]
 version = "0.8.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/paranoia-re/paranoia"
+repository = "https://github.com/Altumptic/paranoia"
 authors = ["Paranoia contributors"]
-rust-version = "1.82"
+rust-version = "1.88"
 
 [workspace.dependencies]
 paranoia-core = { path = "crates/paranoia-core" }

@@ -1,0 +1,352 @@
+{
+  "format": 1,
+  "description": "Ready-made library signatures embedded in Paranoia (generated; see docs/SIGNATURES.md).",
+  "packs": [
+    {
+      "name": "msvc-crt-x64",
+      "file": "msvc_x64.pat",
+      "library": "Microsoft C/C++ runtime (libcmt, libvcruntime, libucrt)",
+      "version": "14.44.35207",
+      "compiler": "MSVC 14.44.35207 (cl 14.44.35207)",
+      "target": "x86_64-pc-windows-msvc",
+      "applies_to": "x86-64 PE images linked against the Microsoft static CRT (/MT)",
+      "source": "Visual Studio Build Tools static libraries",
+      "format": "IDA FLAIR .pat",
+      "signatures": 4664,
+      "bytes": 674413,
+      "sha256": "2b33a4c119b79f8f93f92ba8d63dec0d8a67de13e983340dc140e08ca9ffa75f",
+      "verification": [
+        {
+          "pack": "msvc_x64",
+          "binary": "verify1.exe",
+          "signatures": 4664,
+          "discovered": 570,
+          "named_functions": 570,
+          "relevant_functions": 568,
+          "coverage_pct": 99.6,
+          "matched": 307,
+          "correct": 305,
+          "wrong": 1,
+          "collisions": 1,
+          "unverifiable": 0,
+          "recall_pct": 53.7,
+          "precision_pct": 99.7,
+          "wrong_pct": 0.3,
+          "examples": [
+            "140007a80: _mbsdup != _strdup",
+            "14001854c: type_info::`scalar deleting destructor' (twin: ??_Gtype_info@@UEAAPEAXI@Z; truth: type_info::`vector deleting destructor')"
+          ]
+        },
+        {
+          "pack": "msvc_x64",
+          "binary": "verify2.exe",
+          "signatures": 4664,
+          "discovered": 912,
+          "named_functions": 911,
+          "relevant_functions": 790,
+          "coverage_pct": 86.7,
+          "matched": 412,
+          "correct": 411,
+          "wrong": 0,
+          "collisions": 1,
+          "unverifiable": 0,
+          "recall_pct": 52,
+          "precision_pct": 100,
+          "wrong_pct": 0,
+          "examples": [
+            "14000a450: type_info::`scalar deleting destructor' (twin: ??_Gtype_info@@UEAAPEAXI@Z; truth: type_info::`vector deleting destructor')"
+          ]
+        },
+        {
+          "pack": "msvc_x64",
+          "binary": "verify3.exe",
+          "signatures": 4664,
+          "discovered": 499,
+          "named_functions": 499,
+          "relevant_functions": 497,
+          "coverage_pct": 99.6,
+          "matched": 275,
+          "correct": 274,
+          "wrong": 0,
+          "collisions": 1,
+          "unverifiable": 0,
+          "recall_pct": 55.1,
+          "precision_pct": 100,
+          "wrong_pct": 0,
+          "examples": [
+            "1400146bc: type_info::`scalar deleting destructor' (twin: ??_Gtype_info@@UEAAPEAXI@Z; truth: type_info::`vector deleting destructor')"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rust-std-x64",
+      "file": "rust_std_x64.pat",
+      "library": "Rust standard library (std, core, alloc) and the bundled musl libc",
+      "version": "1.94.1",
+      "compiler": "rustc 1.94.1",
+      "target": "x86_64-unknown-linux-musl (x86-64 ELF)",
+      "applies_to": "x86-64 ELF images built with this rustc (Rust std code is not stripped from the binary)",
+      "source": "rustup toolchain, x86_64-unknown-linux-musl target",
+      "format": "IDA FLAIR .pat",
+      "signatures": 580,
+      "bytes": 76788,
+      "sha256": "4fc8583cc8431f0fca6ecf1808a5cdd69ddde2e266ce7c68f37369aedef28651",
+      "verification": [
+        {
+          "pack": "rust_std_x64",
+          "binary": "verify1.strip",
+          "signatures": 580,
+          "discovered": 795,
+          "named_functions": 791,
+          "relevant_functions": 470,
+          "coverage_pct": 59.4,
+          "matched": 394,
+          "correct": 391,
+          "wrong": 3,
+          "collisions": 0,
+          "unverifiable": 0,
+          "recall_pct": 83.2,
+          "precision_pct": 99.2,
+          "wrong_pct": 0.8,
+          "examples": [
+            "1e940: core::ptr::drop_in_place$LT$std..io..default_write_fmt..Adapter$LT$std..sys..stdio..unix..Stderr$GT$$GT$::h43b21f064cd2cb83 != core::ptr::drop_in_place$LT$std..io..default_write_fmt..Adapter$LT$std..fs..File$GT$$GT$::h337cb7e4e7e0cf14",
+            "204b0: core::ptr::drop_in_place$LT$alloc..boxed..Box$LT$dyn$u20$core..ops..function..FnOnce$LT$$LP$$RP$$GT$$u2b$Output$u20$$u3d$$u20$$LP$$RP$$u2b$core..marker..Send$GT$$GT$::h3ab69c936312811a != core::ptr::drop_in_place$LT$alloc..boxed..Box$LT$dyn$u20$core..ops..function..FnMut$LT$$LP$$RP$$GT$$u2b$Output$u20$$u3d$$u20$core..result..Result$LT$$LP$$RP$$C$std..io..error..Error$GT$$u2b$core..marker..Sync$u2b$core..marker..Send$GT$$GT$::hb9b2293550a2eb57",
+            "3a250: core::ptr::drop_in_place<panic_unwind::imp::Exception> != core::ptr::drop_in_place<alloc::boxed::Box<dyn core::ops::function::FnOnce<()>+Output = ()+core::marker::Send>>"
+          ]
+        },
+        {
+          "pack": "rust_std_x64",
+          "binary": "verify2.strip",
+          "signatures": 580,
+          "discovered": 703,
+          "named_functions": 699,
+          "relevant_functions": 436,
+          "coverage_pct": 62.4,
+          "matched": 378,
+          "correct": 376,
+          "wrong": 2,
+          "collisions": 0,
+          "unverifiable": 0,
+          "recall_pct": 86.2,
+          "precision_pct": 99.5,
+          "wrong_pct": 0.5,
+          "examples": [
+            "301b0: core::ptr::drop_in_place<panic_unwind::imp::Exception> != core::ptr::drop_in_place<alloc::boxed::Box<dyn core::ops::function::FnOnce<()>+Output = ()+core::marker::Send>>",
+            "30da0: core::ptr::drop_in_place<alloc::vec::Vec<alloc::string::String>> != core::ptr::drop_in_place<alloc::vec::Vec<std::ffi::os_str::OsString>>"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "musl-libc-x64",
+      "file": "musl_x64.pat",
+      "library": "musl libc",
+      "version": "1.2.5",
+      "compiler": "musl.cc x86_64-linux-musl cross toolchain (musl-cross-make)",
+      "target": "x86_64-linux-musl (x86-64 ELF, static)",
+      "applies_to": "x86-64 ELF images statically linked against this musl.cc toolchain snapshot",
+      "source": "https://musl.cc/x86_64-linux-musl-cross.tgz",
+      "format": "IDA FLAIR .pat",
+      "signatures": 1023,
+      "bytes": 97056,
+      "sha256": "c67201da203e74d1de071508b0b0684529f0c4a764b39f08fe605a3a13acf27a",
+      "verification": [
+        {
+          "pack": "musl_x64",
+          "binary": "verify1.stripped",
+          "signatures": 1023,
+          "discovered": 72,
+          "named_functions": 70,
+          "relevant_functions": 51,
+          "coverage_pct": 72.9,
+          "matched": 45,
+          "correct": 45,
+          "wrong": 0,
+          "collisions": 0,
+          "unverifiable": 0,
+          "recall_pct": 88.2,
+          "precision_pct": 100,
+          "wrong_pct": 0,
+          "examples": []
+        },
+        {
+          "pack": "musl_x64",
+          "binary": "verify2.stripped",
+          "signatures": 1023,
+          "discovered": 68,
+          "named_functions": 66,
+          "relevant_functions": 47,
+          "coverage_pct": 71.2,
+          "matched": 44,
+          "correct": 44,
+          "wrong": 0,
+          "collisions": 0,
+          "unverifiable": 0,
+          "recall_pct": 93.6,
+          "precision_pct": 100,
+          "wrong_pct": 0,
+          "examples": []
+        }
+      ]
+    }
+  ],
+  "verification": [
+    {
+      "pack": "msvc_x64",
+      "binary": "verify1.exe",
+      "signatures": 4664,
+      "discovered": 570,
+      "named_functions": 570,
+      "relevant_functions": 568,
+      "coverage_pct": 99.6,
+      "matched": 307,
+      "correct": 305,
+      "wrong": 1,
+      "collisions": 1,
+      "unverifiable": 0,
+      "recall_pct": 53.7,
+      "precision_pct": 99.7,
+      "wrong_pct": 0.3,
+      "examples": [
+        "140007a80: _mbsdup != _strdup",
+        "14001854c: type_info::`scalar deleting destructor' (twin: ??_Gtype_info@@UEAAPEAXI@Z; truth: type_info::`vector deleting destructor')"
+      ]
+    },
+    {
+      "pack": "msvc_x64",
+      "binary": "verify2.exe",
+      "signatures": 4664,
+      "discovered": 912,
+      "named_functions": 911,
+      "relevant_functions": 790,
+      "coverage_pct": 86.7,
+      "matched": 412,
+      "correct": 411,
+      "wrong": 0,
+      "collisions": 1,
+      "unverifiable": 0,
+      "recall_pct": 52,
+      "precision_pct": 100,
+      "wrong_pct": 0,
+      "examples": [
+        "14000a450: type_info::`scalar deleting destructor' (twin: ??_Gtype_info@@UEAAPEAXI@Z; truth: type_info::`vector deleting destructor')"
+      ]
+    },
+    {
+      "pack": "msvc_x64",
+      "binary": "verify3.exe",
+      "signatures": 4664,
+      "discovered": 499,
+      "named_functions": 499,
+      "relevant_functions": 497,
+      "coverage_pct": 99.6,
+      "matched": 275,
+      "correct": 274,
+      "wrong": 0,
+      "collisions": 1,
+      "unverifiable": 0,
+      "recall_pct": 55.1,
+      "precision_pct": 100,
+      "wrong_pct": 0,
+      "examples": [
+        "1400146bc: type_info::`scalar deleting destructor' (twin: ??_Gtype_info@@UEAAPEAXI@Z; truth: type_info::`vector deleting destructor')"
+      ]
+    },
+    {
+      "pack": "rust_std_x64",
+      "binary": "verify1.strip",
+      "signatures": 580,
+      "discovered": 795,
+      "named_functions": 791,
+      "relevant_functions": 470,
+      "coverage_pct": 59.4,
+      "matched": 394,
+      "correct": 391,
+      "wrong": 3,
+      "collisions": 0,
+      "unverifiable": 0,
+      "recall_pct": 83.2,
+      "precision_pct": 99.2,
+      "wrong_pct": 0.8,
+      "examples": [
+        "1e940: core::ptr::drop_in_place$LT$std..io..default_write_fmt..Adapter$LT$std..sys..stdio..unix..Stderr$GT$$GT$::h43b21f064cd2cb83 != core::ptr::drop_in_place$LT$std..io..default_write_fmt..Adapter$LT$std..fs..File$GT$$GT$::h337cb7e4e7e0cf14",
+        "204b0: core::ptr::drop_in_place$LT$alloc..boxed..Box$LT$dyn$u20$core..ops..function..FnOnce$LT$$LP$$RP$$GT$$u2b$Output$u20$$u3d$$u20$$LP$$RP$$u2b$core..marker..Send$GT$$GT$::h3ab69c936312811a != core::ptr::drop_in_place$LT$alloc..boxed..Box$LT$dyn$u20$core..ops..function..FnMut$LT$$LP$$RP$$GT$$u2b$Output$u20$$u3d$$u20$core..result..Result$LT$$LP$$RP$$C$std..io..error..Error$GT$$u2b$core..marker..Sync$u2b$core..marker..Send$GT$$GT$::hb9b2293550a2eb57",
+        "3a250: core::ptr::drop_in_place<panic_unwind::imp::Exception> != core::ptr::drop_in_place<alloc::boxed::Box<dyn core::ops::function::FnOnce<()>+Output = ()+core::marker::Send>>"
+      ]
+    },
+    {
+      "pack": "rust_std_x64",
+      "binary": "verify2.strip",
+      "signatures": 580,
+      "discovered": 703,
+      "named_functions": 699,
+      "relevant_functions": 436,
+      "coverage_pct": 62.4,
+      "matched": 378,
+      "correct": 376,
+      "wrong": 2,
+      "collisions": 0,
+      "unverifiable": 0,
+      "recall_pct": 86.2,
+      "precision_pct": 99.5,
+      "wrong_pct": 0.5,
+      "examples": [
+        "301b0: core::ptr::drop_in_place<panic_unwind::imp::Exception> != core::ptr::drop_in_place<alloc::boxed::Box<dyn core::ops::function::FnOnce<()>+Output = ()+core::marker::Send>>",
+        "30da0: core::ptr::drop_in_place<alloc::vec::Vec<alloc::string::String>> != core::ptr::drop_in_place<alloc::vec::Vec<std::ffi::os_str::OsString>>"
+      ]
+    },
+    {
+      "pack": "musl_x64",
+      "binary": "verify1.stripped",
+      "signatures": 1023,
+      "discovered": 72,
+      "named_functions": 70,
+      "relevant_functions": 51,
+      "coverage_pct": 72.9,
+      "matched": 45,
+      "correct": 45,
+      "wrong": 0,
+      "collisions": 0,
+      "unverifiable": 0,
+      "recall_pct": 88.2,
+      "precision_pct": 100,
+      "wrong_pct": 0,
+      "examples": []
+    },
+    {
+      "pack": "musl_x64",
+      "binary": "verify2.stripped",
+      "signatures": 1023,
+      "discovered": 68,
+      "named_functions": 66,
+      "relevant_functions": 47,
+      "coverage_pct": 71.2,
+      "matched": 44,
+      "correct": 44,
+      "wrong": 0,
+      "collisions": 0,
+      "unverifiable": 0,
+      "recall_pct": 93.6,
+      "precision_pct": 100,
+      "wrong_pct": 0,
+      "examples": []
+    }
+  ],
+  "go": {
+    "go": "go version go1.23.4 windows/amd64",
+    "mode": "Go pclntab (no signature pack needed)",
+    "stripped_functions": 1825,
+    "named_functions": 1806,
+    "expected": [
+      "main.main",
+      "main.fib"
+    ],
+    "found": [
+      "main.main",
+      "main.fib"
+    ],
+    "ok": true
+  },
+  "cli": "paranoia 0.8.0"
+}

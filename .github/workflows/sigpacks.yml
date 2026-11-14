@@ -1,0 +1,70 @@
+name: Signature packs
+
+# Rebuilds the ready-made library signatures in sigs/ and re-measures them on
+# independently built programs. Runs only when the packs, the generator, the
+# matcher or the manifest change.
+#
+# The packs are tied to the toolchain versions recorded in sigs/manifest.json:
+# a `--check` run fails when a newer compiler or linker no longer reproduces the
+# documented recognition rates, which means `node scripts/build-sigpack.mjs`
+# must be run and the regenerated packs committed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sigs/**'
+      - 'scripts/build-sigpack.mjs'
+      - 'crates/paranoia-core/src/sigs.rs'
+      - '.github/workflows/sigpacks.yml'
+  pull_request:
+    paths:
+      - 'sigs/**'
+      - 'scripts/build-sigpack.mjs'
+      - 'crates/paranoia-core/src/sigs.rs'
+      - '.github/workflows/sigpacks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sigpacks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  msvc:
+    name: MSVC CRT pack (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build the CLI
+        run: cargo build --release --locked -p paranoia-cli
+      - name: Rebuild the MSVC pack and check the committed one
+        run: node scripts/build-sigpack.mjs msvc --check --work "$env:RUNNER_TEMP\sigpack-work"
+      - name: Go on Windows needs no signature pack (pclntab check)
+        run: node scripts/build-sigpack.mjs go --check --work "$env:RUNNER_TEMP\sigpack-go"
+
+  libc:
+    name: Rust std and musl packs (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install the Rust target used for the pack sample
+        run: rustup target add x86_64-unknown-linux-musl
+      - name: Build the CLI
+        run: cargo build --release --locked -p paranoia-cli
+      - name: Rebuild the Rust std and musl packs and check the committed ones
+        run: node scripts/build-sigpack.mjs rust musl --check --work "$RUNNER_TEMP/sigpack-work"
+      - name: Go on Linux needs no signature pack (pclntab check)
+        run: node scripts/build-sigpack.mjs go --check --work "$RUNNER_TEMP/sigpack-go"

@@ -46,9 +46,9 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
     while let Ok(Some(header)) = units.next() {
         let Ok(unit) = dwarf.unit(header) else { continue };
         out.units += 1;
-        let name_of = |e: &gimli::DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>>| -> Option<String> {
+        let name_of = |e: &gimli::DebuggingInformationEntry<EndianSlice<'_, RunTimeEndian>>| -> Option<String> {
             for at in [gimli::DW_AT_linkage_name, gimli::DW_AT_MIPS_linkage_name, gimli::DW_AT_name] {
-                if let Ok(Some(v)) = e.attr_value(at) {
+                if let Some(v) = e.attr_value(at) {
                     if let Ok(s) = dwarf.attr_string(&unit, v) {
                         return Some(s.to_string_lossy().into_owned());
                     }
@@ -60,24 +60,21 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
         // the types are resolved afterwards, once every definition in the unit is known.
         let mut t = TypeCollect::default();
         let mut frames: Vec<(i64, Frame)> = Vec::new();
-        let mut depth: i64 = 0;
         let mut entries = unit.entries();
-        while let Ok(Some((delta, e))) = entries.next_dfs() {
-            depth += delta as i64;
+        while let Ok(Some(e)) = entries.next_dfs() {
+            let depth = e.depth() as i64;
             while frames.last().is_some_and(|(d, _)| *d >= depth) {
                 frames.pop();
             }
             match e.tag() {
                 gimli::DW_TAG_subprogram => {
-                    let Some(low) =
-                        e.attr_value(gimli::DW_AT_low_pc).ok().flatten().and_then(|v| dwarf.attr_address(&unit, v).ok().flatten())
-                    else {
+                    let Some(low) = e.attr_value(gimli::DW_AT_low_pc).and_then(|v| dwarf.attr_address(&unit, v).ok().flatten()) else {
                         continue;
                     };
                     if low == 0 {
                         continue;
                     }
-                    let high = match e.attr_value(gimli::DW_AT_high_pc).ok().flatten() {
+                    let high = match e.attr_value(gimli::DW_AT_high_pc) {
                         Some(AttributeValue::Udata(n)) => Some(low + n),
                         Some(v) => dwarf.attr_address(&unit, v).ok().flatten(),
                         None => None,
@@ -86,7 +83,7 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
                     let mut name = name_of(e);
                     if name.is_none() {
                         for at in [gimli::DW_AT_specification, gimli::DW_AT_abstract_origin] {
-                            if let Ok(Some(AttributeValue::UnitRef(off))) = e.attr_value(at) {
+                            if let Some(AttributeValue::UnitRef(off)) = e.attr_value(at) {
                                 if let Ok(decl) = unit.entry(off) {
                                     name = name_of(&decl);
                                     if name.is_some() {
@@ -101,7 +98,7 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
                     }
                 }
                 gimli::DW_TAG_variable => {
-                    let Ok(Some(AttributeValue::Exprloc(expr))) = e.attr_value(gimli::DW_AT_location) else { continue };
+                    let Some(AttributeValue::Exprloc(expr)) = e.attr_value(gimli::DW_AT_location) else { continue };
                     let bytes = expr.0.slice();
                     let size = unit.encoding().address_size as usize;
                     let addr = match bytes.first() {
@@ -155,7 +152,7 @@ pub fn load(data: &[u8], sections: &[Section], big_endian: bool) -> Option<Dwarf
                         continue;
                     }
                     let Some(name) = die_name(&dwarf, &unit, e) else { continue };
-                    let type_ref = match e.attr_value(gimli::DW_AT_type).ok().flatten() {
+                    let type_ref = match e.attr_value(gimli::DW_AT_type) {
                         Some(AttributeValue::UnitRef(o)) => Some(o.0),
                         _ => None,
                     };
@@ -250,8 +247,8 @@ const MAX_TYPE_DEPTH: u32 = 6;
 type Reader<'a> = EndianSlice<'a, RunTimeEndian>;
 
 /// A DWARF attribute as an unsigned integer (any integer form).
-fn udata(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>, at: gimli::DwAt) -> Option<u64> {
-    match e.attr_value(at).ok().flatten()? {
+fn udata(e: &gimli::DebuggingInformationEntry<Reader<'_>>, at: gimli::DwAt) -> Option<u64> {
+    match e.attr_value(at)? {
         AttributeValue::Udata(v) | AttributeValue::Data8(v) => Some(v),
         AttributeValue::Data1(v) => Some(v as u64),
         AttributeValue::Data2(v) => Some(v as u64),
@@ -262,8 +259,8 @@ fn udata(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>, at: gimli::Dw
 }
 
 /// A DWARF attribute as a signed integer (any integer form).
-fn sdata(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>, at: gimli::DwAt) -> Option<i64> {
-    match e.attr_value(at).ok().flatten()? {
+fn sdata(e: &gimli::DebuggingInformationEntry<Reader<'_>>, at: gimli::DwAt) -> Option<i64> {
+    match e.attr_value(at)? {
         AttributeValue::Udata(v) | AttributeValue::Data8(v) => Some(v as i64),
         AttributeValue::Data1(v) => Some(v as i64),
         AttributeValue::Data2(v) => Some(v as i64),
@@ -276,15 +273,15 @@ fn sdata(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>, at: gimli::Dw
 fn die_name<'a>(
     dwarf: &gimli::Dwarf<Reader<'a>>,
     unit: &gimli::Unit<Reader<'a>>,
-    e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'a>>,
+    e: &gimli::DebuggingInformationEntry<Reader<'a>>,
 ) -> Option<String> {
-    let v = e.attr_value(gimli::DW_AT_name).ok().flatten()?;
+    let v = e.attr_value(gimli::DW_AT_name)?;
     dwarf.attr_string(unit, v).ok().map(|s| s.to_string_lossy().into_owned())
 }
 
 /// `DW_AT_data_member_location` in both the constant and `DW_OP_plus_uconst` forms.
-fn member_offset(e: &gimli::DebuggingInformationEntry<'_, '_, Reader<'_>>) -> Option<u64> {
-    match e.attr_value(gimli::DW_AT_data_member_location).ok().flatten()? {
+fn member_offset(e: &gimli::DebuggingInformationEntry<Reader<'_>>) -> Option<u64> {
+    match e.attr_value(gimli::DW_AT_data_member_location)? {
         AttributeValue::Exprloc(expr) => {
             let bytes = expr.0.slice();
             if bytes.first() != Some(&0x23) {
@@ -322,10 +319,10 @@ fn pointee_name<'a>(
     c: &TypeCollect,
     dwarf: &gimli::Dwarf<Reader<'a>>,
     unit: &gimli::Unit<Reader<'a>>,
-    pointer: &gimli::DebuggingInformationEntry<'_, '_, Reader<'a>>,
+    pointer: &gimli::DebuggingInformationEntry<Reader<'a>>,
     depth: u32,
 ) -> Option<String> {
-    let Some(AttributeValue::UnitRef(off)) = pointer.attr_value(gimli::DW_AT_type).ok().flatten() else {
+    let Some(AttributeValue::UnitRef(off)) = pointer.attr_value(gimli::DW_AT_type) else {
         return Some("void".into());
     };
     if depth > MAX_TYPE_DEPTH {
@@ -378,12 +375,12 @@ fn resolve_type<'a>(
         | gimli::DW_TAG_const_type
         | gimli::DW_TAG_volatile_type
         | gimli::DW_TAG_restrict_type
-        | gimli::DW_TAG_atomic_type => match e.attr_value(gimli::DW_AT_type).ok().flatten()? {
+        | gimli::DW_TAG_atomic_type => match e.attr_value(gimli::DW_AT_type)? {
             AttributeValue::UnitRef(o) => resolve_type(c, dwarf, unit, o.0, addr_size, depth + 1),
             _ => None,
         },
         gimli::DW_TAG_array_type => {
-            let AttributeValue::UnitRef(elem_off) = e.attr_value(gimli::DW_AT_type).ok().flatten()? else { return None };
+            let AttributeValue::UnitRef(elem_off) = e.attr_value(gimli::DW_AT_type)? else { return None };
             let elem = resolve_type(c, dwarf, unit, elem_off.0, addr_size, depth + 1)?;
             let count: u64 = c.array_counts.get(&off)?.iter().copied().fold(1u64, |acc, n| acc.saturating_mul(n));
             Some(Resolved { size: elem.size, ty: elem.ty, nested: elem.nested, pointer: elem.pointer, count: count.max(1) })

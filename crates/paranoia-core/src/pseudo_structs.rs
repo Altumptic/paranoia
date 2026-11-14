@@ -125,7 +125,7 @@ fn resolve(s: &StructDef, off: i128, size: u64, idx: &Option<(String, i128)>, li
         // A constant index inside an array field (`ctx + 0x18` with `DWORD ids[4]` at 0x14).
         if idx.is_none() && f.count > 1 && size_ok(f.elem_size) && off > f.offset && off < f.offset + f.elem_size * f.count {
             let d = off - f.offset;
-            if d % f.elem_size == 0 {
+            if d.is_multiple_of(f.elem_size) {
                 return Some(vec![Part::Field(f.name.clone()), Part::Index(d as i128 / f.elem_size as i128)]);
             }
         }
