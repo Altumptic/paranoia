@@ -194,6 +194,10 @@ export function PseudocodeView() {
             } else if ((e.key === "y" || e.key === "Y") && highlight && isVar(highlight)) {
               e.preventDefault();
               typeVar(highlight);
+            } else if (e.key === "y" || e.key === "Y") {
+              // No variable selected: Y sets the prototype of the function.
+              e.preventDefault();
+              void st().editPrototype(code.address);
             }
           }}
         >

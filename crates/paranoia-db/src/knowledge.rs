@@ -301,6 +301,7 @@ mod tests {
             comment: Some(format!("about {name}")),
             var_names: BTreeMap::new(),
             var_types: BTreeMap::new(),
+            proto: None,
             types: String::new(),
             comments: Vec::new(),
             calls: Vec::new(),

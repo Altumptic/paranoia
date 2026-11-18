@@ -81,6 +81,15 @@ export function EditDialog() {
       } catch (e) {
         st.toast(e instanceof Error ? e.message : String(e), "error");
       }
+    } else if (dialog.kind === "proto") {
+      const v = value.trim();
+      try {
+        await st.session!.setPrototype(dialog.va, v);
+        await st.afterEdit(false);
+        st.toast(v ? "Prototype set" : "Prototype removed", "success");
+      } catch (e) {
+        st.toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(e), "error");
+      }
     } else if (dialog.kind === "varname") {
       const v = value.trim();
       try {
@@ -128,6 +137,7 @@ export function EditDialog() {
             enum: "Symbolic constant",
             vartype: "Type variable",
             varname: "Rename variable",
+            proto: "Function prototype",
           }[dialog.kind]}{" "}
           {dialog.kind === "vartype" || dialog.kind === "varname" ? <span className="mono muted">{dialog.varName}</span> : <span className="mono muted">{fmtAddr(dialog.va, info)}</span>}
         </div>
@@ -151,6 +161,8 @@ export function EditDialog() {
                   : "Declare the struct in Local Types first"
                 : dialog.kind === "varname"
                 ? "A C identifier — leave empty to restore the generated name"
+                : dialog.kind === "proto"
+                ? "e.g. int __stdcall f(HANDLE h, const char *buf, DWORD n) — empty removes it"
                 : dialog.kind === "assemble"
                 ? "e.g. mov eax, 1  ·  jz 0x401020  ·  nop  ·  db 0x90, 0xcc"
                 : dialog.kind === "bookmark"

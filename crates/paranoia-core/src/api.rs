@@ -45,6 +45,12 @@ struct Rename {
 }
 
 #[derive(Deserialize)]
+struct Prototype {
+    va: u64,
+    text: String,
+}
+
+#[derive(Deserialize)]
 struct VarType {
     va: u64,
     var: String,
@@ -240,6 +246,13 @@ impl Session {
                 b.set_var_name(a.va, &a.var, &a.ty)?;
                 Ok(Value::Null)
             }
+            "setPrototype" => {
+                let a: Prototype = args(args_v)?;
+                b.checkpoint();
+                b.set_prototype(a.va, &a.text)?;
+                Ok(Value::Null)
+            }
+            "prototype" => to(b.prototype(args::<Va>(args_v)?.va)),
             "annotations" => to(b.annotations()),
             "fingerprint" => to(b.fingerprint_at(args::<Va>(args_v)?.va)),
             "renameMany" => {
