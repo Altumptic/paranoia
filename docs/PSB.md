@@ -42,7 +42,8 @@ Last reviewed: 2026-11-12 · Applies from release v0.5.1.
 | SBOM | ✅ | CycloneDX JSON for Rust crates and npm packages, attached to the release and attested (v0.5.1's SBOM lacked the npm packages; fixed from v0.6.0) |
 | Security changes in release notes | ✅ | Release checklist below |
 | Windows Authenticode | ⚠️ | PSB-EX-1 |
-| macOS Developer ID signing and notarisation | ⚠️ | PSB-EX-5 |
+| macOS Developer ID signing and notarisation | ⚠️ | PSB-EX-6 | `npm audit` accepts GHSA-fc5q-39xc-vjpf (picomatch 4.0.7, high, ReDoS through repeated extglobs) | No fixed version exists yet (4.0.7 is the latest). Only build tools use it (Vite, tinyglobby, fdir; node-gyp via `@electron/rebuild`), with glob patterns from our own config and sources, never from a file the app opens. The app has no runtime dependencies and `app.asar` contains no `node_modules` (see PSB-EX-4) | The gate fails again on 2026-12-18 and on every other advisory; Dependabot will propose the fix when picomatch publishes one | 2026-12-18 |
+| PSB-EX-5 |
 
 ## 5. Hardened surfaces (desktop)
 
@@ -69,7 +70,7 @@ Last reviewed: 2026-11-12 · Applies from release v0.5.1.
 | --- | --- | --- |
 | Threat model | ✅ | [SECURITY-DESIGN.md](SECURITY-DESIGN.md) (not required for class C, provided anyway) |
 | Pinned dependencies | ✅ | `Cargo.lock`, `package-lock.json`; GitHub Actions pinned to commit SHAs |
-| Audit in CI, critical CVEs block release | ✅ | `audit` job: `cargo audit`, and `npm audit` through `scripts/npm-audit-gate.mjs` (any advisory fails; accepted ones carry an expiry date, see PSB-EX-4); the publish job depends on it |
+| Audit in CI, critical CVEs block release | ✅ | `audit` job: `cargo audit`, and `npm audit` through `scripts/npm-audit-gate.mjs` (any advisory fails; accepted ones carry an expiry date, see PSB-EX-4 and PSB-EX-6); the publish job depends on it |
 | CI secrets short-lived | ✅ | Signing and attestations use OIDC; release job has the only write permissions |
 | Second pair of eyes on security diffs | ⚠️ | Single-maintainer project: security-relevant changes are recorded in commit messages and release notes (founder sign-off) |
 | Negative tests for untrusted input | ✅ | Noise and mutation tests in `paranoia-core` (decoders, loaders, type and `.pat` parsers) |

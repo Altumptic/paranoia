@@ -9,6 +9,15 @@ import { spawnSync } from "node:child_process";
 
 /** advisory id -> { pkg, reason, until } */
 const ACCEPTED = {
+  "GHSA-fc5q-39xc-vjpf": {
+    pkg: "picomatch",
+    until: "2026-12-18",
+    reason:
+      "picomatch 4.0.7 (ReDoS through repeated extglobs, high) is the latest release and has no fix yet. It is used " +
+      "only at build time, by Vite, tinyglobby and fdir (and node-gyp through @electron/rebuild), with glob patterns " +
+      "from our own config and sources; nothing reachable by a file the app opens. The app has no runtime " +
+      "dependencies and app.asar contains no node_modules (PSB-EX-6). Re-checked on the expiry date.",
+  },
   "GHSA-g3hv-75wg-m249": {
     pkg: "minimatch",
     until: "2027-01-31",
