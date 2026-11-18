@@ -34,6 +34,9 @@ struct Cli {
     /// The raw image is big-endian (default: little-endian, except PowerPC).
     #[arg(long, global = true)]
     big_endian: bool,
+    /// A CMSIS-SVD file: names for the peripherals and registers a firmware image uses (shown in listings).
+    #[arg(long, global = true)]
+    svd: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -52,6 +55,7 @@ struct RawArgs {
 }
 
 static RAW: std::sync::OnceLock<RawArgs> = std::sync::OnceLock::new();
+static SVD: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 #[derive(Subcommand)]
 enum Cmd {
@@ -239,6 +243,17 @@ enum MemoryCmd {
 }
 
 fn open(path: &PathBuf) -> Result<Binary> {
+    let mut bin = open_image(path)?;
+    if let Some(svd) = SVD.get() {
+        let r = bin
+            .load_svd(&std::fs::read(svd).with_context(|| format!("reading {}", svd.display()))?)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", svd.display()))?;
+        eprintln!("paranoia: SVD {}: {} peripherals, {} registers", r.device, r.peripherals, r.registers);
+    }
+    Ok(bin)
+}
+
+fn open_image(path: &PathBuf) -> Result<Binary> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if paranoia_core::firmware::has_header(&bytes) {
@@ -313,6 +328,9 @@ fn print_json<T: serde::Serialize + ?Sized>(v: &T) -> Result<()> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(s) = &cli.svd {
+        let _ = SVD.set(s.clone());
+    }
     let _ = RAW.set(RawArgs { arch: cli.arch.clone(), base: cli.base, entry: cli.entry, big_endian: cli.big_endian });
     match cli.cmd {
         Cmd::Guess { file } => {

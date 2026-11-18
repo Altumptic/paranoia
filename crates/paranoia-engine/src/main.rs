@@ -135,6 +135,14 @@ impl Engine {
                 let s = self.sessions.get_mut(&h).ok_or_else(|| format!("no session {h}"))?;
                 serde_json::to_value(s.binary_mut().load_pdb(bytes, force)?).map_err(|e| e.to_string())
             }
+            "load_svd" => {
+                // A CMSIS-SVD file: names for a microcontroller's peripherals and registers.
+                let h = r.handle.ok_or("missing handle")?;
+                let path = r.path.ok_or("missing path")?;
+                let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+                let s = self.sessions.get_mut(&h).ok_or_else(|| format!("no session {h}"))?;
+                serde_json::to_value(s.binary_mut().load_svd(&bytes)?).map_err(|e| e.to_string())
+            }
             "find_pdb" => {
                 // Look next to the binary for the PDB named in its CodeView record.
                 let h = r.handle.ok_or("missing handle")?;

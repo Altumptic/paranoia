@@ -182,6 +182,14 @@ export interface PluginInfo {
   trusted: boolean;
 }
 
+export interface SvdReport {
+  device: string;
+  peripherals: number;
+  registers: number;
+  /** Addresses that got a name they did not have. */
+  names: number;
+}
+
 export interface UpdateResult {
   /** This app's version and the latest release's. */
   current: string;
@@ -199,6 +207,8 @@ export interface DesktopBridge {
   engine(req: Record<string, unknown>): Promise<unknown>;
   openDialog(): Promise<string | null>;
   pdbDialog(): Promise<string | null>;
+  /** Native picker for a CMSIS-SVD file; the chosen path may then be passed to `load_svd`. */
+  svdDialog(): Promise<string | null>;
   info(): Promise<{ version: string; engine: string; electron: string; platform: string; /** `process.arch` of the shell: x64, arm64, … */ arch: string }>;
   /** One request to GitHub's public release list, only when the user asks. Never downloads anything. */
   checkForUpdates(): Promise<UpdateResult>;
@@ -412,6 +422,18 @@ export class Session {
   async findPdb(binaryPath: string): Promise<string | null> {
     if (this.backend.kind !== "native") return null;
     return (await this.backend.raw({ op: "find_pdb", handle: this.handle, path: binaryPath })) as string | null;
+  }
+
+  /** Desktop: names for a microcontroller's peripherals and registers from an SVD file. */
+  async loadSvdPath(path: string): Promise<SvdReport> {
+    return (await this.backend.raw({ op: "load_svd", handle: this.handle, path })) as SvdReport;
+  }
+
+  async loadSvdBytes(bytes: ArrayBuffer): Promise<SvdReport> {
+    const u8 = new Uint8Array(bytes);
+    let hex = "";
+    for (let i = 0; i < u8.length; i++) hex += u8[i].toString(16).padStart(2, "0");
+    return this.c<SvdReport>("loadSvd", { hex });
   }
 
   async loadPdbPath(path: string, force = false): Promise<PdbReport> {

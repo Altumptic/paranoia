@@ -850,6 +850,44 @@ mod tests {
         }
     }
 
+    /// An SVD file names the peripherals and registers a firmware image talks to: the listing says so at
+    /// the literal-pool load of the address and at every access through it.
+    #[test]
+    fn svd_names_show_up_in_the_listing() {
+        let svd = r#"<device><name>DEMO</name><peripherals>
+            <peripheral><name>GPIOA</name><baseAddress>0x40020000</baseAddress>
+              <addressBlock><offset>0</offset><size>0x400</size></addressBlock>
+              <registers><register><name>MODER</name><addressOffset>0</addressOffset></register>
+                         <register><name>ODR</name><addressOffset>0x14</addressOffset></register></registers></peripheral>
+            </peripherals></device>"#;
+        let base = 0x0800_0000u32;
+        let mut img = vec![0u8; 0x100];
+        img[0..4].copy_from_slice(&0x2000_8000u32.to_le_bytes());
+        img[4..8].copy_from_slice(&((base + 0x40) | 1).to_le_bytes());
+        // ldr r0, [pc, #8]; ldr r1, [r0, #0x14]; str r1, [r0, #0x14]; ldr r2, [r0]; bx lr; pool: 0x40020000
+        for (i, h) in [0x4802u16, 0x6941, 0x6141, 0x6802, 0x4770].iter().enumerate() {
+            img[0x40 + i * 2..0x42 + i * 2].copy_from_slice(&h.to_le_bytes());
+        }
+        img[0x4c..0x50].copy_from_slice(&0x4002_0000u32.to_le_bytes());
+        let mut b = crate::Binary::load_raw("fw.bin", img, &RawOptions::for_arch("thumb", base as u64).unwrap()).unwrap();
+        b.analyze();
+        let comments = |b: &crate::Binary| {
+            b.disassemble(base as u64 + 0x40, 5).unwrap().into_iter().map(|i| i.comment.unwrap_or_default()).collect::<Vec<_>>()
+        };
+        assert!(comments(&b).iter().all(|c| !c.contains("GPIOA")), "no names before the SVD file is loaded");
+        let report = b.load_svd(svd.as_bytes()).unwrap();
+        assert_eq!((report.peripherals, report.registers), (1, 2));
+        let c = comments(&b);
+        assert!(c[0].contains("GPIOA"), "{c:?}");
+        assert!(c[1].contains("GPIOA_ODR"), "{c:?}");
+        assert!(c[2].contains("GPIOA_ODR"), "{c:?}");
+        assert!(c[3].contains("GPIOA_MODER"), "{c:?}");
+        assert_eq!(b.mmio_name(0x4002_0014).as_deref(), Some("GPIOA_ODR"));
+        assert_eq!(b.mmio_name(0x4002_0100).as_deref(), Some("GPIOA+0x100"));
+        assert_eq!(b.mmio_name(0x4002_0400), None);
+        assert!(b.load_svd(b"<html/>").unwrap_err().contains("not an SVD"));
+    }
+
     #[test]
     fn architecture_names() {
         assert_eq!(parse_arch("AArch64"), Some((Arch::Arm64, 64)));
