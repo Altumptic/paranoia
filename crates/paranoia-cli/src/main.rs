@@ -263,13 +263,14 @@ If it is firmware: `paranoia guess {0}` suggests a CPU and base address; then ad
     };
     let wanted = raw.arch.as_deref().unwrap_or("auto");
     let arch_name = if wanted == "auto" {
-        match guess.arch {
-            Some(a) => paranoia_core::firmware::ARCH_NAMES
-                .iter()
-                .find(|n| paranoia_core::firmware::parse_arch(n).map(|x| x.0) == Some(a))
-                .copied()
-                .unwrap_or("thumb")
-                .to_string(),
+        match &guess.arch_name {
+            Some(n) => {
+                eprintln!(
+                    "paranoia: architecture {n} (guessed: {})",
+                    guess.notes.first().map(String::as_str).unwrap_or("see `paranoia guess`")
+                );
+                n.clone()
+            }
             None => anyhow::bail!("could not tell the architecture of {}; say it with --arch", path.display()),
         }
     } else {
@@ -287,7 +288,7 @@ If it is firmware: `paranoia guess {0}` suggests a CPU and base address; then ad
         _ => 0,
     };
     let mut opts = paranoia_core::firmware::RawOptions::for_arch(&arch_name, base).map_err(anyhow::Error::msg)?;
-    opts.big_endian = raw.big_endian || opts.big_endian;
+    opts.big_endian = raw.big_endian || opts.big_endian || (wanted == "auto" && guess.big_endian);
     opts.entry = raw.entry;
     Ok(Binary::load_raw(&name, bytes, &opts)?)
 }
@@ -334,8 +335,8 @@ fn main() -> Result<()> {
             match (g.arch, g.base) {
                 (None, None) => println!("  no guess: no Cortex-M vector table, and no base address that string pointers agree on"),
                 (arch, base) => {
-                    if let Some(a) = arch {
-                        println!("  architecture  {} (use --arch thumb)", a.label());
+                    if let (Some(a), Some(n)) = (arch, &g.arch_name) {
+                        println!("  architecture  {} (use --arch {n}{})", a.label(), if g.big_endian { " --big-endian" } else { "" });
                     }
                     if let Some(b) = base {
                         println!("  base          {b:#x} (use --base {b:#x})");

@@ -19,7 +19,9 @@ export interface RawOpen {
 
 /** What `raw_guess` suggests for a header-less file. */
 export interface RawGuess {
-  arch: string | null;
+  /** The `--arch` name (`thumb`, `arm64`, `x86-64`, …), when the code or the vector table gave one. */
+  arch_name: string | null;
+  big_endian: boolean;
   base: number | null;
   cortex_m: boolean;
   notes: string[];
