@@ -385,6 +385,8 @@ export class Session {
   debugTypeCounts = () => this.c<[number, number]>("debugTypeCounts");
   setTypes = (text: string) => this.c<number>("setTypes", { text });
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
+  /** Sets the prototype of the function at `va` from C text (`int __stdcall f(char *s, DWORD n)`); empty removes it. Rejects with the reason when the text is not a prototype. */
+  setPrototype = (va: number, text: string) => this.c<null>("setPrototype", { va, text });
   /** Types a pseudocode variable (IDA's `Y`): `va` is the function address, `ty` like `MY_STRUCT *` (empty resets). */
   setVarType = (va: number, variable: string, ty: string) => this.c<null>("setVarType", { va, var: variable, ty });
   /** Renames a pseudocode variable; `variable` is its generated name, an empty `name` restores it. */

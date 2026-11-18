@@ -122,7 +122,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Recognise C runtime and standard library functions from a database built from debug builds — built in: MSVC x64 static CRT, Rust std and musl libc packs, 828 KiB in total, recorded with measured recognition in `sigs/manifest.json` and rebuilt by CI ([SIGNATURES.md](SIGNATURES.md))
 - [ ] Measure on more pairs: real version updates of open-source programs, clang and MSVC builds
 - [x] Carry struct types along with names: a remembered function brings the Local Types declarations its typed variables need, merged on recall without overwriting a type the file already defines
-- [ ] Function prototypes: needs a user-set signature in the model (an `Annotations` field, pseudocode honouring it, API/UI), then memory can carry it
+- [x] Function prototypes: a user-set signature (`Y` on a function, or Edit → Function prototype…) rewrites the pseudocode signature, names and types the parameters, and is carried by function memory
 
 ### Benchmark follow-ups
 

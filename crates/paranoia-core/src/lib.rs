@@ -52,6 +52,7 @@ mod strings;
 mod switch;
 mod tools;
 mod types;
+mod user_proto;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -121,6 +122,10 @@ pub struct Annotations {
     /// then the generated name (`v3`, `a1`, `var_8`) → the user's name.
     #[serde(default)]
     pub var_names: BTreeMap<u64, BTreeMap<String, String>>,
+    /// Function prototypes set by the user (`int __stdcall f(char *s, DWORD n)`), by function
+    /// address: the pseudocode signature, parameter names and types follow them.
+    #[serde(default)]
+    pub protos: BTreeMap<u64, String>,
 }
 
 #[derive(Default)]
@@ -990,6 +995,24 @@ impl Binary {
         } else {
             vars.insert(var.to_string(), ty.to_string());
         }
+    }
+
+    /// Sets the prototype of the function at `va` from C text (`int __stdcall f(HANDLE h, char *buf, DWORD n)`);
+    /// empty removes it. The function's own name in the text is ignored: rename the function instead.
+    pub fn set_prototype(&mut self, va: u64, text: &str) -> Result<(), String> {
+        let text = text.trim();
+        if text.is_empty() {
+            self.annotations.protos.remove(&va);
+            return Ok(());
+        }
+        user_proto::parse(text)?;
+        self.annotations.protos.insert(va, text.to_string());
+        Ok(())
+    }
+
+    /// The prototype the user set for the function at `va`, as typed.
+    pub fn prototype(&self, va: u64) -> Option<&str> {
+        self.annotations.protos.get(&va).map(String::as_str)
     }
 
     /// Renames a pseudocode variable of the function at `va`. `var` is the generated name

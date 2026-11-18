@@ -40,7 +40,7 @@ interface State {
   /** Bumped after edits so views refetch. */
   revision: number;
   toasts: Toast[];
-  dialog: null | { kind: "rename" | "comment" | "bookmark" | "struct" | "enum" | "vartype" | "varname" | "assemble"; va: number; initial: string; value?: number; ins?: Instruction; varName?: string };
+  dialog: null | { kind: "rename" | "comment" | "bookmark" | "struct" | "enum" | "vartype" | "varname" | "proto" | "assemble"; va: number; initial: string; value?: number; ins?: Instruction; varName?: string };
   annotations: Annotations;
   search: SearchKind | null;
   menuOpen: boolean;
@@ -70,6 +70,8 @@ interface State {
   /** A file the engine could not read as PE, ELF or Mach-O: asks the user for its CPU and base address. */
   rawOpen: null | { path: string; name: string };
   open(src: OpenSource): Promise<void>;
+  /** Opens the prototype dialog for the function containing `va` (IDA's `Y` on a function). */
+  editPrototype(va: number): Promise<void>;
   /** File → Open firmware or raw image…: pick a file and ask for its CPU and base. */
   openRaw(): Promise<void>;
   close(): Promise<void>;
@@ -211,6 +213,22 @@ export const useStore = create<State>((set, get) => ({
       }
       get().toast(`Could not open ${name}: ${message}`, "error");
     }
+  },
+
+  async editPrototype(va) {
+    const { session, functions, annotations } = get();
+    const f = functions.filter((x) => x.address <= va).sort((a, b) => b.address - a.address)[0];
+    if (!session || !f || va >= f.address + Math.max(f.size, 1)) {
+      get().toast("Put the cursor inside a function first", "error");
+      return;
+    }
+    let initial = annotations.protos?.[String(f.address)] ?? "";
+    if (!initial) {
+      // Start from the current signature, without the generated parameter names.
+      const sig = (await session.pseudocode(f.address).catch(() => null))?.lines[0]?.tokens.map((t) => t.t).join("") ?? "";
+      initial = sig.replace(/\s+a\d+(?=[,)])/g, "").replace(/\s+/g, " ").trim();
+    }
+    set({ dialog: { kind: "proto", va: f.address, initial } });
   },
 
   async openRaw() {
