@@ -25,7 +25,8 @@ When two things compete, they're done in this order:
 | Feature | | Notes |
 | --- | --- | --- |
 | PE, ELF, Mach-O | ✅ | Universal binaries, chained fixups, forwarders, TLS callbacks |
-| Raw images, firmware, COFF/OMF, DEX, NE/LE | ⏳ | Raw images and firmware first |
+| Raw images and firmware | 🟡 | Flat `.bin`, Intel HEX and S-record with the CPU and base you give (or a guess); Cortex-M vector table. See [FIRMWARE.md](FIRMWARE.md). Tested on synthetic images, not yet on real firmware |
+| COFF/OMF, DEX, NE/LE | ⏳ | |
 | x86, x86-64 | ✅ | |
 | AArch64 | ✅ | `adrp`-based references; calls through `adrp` + `add` + `blr` are followed |
 | ARM32, Thumb-2 | ✅ | Mixed ARM/Thumb images, tracked per address |
@@ -103,10 +104,12 @@ Moved to the next releases: redaction of symbol and function names on request. S
 
 ### 0.12: firmware and raw images
 
-- [ ] Raw loader: pick the architecture, byte order and base address
-- [ ] Intel HEX and Motorola S-record
-- [ ] Cortex-M vector table: handlers become functions automatically
-- [ ] Guess the base address of a raw image
+- [x] Raw loader: pick the architecture, byte order and base address (`--arch`, `--base`, `--entry`, `--big-endian`; a dialog in the app)
+- [x] Intel HEX and Motorola S-record, checksums verified
+- [x] Cortex-M vector table: handlers become named functions automatically
+- [x] Guess the base address of a raw image: from the Cortex-M vector table, or from pointers to strings (a heuristic, [FIRMWARE.md](FIRMWARE.md))
+- [ ] Measure the guess on real firmware images
+- [ ] Thumb pseudocode
 - [ ] Named memory regions, later SVD files
 
 ### 0.13: remote debugging

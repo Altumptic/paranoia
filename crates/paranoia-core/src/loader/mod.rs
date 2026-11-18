@@ -100,6 +100,8 @@ pub fn load(bytes: &[u8]) -> Result<(Format, Loaded), Error> {
         Format::Pe => pe::load(bytes),
         Format::Elf => elf::load(bytes),
         Format::MachO => macho::load(bytes),
+        // Detection never answers Raw: raw images go through `Binary::load_raw`.
+        Format::Raw => Err(goblin::error::Error::Malformed("raw images need an architecture".into())),
     }
     .map_err(|e| Error::Malformed(format.label(), e.to_string()))?;
     Ok((format, loaded))

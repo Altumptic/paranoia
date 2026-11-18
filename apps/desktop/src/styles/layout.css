@@ -1531,6 +1531,21 @@
   width: 100%;
 }
 
+/* ---- Open firmware or raw image ---- */
+.modal.raw-modal {
+  width: min(460px, calc(100vw - 32px));
+}
+.raw-modal select.input {
+  height: 30px;
+}
+.raw-guess {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  line-height: 1.45;
+}
+
 /* ---- Update check ---- */
 .modal.update {
   width: min(460px, calc(100vw - 32px));
