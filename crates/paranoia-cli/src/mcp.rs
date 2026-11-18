@@ -269,8 +269,14 @@ impl Server {
             tool(
                 "open_binary",
                 "Open a binary",
-                "Load and auto-analyse an executable, library or object file (PE, ELF, Mach-O). Returns its id and a summary.",
-                json!({ "path": { "type": "string", "description": "File path inside the server's allowed directories" } }),
+                "Load and auto-analyse an executable, library or object file (PE, ELF, Mach-O), or firmware: a raw .bin, Intel HEX or S-record file, which has no header, so give `arch` (and `base` for a .bin). Returns its id and a summary.",
+                json!({
+                    "path": { "type": "string", "description": "File path inside the server's allowed directories" },
+                    "arch": { "type": "string", "description": "Firmware only: x86, x86-64, arm, thumb (Cortex-M), arm64, mips, mips64, ppc, ppc64, riscv32, riscv64, or auto to take the guess. Without it a header-less file is refused with a suggestion." },
+                    "base": { "type": "string", "description": "Firmware .bin only: load address in hex, e.g. 0x08000000 (guessed when omitted; HEX and S-record files carry their own)" },
+                    "entry": { "type": "string", "description": "Firmware only: entry point in hex (default: reset handler or the file's start address)" },
+                    "big_endian": { "type": "boolean", "description": "Firmware only: big-endian image (default little-endian, except PowerPC)" }
+                }),
                 &["path"],
                 &read,
             ),
@@ -420,7 +426,7 @@ impl Server {
 
     fn call(&mut self, name: &str, a: &Value) -> ToolResult {
         match name {
-            "open_binary" => self.open(str_arg(a, "path")?),
+            "open_binary" => self.open(str_arg(a, "path")?, a),
             "list_binaries" => Ok(if self.bins.is_empty() {
                 "No binary is open yet; use open_binary.".into()
             } else {
@@ -662,7 +668,7 @@ impl Server {
         }
     }
 
-    fn open(&mut self, path: &str) -> ToolResult {
+    fn open(&mut self, path: &str, args: &Value) -> ToolResult {
         let p = Path::new(path).canonicalize().map_err(|e| ToolError(format!("{path}: {e}")))?;
         if !self.roots.iter().any(|r| p.starts_with(r)) {
             let roots: Vec<String> = self.roots.iter().map(|r| shown(r)).collect();
@@ -681,7 +687,12 @@ impl Server {
         }
         let bytes = std::fs::read(&p)?;
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let mut bin = Binary::load(&name, bytes)?;
+        let mut bin = if paranoia_core::firmware::has_header(&bytes) {
+            Binary::load(&name, bytes)?
+        } else {
+            let opts = firmware_options(&bytes, args)?;
+            Binary::load_raw(&name, bytes, &opts)?
+        };
         let stats = bin.analyze();
         let sha256 = bin.info().hashes.sha256.clone();
         // The analyst's names and comments from the desktop app, when asked for.
@@ -894,6 +905,52 @@ fn shown(p: &Path) -> String {
 
 fn error(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+}
+
+/// An address given as a hex string (`0x08000000`) or a number.
+fn addr_arg(a: &Value, key: &str) -> Result<Option<u64>, ToolError> {
+    match a.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(n)) => n.as_u64().map(Some).ok_or_else(|| ToolError(format!("`{key}` must be a non-negative address"))),
+        Some(Value::String(s)) => u64::from_str_radix(s.trim().trim_start_matches("0x").trim_start_matches("0X"), 16)
+            .map(Some)
+            .map_err(|_| ToolError(format!("`{key}` must be a hexadecimal address like 0x08000000"))),
+        Some(_) => Err(ToolError(format!("`{key}` must be a hexadecimal string"))),
+    }
+}
+
+/// Options for a header-less file: what the agent gave, or the engine's guess when it said `auto`.
+/// Without an architecture the file is refused, with the guess in the message so the agent can retry.
+fn firmware_options(bytes: &[u8], a: &Value) -> Result<paranoia_core::firmware::RawOptions, ToolError> {
+    use paranoia_core::firmware;
+    let first = match firmware::decode(bytes) {
+        Some(d) => d.map_err(ToolError)?.segments.into_iter().next().map(|s| s.data).unwrap_or_default(),
+        None => bytes.to_vec(),
+    };
+    let guess = firmware::guess(&first);
+    let suggestion = match (&guess.arch_name, guess.base) {
+        (Some(n), Some(b)) => format!("Suggested: arch={n}, base={b:#x} ({}).", guess.notes.first().map(String::as_str).unwrap_or("")),
+        (Some(n), None) => format!("Suggested: arch={n} ({}).", guess.notes.first().map(String::as_str).unwrap_or("")),
+        _ => "No suggestion: no Cortex-M vector table and no recognisable machine code.".to_string(),
+    };
+    let asked = a.get("arch").and_then(Value::as_str).filter(|s| !s.is_empty());
+    let Some(asked) = asked else {
+        return Err(ToolError(format!("this file has no PE, ELF or Mach-O header; if it is firmware, call open_binary again with `arch` (and `base` for a .bin). {suggestion}")));
+    };
+    let name = if asked == "auto" {
+        guess.arch_name.clone().ok_or_else(|| ToolError(format!("could not guess the architecture. {suggestion}")))?
+    } else {
+        asked.to_string()
+    };
+    let base = match addr_arg(a, "base")? {
+        Some(b) => b,
+        None if firmware::decode(bytes).is_none() => guess.base.unwrap_or(0),
+        None => 0,
+    };
+    let mut opts = firmware::RawOptions::for_arch(&name, base).map_err(ToolError)?;
+    opts.big_endian = a.get("big_endian").and_then(Value::as_bool).unwrap_or(opts.big_endian || (asked == "auto" && guess.big_endian));
+    opts.entry = addr_arg(a, "entry")?;
+    Ok(opts)
 }
 
 fn str_arg<'a>(a: &'a Value, key: &str) -> Result<&'a str, ToolError> {
@@ -1312,6 +1369,53 @@ mod tests {
         assert!(idc.contains("mcp_entry"), "{idc}");
         let (err, text) = call(&mut s, "decompile", json!({ "address": "not_a_name_zz" }));
         assert!(err && text.contains("neither"), "{text}");
+    }
+
+    /// A header-less Cortex-M image at 0x08002000: vector table, a reset handler, strings.
+    fn cortex_image() -> Vec<u8> {
+        let base = 0x0800_2000u32;
+        let mut img = vec![0u8; 0x400];
+        let mut put = |i: usize, w: u32| img[i * 4..i * 4 + 4].copy_from_slice(&w.to_le_bytes());
+        put(0, 0x2000_8000);
+        put(1, (base + 0x100) | 1);
+        put(2, (base + 0x120) | 1);
+        put(3, (base + 0x130) | 1);
+        for (n, s) in ["hello world", "firmware v1.2", "error: bad crc", "uart0 ready", "boot ok!!"].iter().enumerate() {
+            let at = 0x200 + n * 0x20;
+            img[at..at + s.len()].copy_from_slice(s.as_bytes());
+            img[0x300 + n * 4..0x304 + n * 4].copy_from_slice(&(base + at as u32).to_le_bytes());
+        }
+        img[0x100..0x108].copy_from_slice(&[0x80, 0xb5, 0x00, 0xf0, 0x00, 0xf8, 0x80, 0xbd]);
+        for off in [0x120, 0x130] {
+            img[off..off + 2].copy_from_slice(&[0x70, 0x47]);
+        }
+        img
+    }
+
+    #[test]
+    fn firmware_opens_with_an_architecture_and_is_refused_with_a_suggestion_without_one() {
+        let dir = std::env::temp_dir().join(format!("paranoia-mcp-fw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("fw.bin");
+        std::fs::write(&file, cortex_image()).unwrap();
+        let mut s = Server::new(Config { roots: vec![dir.canonicalize().unwrap()], ..Config::default() }).unwrap();
+        let path = file.to_string_lossy().into_owned();
+        // No architecture: refused, and the message carries the engine's guess for the retry.
+        let (err, text) = call(&mut s, "open_binary", json!({ "path": path }));
+        assert!(err && text.contains("arch=thumb") && text.contains("0x8002000"), "{text}");
+        // Wrong input is reported, not guessed around.
+        let (err, text) = call(&mut s, "open_binary", json!({ "path": path, "arch": "z80" }));
+        assert!(err && text.contains("unknown architecture"), "{text}");
+        let (err, text) = call(&mut s, "open_binary", json!({ "path": path, "arch": "thumb", "base": "zz" }));
+        assert!(err && text.contains("hexadecimal"), "{text}");
+        // `auto` takes the guess; an explicit base works too.
+        for args in [json!({ "path": path, "arch": "auto" }), json!({ "path": path, "arch": "thumb", "base": "0x08002000" })] {
+            let (err, text) = call(&mut s, "open_binary", args);
+            assert!(!err && text.contains("Raw image") && text.contains("entry 0x8002100"), "{text}");
+            let (_, funcs) = call(&mut s, "triage", json!({ "limit": 10 }));
+            assert!(funcs.contains("Reset_Handler") || funcs.contains("HardFault_Handler"), "{funcs}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -108,7 +108,9 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Intel HEX and Motorola S-record, checksums verified
 - [x] Cortex-M vector table: handlers become named functions automatically
 - [x] Guess the base address of a raw image: from the Cortex-M vector table, or from pointers to strings (a heuristic, [FIRMWARE.md](FIRMWARE.md))
-- [ ] Measure the guess on real firmware images
+- [x] Guess the CPU of other raw images from machine-code patterns (36 of 37 real files right, none wrong; MIPS, PowerPC, RISC-V, ARM and Thumb only on synthetic data)
+- [x] Function discovery in raw x86-64, AArch64, ARM and Thumb images: 95–99.8 % of the functions on six of the seven dumps measured, 64 % on MinGW Rust ([FIRMWARE.md](FIRMWARE.md))
+- [ ] Measure the base-address guess and the Cortex-M logic on real firmware images
 - [ ] Thumb pseudocode
 - [ ] Named memory regions, later SVD files
 
