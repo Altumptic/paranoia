@@ -92,6 +92,8 @@ interface State {
   applySignatures(): Promise<void>;
   /** Save a `.pat` file for this binary's named functions. */
   makeSignatures(): Promise<void>;
+  /** File → Load SVD file…: peripheral and register names for firmware. */
+  loadSvd(): Promise<void>;
   loadPdb(src?: { path: string } | { bytes: ArrayBuffer }): Promise<void>;
   savePatched(): Promise<void>;
   item(op: "undefine" | "code" | "data" | "string", va: number): Promise<void>;
@@ -561,6 +563,35 @@ export const useStore = create<State>((set, get) => ({
     } catch (e) {
       set({ loading: null });
       get().toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  },
+
+  async loadSvd() {
+    const { session } = get();
+    if (!session) return;
+    const { desktop } = await import("./engine/client");
+    try {
+      let r;
+      if (desktop) {
+        const p = await desktop.svdDialog();
+        if (!p) return;
+        r = await session.loadSvdPath(p);
+      } else {
+        const file = await new Promise<File | undefined>((resolve) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".svd,.xml";
+          input.onchange = () => resolve(input.files?.[0]);
+          input.click();
+        });
+        if (!file) return;
+        r = await session.loadSvdBytes(await file.arrayBuffer());
+      }
+      set({ revision: get().revision + 1 });
+      get().print(`SVD ${r.device}: ${r.peripherals} peripherals, ${r.registers} registers`, "info");
+      get().toast(`Loaded ${r.peripherals} peripherals and ${r.registers} registers`, "success");
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(e), "error");
     }
   },
 

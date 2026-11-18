@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("paranoia", {
   engine: (req) => ipcRenderer.invoke("engine:request", req),
   openDialog: () => ipcRenderer.invoke("dialog:open"),
   pdbDialog: () => ipcRenderer.invoke("dialog:pdb"),
+  svdDialog: () => ipcRenderer.invoke("dialog:svd"),
   info: () => ipcRenderer.invoke("app:info"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
   // Known before the first paint, so the title bar can reserve room for the traffic lights.

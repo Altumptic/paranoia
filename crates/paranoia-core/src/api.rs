@@ -45,6 +45,11 @@ struct Rename {
 }
 
 #[derive(Deserialize)]
+struct SvdArgs {
+    hex: String,
+}
+
+#[derive(Deserialize)]
 struct Prototype {
     va: u64,
     text: String,
@@ -379,6 +384,11 @@ impl Session {
                 let a: PdbArgs = args(args_v)?;
                 let bytes = hex::decode(&a.hex).map_err(|e| format!("invalid hex: {e}"))?;
                 to(b.load_pdb(bytes, a.force.unwrap_or(false))?)
+            }
+            "loadSvd" => {
+                let a: SvdArgs = args(args_v)?;
+                let bytes = hex::decode(&a.hex).map_err(|e| format!("invalid hex: {e}"))?;
+                to(b.load_svd(&bytes)?)
             }
             "types" => to(&b.annotations().types),
             "findTypes" => {
