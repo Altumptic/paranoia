@@ -112,7 +112,8 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Function discovery in raw x86-64, AArch64, ARM and Thumb images: 95–99.8 % of the functions on six of the seven dumps measured, 64 % on MinGW Rust ([FIRMWARE.md](FIRMWARE.md))
 - [ ] Measure the base-address guess and the Cortex-M logic on real firmware images
 - [ ] Thumb pseudocode
-- [ ] Named memory regions, later SVD files
+- [x] SVD files: peripheral and register names in ARM / Thumb listings ([FIRMWARE.md](FIRMWARE.md)); tested on a hand-written file, not yet on vendors' files
+- [ ] Named memory regions as their own objects, and SVD bit-field names
 
 ### 0.13: remote debugging
 

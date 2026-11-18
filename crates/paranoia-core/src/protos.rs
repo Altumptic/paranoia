@@ -2,7 +2,9 @@
 //! argument set-up instructions (`; lpFileName`) and to give pseudocode calls
 //! the right number of arguments, as IDA does with its type libraries.
 
-use crate::model::{Arch, Format, Instruction};
+use std::collections::HashMap;
+
+use crate::model::{Arch, Flow, Format, Instruction};
 use crate::Binary;
 
 pub struct Proto {
@@ -321,7 +323,123 @@ impl Binary {
         if matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             self.annotate_calls_x86(insns);
         }
+        if matches!(self.info.arch, Arch::Arm | Arch::Thumb) && !self.svd_ranges.is_empty() {
+            self.annotate_mmio_arm(insns);
+        }
         self.apply_operand_formats(insns);
+    }
+
+    /// Names memory-mapped registers in ARM / Thumb listings, from a loaded SVD file: a literal-pool load of a
+    /// peripheral address (`ldr r0, [pc, #4]` where the pool holds 0x40020000) is annotated, and so is every
+    /// `ldr` / `str` through a register that holds one (`ldr r1, [r0, #0x14]` → `GPIOA_ODR`). The register
+    /// values are tracked within the listing and forgotten at labels, branches and when overwritten.
+    fn annotate_mmio_arm(&self, insns: &mut [Instruction]) {
+        let mut known: HashMap<String, u64> = HashMap::new();
+        let is_reg = |s: &str| {
+            let s = s.trim();
+            s.len() >= 2
+                && s.len() <= 3
+                && (s.starts_with('r') && s[1..].bytes().all(|b| b.is_ascii_digit()) || matches!(s, "sp" | "lr" | "ip" | "fp" | "sl"))
+        };
+        let imm = |s: &str| -> Option<i64> {
+            let t = s.trim().trim_start_matches('#');
+            let (neg, t) = t.strip_prefix('-').map_or((false, t), |r| (true, r));
+            let v = if let Some(h) = t.strip_prefix("0x") { i64::from_str_radix(h, 16).ok()? } else { t.parse().ok()? };
+            Some(if neg { -v } else { v })
+        };
+        for ins in insns.iter_mut() {
+            if ins.label.is_some() {
+                known.clear();
+            }
+            let text: String = ins.operands.iter().map(|t| t.t.as_str()).collect();
+            let m = ins.mnemonic.as_str();
+            let load = m.starts_with("ldr");
+            let store = m.starts_with("str");
+            let (dest, rest) = match text.split_once(',') {
+                Some((d, r)) => (d.trim().to_string(), r.trim().to_string()),
+                None => (text.trim().to_string(), String::new()),
+            };
+            let mut note: Option<String> = None;
+            if (load || store) && rest.starts_with('[') {
+                let inner = rest.trim_start_matches('[').split(']').next().unwrap_or("");
+                let mut parts = inner.split(',').map(str::trim);
+                let (b, off) = (parts.next().unwrap_or(""), parts.next());
+                if b == "pc" {
+                    // A literal-pool load: the pool word is the constant.
+                    if load {
+                        if let Some(v) = ins.target.and_then(|t| self.bytes_at(t)).and_then(|d| d.get(..4)).map(|d| {
+                            let w = [d[0], d[1], d[2], d[3]];
+                            if self.info.endian == crate::model::Endian::Big {
+                                u32::from_be_bytes(w)
+                            } else {
+                                u32::from_le_bytes(w)
+                            }
+                        }) {
+                            known.insert(dest.clone(), v as u64);
+                            // A pointer to a peripheral's start names the peripheral, not its first register.
+                            note =
+                                self.svd_ranges.iter().find(|r| r.0 == v as u64).map(|r| r.2.clone()).or_else(|| self.mmio_name(v as u64));
+                        } else {
+                            known.remove(&dest);
+                        }
+                    }
+                } else if let Some(&c) = known.get(b) {
+                    let delta = match off {
+                        None => Some(0),
+                        Some(o) if !is_reg(o) => imm(o),
+                        _ => None,
+                    };
+                    if let Some(d) = delta {
+                        note = self.mmio_name(c.wrapping_add(d as u64));
+                    }
+                    if load {
+                        known.remove(&dest);
+                    }
+                } else if load {
+                    known.remove(&dest);
+                }
+            } else if matches!(m, "adds" | "add" | "subs" | "sub") && is_reg(&dest) {
+                // rD = rS ± imm keeps a known constant (`adds r0, r1, #4`, `adds r0, #4`).
+                let ops: Vec<&str> = rest.split(',').map(str::trim).collect();
+                let (src, k) = match ops.as_slice() {
+                    [k] => (dest.as_str(), imm(k)),
+                    [s, k] if is_reg(s) => (*s, imm(k)),
+                    _ => ("", None),
+                };
+                match (known.get(src).copied(), k) {
+                    (Some(c), Some(k)) => {
+                        let v = if m.starts_with("sub") { c.wrapping_sub(k as u64) } else { c.wrapping_add(k as u64) };
+                        known.insert(dest.clone(), v);
+                    }
+                    _ => {
+                        known.remove(&dest);
+                    }
+                }
+            } else if matches!(m, "mov" | "movs") && is_reg(&dest) {
+                match known.get(rest.as_str()).copied() {
+                    Some(c) => {
+                        known.insert(dest.clone(), c);
+                    }
+                    None => {
+                        known.remove(&dest);
+                    }
+                }
+            } else if !(store || m.starts_with("cmp") || m.starts_with("tst") || m.starts_with('b') && !m.starts_with("bic"))
+                && is_reg(&dest)
+            {
+                known.remove(&dest);
+            }
+            if matches!(ins.flow, Flow::Call | Flow::Jump | Flow::CondJump | Flow::Ret) {
+                // A call clobbers the caller-saved registers; a branch ends the straight-line stretch.
+                known.clear();
+            }
+            if let Some(n) = note {
+                ins.comment = Some(match ins.comment.take() {
+                    Some(c) => format!("{c} · {n}"),
+                    None => n,
+                });
+            }
+        }
     }
 
     fn annotate_calls_x86(&self, insns: &mut [Instruction]) {

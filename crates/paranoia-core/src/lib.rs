@@ -50,6 +50,7 @@ mod sigs;
 mod ssa;
 pub use sigs::SigReport;
 mod strings;
+mod svd;
 mod switch;
 mod tools;
 mod types;
@@ -84,6 +85,16 @@ pub enum Error {
     Malformed(&'static str, String),
     #[error("address {0:#x} is not mapped")]
     Unmapped(u64),
+}
+
+/// What `Binary::load_svd` read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SvdReport {
+    pub device: String,
+    pub peripherals: usize,
+    pub registers: usize,
+    /// Addresses that got a name they did not have.
+    pub names: usize,
 }
 
 /// User-authored annotations, persisted per file hash by the front-ends.
@@ -166,6 +177,10 @@ pub struct Binary {
     raw_names: HashMap<u64, String>,
     /// Functions whose PDB module is a Microsoft runtime library object.
     pdb_library: BTreeSet<u64>,
+    /// Register names from a loaded SVD file, by address (see `svd`).
+    svd_names: HashMap<u64, String>,
+    /// Peripherals from a loaded SVD file: `(start, end, name)`, sorted by start.
+    svd_ranges: Vec<(u64, u64, String)>,
     /// Built-in signature matches (recomputed by every analysis).
     lib_names: HashMap<u64, String>,
     /// Annotation snapshots for undo / redo.
@@ -372,6 +387,8 @@ impl Binary {
             pdb_names: BTreeSet::new(),
             raw_names: HashMap::new(),
             pdb_library: BTreeSet::new(),
+            svd_names: HashMap::new(),
+            svd_ranges: Vec::new(),
             lib_names: HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -1002,6 +1019,41 @@ impl Binary {
         } else {
             vars.insert(var.to_string(), ty.to_string());
         }
+    }
+
+    /// Loads a CMSIS-SVD file (the vendor's map of a microcontroller's peripherals and registers). Registers
+    /// and peripherals become names for their addresses: the listing then says `GPIOA_ODR` where code
+    /// reads or writes `0x40020014`. Names the file already has are kept. Not saved with the annotations:
+    /// load the file again next time.
+    pub fn load_svd(&mut self, bytes: &[u8]) -> Result<SvdReport, String> {
+        let svd = svd::parse(bytes)?;
+        let mut added = 0usize;
+        for r in &svd.registers {
+            self.svd_names.entry(r.address).or_insert_with(|| r.name.clone());
+        }
+        for p in &svd.peripherals {
+            self.svd_names.entry(p.base).or_insert_with(|| p.name.clone());
+            self.svd_ranges.push((p.base, p.base + p.size.max(1), p.name.clone()));
+        }
+        self.svd_ranges.sort();
+        self.svd_ranges.dedup();
+        for (addr, name) in &self.svd_names {
+            if !self.static_names.contains_key(addr) {
+                self.static_names.insert(*addr, name.clone());
+                added += 1;
+            }
+        }
+        Ok(SvdReport { device: svd.device, peripherals: svd.peripherals.len(), registers: svd.registers.len(), names: added })
+    }
+
+    /// The SVD name of a memory-mapped address: the register, or `PERIPHERAL+0xOFF` inside a peripheral.
+    pub fn mmio_name(&self, addr: u64) -> Option<String> {
+        if let Some(n) = self.svd_names.get(&addr) {
+            return Some(n.clone());
+        }
+        let i = self.svd_ranges.partition_point(|r| r.0 <= addr);
+        let (start, end, name) = self.svd_ranges.get(i.checked_sub(1)?)?;
+        (addr < *end).then(|| format!("{name}+{:#x}", addr - start))
     }
 
     /// Sets the prototype of the function at `va` from C text (`int __stdcall f(HANDLE h, char *buf, DWORD n)`);

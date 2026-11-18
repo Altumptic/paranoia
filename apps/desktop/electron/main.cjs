@@ -180,7 +180,7 @@ function takeSavePath(p) {
 
 handle("engine:request", async (_e, req) => {
   // Only forward the protocol's known operations.
-  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug", "diff", "memory", "raw_guess"].includes(req.op)) throw new Error("invalid engine request");
+  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug", "diff", "memory", "raw_guess", "load_svd"].includes(req.op)) throw new Error("invalid engine request");
   // Firmware and raw images: the CPU and base come from the page, so they are checked and cleaned here.
   if (req.op === "open" && req.args !== undefined && req.args !== null) {
     const raw = policy.rawOptions(req.args.raw);
@@ -192,7 +192,7 @@ handle("engine:request", async (_e, req) => {
   // Exports may only go to a path the user just picked in a save dialog.
   if (req.op === "export_patched" && !takeSavePath(req.path)) throw new Error("export path was not chosen by the user");
   // Reads only from files the user chose.
-  if (["open", "load_pdb", "find_pdb", "raw_guess"].includes(req.op) && !(await pathAllowed(req.path))) throw new Error("this file was not opened by the user");
+  if (["open", "load_pdb", "find_pdb", "raw_guess", "load_svd"].includes(req.op) && !(await pathAllowed(req.path))) throw new Error("this file was not opened by the user");
   // The store is also where the recent-files allow-list lives: the page gets a fixed set of
   // methods and may only add files it really opened.
   if (req.op === "store") {
@@ -533,6 +533,13 @@ handle("file:write-text", async (_e, p, text) => {
 
 handle("dialog:pdb", async () => {
   const r = await dialog.showOpenDialog(win, { title: "Load PDB symbols", properties: ["openFile"], filters: [{ name: "Program database", extensions: ["pdb"] }] });
+  if (r.canceled) return null;
+  allowPath(r.filePaths[0]);
+  return r.filePaths[0];
+});
+
+handle("dialog:svd", async () => {
+  const r = await dialog.showOpenDialog(win, { title: "Load SVD file (peripheral and register names)", properties: ["openFile"], filters: [{ name: "CMSIS-SVD", extensions: ["svd", "xml"] }] });
   if (r.canceled) return null;
   allowPath(r.filePaths[0]);
   return r.filePaths[0];

@@ -39,7 +39,22 @@ When the architecture is `thumb` and the image starts with a vector table (a sta
 - calls a handler that three or more vectors share `Default_Handler`;
 - uses the reset handler as the entry point.
 
-Names are the ARM CMSIS conventions, not a lookup of the part: Paranoia does not know which peripheral IRQ 17 is. SVD files (peripheral names and register maps) are not supported yet.
+Names are the ARM CMSIS conventions, not a lookup of the part: Paranoia does not know which peripheral IRQ 17 is. An SVD file (below) gives the peripherals' and registers' names.
+
+## SVD files: peripheral and register names
+
+The chip vendor's CMSIS-SVD file lists every peripheral with its base address and every register with its offset. Load it with File → *Load SVD file (peripheral names)…*, or `--svd FILE` on any command:
+
+```bash
+paranoia disasm fw.bin --arch thumb --svd STM32F407.svd -a 0x08000100
+#   ldr  r0, [pc, 0x8]   ; dword_800004C  ; GPIOA
+#   ldr  r1, [r0, 0x14]  ; GPIOA_ODR
+#   str  r1, [r0, 0x14]  ; GPIOA_ODR
+```
+
+On ARM and Thumb listings, a literal-pool load of a peripheral address is annotated with the peripheral's name, and so is every `ldr` / `str` through a register that holds one (`GPIOA_ODR`, or `GPIOA+0x24` for an offset the file does not name). The register value is tracked inside the listing and forgotten at labels, branches and calls and when it is overwritten; it follows `mov`, `add` and `sub` with an immediate. It does not follow values through memory or across functions, and it does not yet show in pseudocode (Thumb has none).
+
+What is read: peripherals (including `derivedFrom`), registers, clusters and `dim` arrays (`TIM%s`, `AFR[%s]`, ranges and lists). Fields, enumerated values and interrupts are ignored. The file is parsed by a small XML reader that refuses files over 32 MiB, nesting over 64 levels, and arrays over 4 096 entries, and does not read a DTD or entities beyond the five standard ones. SVD names are not saved with your annotations: load the file again when you reopen the firmware. Tested on a hand-written SVD that exercises each feature; not yet on vendors' real files.
 
 ## How the guess works, and when it is wrong
 
@@ -74,6 +89,6 @@ Measured by cutting the executable section out of real files, opening it as a ra
 ## Not yet
 
 - Pseudocode for Thumb (the listing, graph, cross references and function memory work).
-- Named memory regions and SVD files; peripheral register names.
+- Named memory regions (RAM, flash banks) as their own objects, and bit-field names from SVD files.
 - Opening firmware in the browser build.
 - Function discovery for MIPS, PowerPC and RISC-V raw images (they get the entry point and what the descent follows).

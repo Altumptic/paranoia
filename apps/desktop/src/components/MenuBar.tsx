@@ -157,6 +157,7 @@ function useMenus(): Menu[] {
         items: [
           { label: "Re-run auto-analysis", disabled: noFile, run: () => st().reanalyze() },
           { label: "Load PDB symbols…", disabled: noFile, run: () => st().loadPdb() },
+          { label: "Load SVD file (peripheral names)…", disabled: noFile, run: () => st().loadSvd() },
           ...(desktop
             ? [
                 sep,
