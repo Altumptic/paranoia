@@ -81,6 +81,7 @@ function useMenus(): Menu[] {
               if (s) st().open(s);
             },
           },
+          ...(desktop ? [{ label: "Open firmware or raw image…", run: () => st().openRaw() } as Item] : []),
           { label: "Close file", disabled: noFile, run: () => st().close() },
           sep,
           { label: patches ? `Save patched file (${patches} byte${patches === 1 ? "" : "s"})…` : "Save a copy of the file…", disabled: noFile, run: () => st().savePatched() },

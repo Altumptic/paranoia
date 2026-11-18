@@ -9,6 +9,8 @@ pub enum Format {
     Pe,
     Elf,
     MachO,
+    /// Firmware or a raw image: no header, the user gave the architecture and base.
+    Raw,
 }
 
 impl Format {
@@ -17,6 +19,7 @@ impl Format {
             Format::Pe => "PE",
             Format::Elf => "ELF",
             Format::MachO => "Mach-O",
+            Format::Raw => "Raw image",
         }
     }
 }

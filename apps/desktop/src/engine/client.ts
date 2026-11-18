@@ -8,7 +8,26 @@ import type { WorkerRequest, WorkerResponse } from "./wasm.worker";
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
-export type OpenSource = { kind: "bytes"; name: string; bytes: ArrayBuffer } | { kind: "path"; path: string };
+/** What the user says about a firmware or raw image, which has no header to say it. */
+export interface RawOpen {
+  /** x86, x86-64, arm, thumb, arm64, mips, mips64, ppc, ppc64, riscv32, riscv64 */
+  arch: string;
+  base?: number;
+  entry?: number;
+  big_endian?: boolean;
+}
+
+/** What `raw_guess` suggests for a header-less file. */
+export interface RawGuess {
+  arch: string | null;
+  base: number | null;
+  cortex_m: boolean;
+  notes: string[];
+  /** "Intel HEX" or "S-record" when the file carries its own addresses. */
+  container: string | null;
+}
+
+export type OpenSource = { kind: "bytes"; name: string; bytes: ArrayBuffer } | { kind: "path"; path: string; raw?: RawOpen };
 
 export interface RecentFile {
   name: string;
@@ -247,7 +266,7 @@ class DesktopBackend implements Backend {
 
   open(src: OpenSource): Promise<number> {
     if (src.kind !== "path") throw new Error("The desktop engine opens files by path.");
-    return this.req<number>({ op: "open", path: src.path });
+    return this.req<number>(src.raw ? { op: "open", path: src.path, args: { raw: src.raw } } : { op: "open", path: src.path });
   }
 
   call<T>(handle: number, method: string, args?: unknown): Promise<T> {

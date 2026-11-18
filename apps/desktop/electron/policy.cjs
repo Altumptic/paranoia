@@ -62,6 +62,27 @@ function titleBarOverlaySupported(platform) {
   return platform === "win32" || platform === "linux";
 }
 
+/** CPU names the engine accepts for a header-less image (paranoia_core::firmware::parse_arch). */
+const RAW_ARCHES = new Set(["x86", "x86-64", "arm", "thumb", "arm64", "mips", "mips64", "ppc", "ppc64", "riscv32", "riscv64"]);
+
+/**
+ * The options the page may pass to open a firmware or raw image: a known CPU name, a base and an
+ * entry that are plain non-negative integers, and a byte-order flag. Returns the cleaned object
+ * (nothing else gets through) or null when anything is off.
+ */
+function rawOptions(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const addr = (v) => v === undefined || v === null || (Number.isSafeInteger(v) && v >= 0);
+  if (typeof raw.arch !== "string" || !RAW_ARCHES.has(raw.arch)) return null;
+  if (!addr(raw.base) || !addr(raw.entry)) return null;
+  if (raw.big_endian !== undefined && raw.big_endian !== null && typeof raw.big_endian !== "boolean") return null;
+  const out = { arch: raw.arch };
+  if (raw.base != null) out.base = raw.base;
+  if (raw.entry != null) out.entry = raw.entry;
+  if (raw.big_endian != null) out.big_endian = raw.big_endian;
+  return out;
+}
+
 /** Text shown in the native confirmation before a debuggee starts. */
 function debugDetail(file, cmdline) {
   const args = typeof cmdline === "string" && cmdline.trim() ? cmdline.trim().slice(0, 500) : "(none)";
@@ -71,4 +92,4 @@ function debugDetail(file, cmdline) {
   );
 }
 
-module.exports = { appUrl, isAppPage, externalAllowed, storeMethodAllowed, memoryMethodAllowed, recentAddAllowed, titleBarOverlaySupported, debugDetail };
+module.exports = { appUrl, isAppPage, externalAllowed, storeMethodAllowed, memoryMethodAllowed, recentAddAllowed, titleBarOverlaySupported, debugDetail, rawOptions, RAW_ARCHES };

@@ -32,10 +32,23 @@ mod debugger;
 mod debugger;
 
 use paranoia_core::api::Session;
+use paranoia_core::firmware::RawOptions;
 use paranoia_core::memory::{self, DiffOptions, LearnFrom};
 use paranoia_db::{Knowledge, Store};
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+/// `args.raw` of an `open` request.
+#[derive(Deserialize)]
+struct RawOpen {
+    arch: String,
+    #[serde(default)]
+    base: Option<u64>,
+    #[serde(default)]
+    big_endian: Option<bool>,
+    #[serde(default)]
+    entry: Option<u64>,
+}
 
 #[derive(Deserialize)]
 struct Request {
@@ -70,11 +83,38 @@ impl Engine {
                 let path = r.path.ok_or("missing path")?;
                 let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
                 let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(path.clone());
-                let s = Session::open(&name, bytes)?;
+                // `args.raw` = {arch, base, big_endian?, entry?}: firmware and raw images, whose
+                // architecture the file cannot tell.
+                let s = match r.args.get("raw").filter(|v| !v.is_null()) {
+                    Some(raw) => {
+                        let raw: RawOpen = serde_json::from_value(raw.clone()).map_err(|e| format!("invalid raw options: {e}"))?;
+                        let mut opts = RawOptions::for_arch(&raw.arch, raw.base.unwrap_or(0))?;
+                        opts.big_endian = raw.big_endian.unwrap_or(opts.big_endian);
+                        opts.entry = raw.entry;
+                        Session::open_raw(&name, bytes, &opts)?
+                    }
+                    None => Session::open(&name, bytes)?,
+                };
                 self.next += 1;
                 self.sessions.insert(self.next, s);
                 self.paths.insert(self.next, path);
                 Ok(json!(self.next))
+            }
+            "raw_guess" => {
+                // What a header-less file probably is: the CPU and base address, with the reasons.
+                let path = r.path.ok_or("missing path")?;
+                let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+                let (container, bytes) = match paranoia_core::firmware::decode(&bytes) {
+                    Some(d) => {
+                        let d = d?;
+                        (Some(d.kind), d.segments.into_iter().next().map(|s| s.data).unwrap_or_default())
+                    }
+                    None => (None, bytes),
+                };
+                let mut v = serde_json::to_value(paranoia_core::firmware::guess(&bytes)).map_err(|e| e.to_string())?;
+                // "Intel HEX" / "S-record" carry their own addresses; a plain image needs a base.
+                v["container"] = json!(container);
+                Ok(v)
             }
             "call" => {
                 let h = r.handle.ok_or("missing handle")?;
