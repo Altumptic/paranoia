@@ -344,6 +344,10 @@ pub fn cortex_m_table(data: &[u8], base: u64) -> Option<VectorTable> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Guess {
     pub arch: Option<Arch>,
+    /// The `--arch` name that selects `arch` (`thumb`, `arm64`, `x86-64`, `ppc64`, …).
+    pub arch_name: Option<String>,
+    pub bits: Option<u8>,
+    pub big_endian: bool,
     pub base: Option<u64>,
     /// The image starts with a Cortex-M vector table.
     pub cortex_m: bool,
@@ -410,6 +414,8 @@ pub fn guess(data: &[u8]) -> Guess {
     let len = data.len() as u64;
     if let Some(hs) = cortex_m_handlers_anywhere(data) {
         g.arch = Some(Arch::Thumb);
+        g.arch_name = Some("thumb".into());
+        g.bits = Some(32);
         g.cortex_m = true;
         let (m, mx) = (*hs.iter().min().unwrap() as u64, *hs.iter().max().unwrap() as u64);
         let table_bytes = 4 * (hs.len() as u64 + 2);
@@ -442,10 +448,26 @@ pub fn guess(data: &[u8]) -> Guess {
         }
         return g;
     }
+    // Not Cortex-M: which CPU, from the function-boundary patterns of its machine code.
+    let mut big = false;
+    if let Some(a) = crate::archguess::guess_arch(data) {
+        g.arch = Some(a.arch);
+        g.arch_name = Some(a.name.to_string());
+        g.bits = Some(a.bits);
+        g.big_endian = a.big_endian;
+        big = a.big_endian;
+        g.notes.push(format!(
+            "machine-code patterns say {} ({} function-boundary marks{}; the runner-up has {})",
+            a.arch.label(),
+            a.hits,
+            if a.big_endian { ", big-endian" } else { "" },
+            a.runner_up
+        ));
+    }
     // Generic: candidate bases near the most common high halves of the 32-bit words.
     let mut highs: BTreeMap<u32, usize> = BTreeMap::new();
     for i in 0..data.len() / 4 {
-        if let Some(w) = word(data, i, false) {
+        if let Some(w) = word(data, i, big) {
             if w >= 0x1000 && w != 0xffff_ffff {
                 *highs.entry(w >> 16).or_default() += 1;
             }
@@ -457,7 +479,7 @@ pub fn guess(data: &[u8]) -> Guess {
     for (h, _) in top.iter().take(3) {
         for k in 0..=16u64 {
             let b = ((*h as u64) << 16).saturating_sub(k * 0x1000);
-            scored.push((string_pointers(data, &starts, b, false), b));
+            scored.push((string_pointers(data, &starts, b, big), b));
         }
     }
     scored.sort_by_key(|s| (std::cmp::Reverse(s.0), s.1));
@@ -788,6 +810,43 @@ mod tests {
             let hn: BTreeMap<u64, String> = h.functions().into_iter().map(|f| (f.address, f.name)).collect();
             assert_eq!(hn, names, "start {start:?}");
             assert_eq!(h.info().kind, "Intel HEX (Cortex-M firmware)");
+        }
+    }
+
+    /// Functions nothing calls are found in a raw image by their frame set-up after the previous
+    /// function's end, on CPUs with no unwind table to say where they are.
+    #[test]
+    fn a_raw_image_gets_its_uncalled_functions_from_prologues() {
+        let starts = |arch: &str, code: Vec<u8>, base: u64| {
+            let mut b = crate::Binary::load_raw("raw.bin", code, &RawOptions::for_arch(arch, base).unwrap()).unwrap();
+            b.analyze();
+            b.functions().into_iter().map(|f| f.address).collect::<Vec<u64>>()
+        };
+        // x86-64: push rbp; mov rbp, rsp; sub rsp, 32; xor eax, eax; add rsp, 32; pop rbp; ret; int3 padding.
+        let f64 = [0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x20, 0x31, 0xc0, 0x48, 0x83, 0xc4, 0x20, 0x5d, 0xc3];
+        let mut code = Vec::new();
+        for _ in 0..4 {
+            code.extend_from_slice(&f64);
+            code.extend_from_slice(&[0xcc; 16]);
+        }
+        let found = starts("x86-64", code, 0x1000);
+        for want in [0x1000u64, 0x1020, 0x1040, 0x1060] {
+            assert!(found.contains(&want), "x86-64: {want:#x} missing from {found:x?}");
+        }
+        // AArch64: stp x29, x30, [sp, #-16]!; mov x29, sp; ldp x29, x30, [sp], #16; ret; zero padding.
+        let words = [0xa9bf_7bfdu32, 0x9100_03fd, 0xa8c1_7bfd, 0xd65f_03c0, 0, 0, 0, 0];
+        let code: Vec<u8> = (0..4).flat_map(|_| words.iter().flat_map(|w| w.to_le_bytes())).collect();
+        let found = starts("arm64", code, 0x10000);
+        for want in [0x10000u64, 0x10020, 0x10040, 0x10060] {
+            assert!(found.contains(&want), "arm64: {want:#x} missing from {found:x?}");
+        }
+        // Thumb: push {r7, lr}; mov r7, sp; pop {r7, pc}; padding.
+        let thumb: Vec<u8> = (0..4)
+            .flat_map(|_| [0xb580u16, 0x466f, 0xbd80, 0, 0, 0, 0, 0].iter().flat_map(|h| h.to_le_bytes()).collect::<Vec<u8>>())
+            .collect();
+        let found = starts("thumb", thumb, 0x8000);
+        for want in [0x8000u64, 0x8010, 0x8020, 0x8030] {
+            assert!(found.contains(&want), "thumb: {want:#x} missing from {found:x?}");
         }
     }
 

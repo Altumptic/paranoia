@@ -19,6 +19,7 @@
 
 mod analysis;
 pub mod api;
+pub mod archguess;
 mod asm_x86;
 mod demangle;
 pub mod disasm;
@@ -482,15 +483,21 @@ impl Binary {
                 learned = dis.take_learned_modes();
                 // Code nothing points at: scan what the descent left uncovered, analyse again with
                 // what the scan found, and repeat while it finds more.
-                for _ in 0..discover::MAX_ROUNDS {
+                let mut loose = false;
+                for _ in 0..discover::MAX_ROUNDS + 3 {
                     let known: HashSet<u64> = seeds.iter().map(|s| s.address).collect();
                     let found: Vec<Seed> = self
-                        .scan_function_starts(&r)
+                        .scan_function_starts(&r, loose)
                         .into_iter()
                         .filter(|a| !known.contains(a) && !skip.contains(a))
                         .map(|address| Seed { address, source: FunctionSource::Scan, end: None })
                         .collect();
                     if found.is_empty() {
+                        // Raw images: once the strict scan is spent, try again accepting starts without a prologue.
+                        if self.is_scannable_raw() && !loose {
+                            loose = true;
+                            continue;
+                        }
                         break;
                     }
                     seeds.extend(found);

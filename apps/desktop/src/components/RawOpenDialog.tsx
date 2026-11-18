@@ -52,7 +52,8 @@ export function RawOpenDialog() {
       .then((g) => {
         const r = g as RawGuess;
         setGuess(r);
-        if (r.arch) setArch(r.arch);
+        if (r.arch_name) setArch(r.arch_name);
+        setBig(r.big_endian);
         if (r.base != null) setBase(`0x${r.base.toString(16)}`);
       })
       .catch(() => setGuess(null))

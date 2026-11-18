@@ -1061,3 +1061,101 @@ fn user_prototype_rewrites_the_signature_and_travels_with_function_memory() {
     assert!(!applied.prototype);
     assert_eq!(c.prototype(f), Some("void f(int only)"));
 }
+
+/// How often the CPU guess for raw code (`archguess`) agrees with the loader's answer, on the
+/// executable sections of real files: `PARANOIA_GUESS_DIR` (every file in it), plus the host's own
+/// programs. Prints the table; fails when a guess is wrong (silence is allowed, a wrong answer is not).
+#[test]
+fn arch_guess_on_real_code() {
+    use paranoia_core::archguess::guess_arch;
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    if let Ok(dir) = std::env::var("PARANOIA_GUESS_DIR") {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if let Ok(b) = std::fs::read(e.path()) {
+                files.push((e.file_name().to_string_lossy().into_owned(), b));
+            }
+        }
+    }
+    for p in ["C:/Windows/System32/notepad.exe", "C:/Windows/SysWOW64/comctl32.dll", "/bin/ls", "/usr/bin/env", "/bin/bash"] {
+        if let Ok(b) = std::fs::read(p) {
+            files.push((p.to_string(), b));
+        }
+    }
+    let (mut right, mut silent, mut wrong) = (0, 0, Vec::new());
+    for (name, bytes) in files {
+        let Ok(bin) = Binary::load(&name, bytes) else { continue };
+        let info = bin.info();
+        // The biggest executable section, as raw bytes: what a firmware dump would hold.
+        let Some(sec) = info.sections.iter().filter(|s| s.perms.x && s.raw_size > 4096).max_by_key(|s| s.raw_size) else { continue };
+        let code = bin.read(sec.offset, sec.raw_size.min(256 * 1024) as usize);
+        match guess_arch(code) {
+            None => {
+                silent += 1;
+                eprintln!("{name:<44} {:?}: no guess", info.arch);
+            }
+            Some(g) if g.arch == info.arch || (g.arch == Arch::Thumb && info.arch == Arch::Arm) => {
+                right += 1;
+                eprintln!("{name:<44} {:?}: {} ({} hits, runner-up {})", info.arch, g.name, g.hits, g.runner_up);
+            }
+            Some(g) => {
+                eprintln!("{name:<44} {:?}: WRONG {} ({} hits, runner-up {})", info.arch, g.name, g.hits, g.runner_up);
+                wrong.push(format!("{name}: {:?} guessed as {}", info.arch, g.name));
+            }
+        }
+    }
+    eprintln!("arch guess: {right} right, {silent} silent, {} wrong", wrong.len());
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A header-less dump of real code (the executable section of a PE / ELF / Mach-O, at its own address)
+/// opened as a raw image: how many of the functions the headers-and-unwind-table analysis finds does the
+/// raw analysis (entry + function-start scan) find, and how many of its functions are not among them?
+/// Files: `PARANOIA_RAW_DIR` (all of them), plus notepad.exe where present. Prints the table; asserts
+/// only that recall stays above a floor, since the extras are not necessarily wrong.
+#[test]
+fn raw_dump_of_real_code_finds_most_of_its_functions() {
+    use paranoia_core::firmware::RawOptions;
+    use std::collections::BTreeSet;
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    if let Ok(dir) = std::env::var("PARANOIA_RAW_DIR") {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if let Ok(b) = std::fs::read(e.path()) {
+                files.push((e.file_name().to_string_lossy().into_owned(), b));
+            }
+        }
+    }
+    if let Ok(b) = std::fs::read("C:/Windows/System32/notepad.exe") {
+        files.push(("notepad.exe".into(), b));
+    }
+    for (name, bytes) in files {
+        let Ok(mut full) = Binary::load(&name, bytes) else { continue };
+        let arch = full.info().arch;
+        let cpu = match arch {
+            Arch::X86_64 => "x86-64",
+            Arch::Arm64 => "arm64",
+            _ => continue,
+        };
+        full.analyze();
+        let Some(sec) = full.info().sections.iter().filter(|s| s.perms.x && s.raw_size > 4096).max_by_key(|s| s.raw_size).cloned() else {
+            continue;
+        };
+        let (lo, hi) = (sec.vaddr, sec.vaddr + sec.raw_size);
+        let truth: BTreeSet<u64> =
+            full.functions().iter().filter(|f| f.address >= lo && f.address < hi && !f.is_import_thunk).map(|f| f.address).collect();
+        let dump = full.read(sec.offset, sec.raw_size as usize).to_vec();
+        let mut raw = Binary::load_raw(&name, dump, &RawOptions::for_arch(cpu, sec.vaddr).unwrap()).unwrap();
+        raw.analyze();
+        let found: BTreeSet<u64> = raw.functions().iter().map(|f| f.address).collect();
+        let hit = found.intersection(&truth).count();
+        let recall = hit as f64 / truth.len().max(1) as f64;
+        eprintln!(
+            "{name:<40} {cpu:<7} truth {:>6}  raw found {:>6}  recall {:>5.1} %  not in truth {:>6} ({:.1} %)",
+            truth.len(),
+            found.len(),
+            100.0 * recall,
+            found.len() - hit,
+            100.0 * (found.len() - hit) as f64 / found.len().max(1) as f64
+        );
+        assert!(recall >= 0.5, "{name}: the raw dump finds only {:.1} % of the functions", 100.0 * recall);
+    }
+}
