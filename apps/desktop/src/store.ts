@@ -67,7 +67,11 @@ interface State {
   log: { t: number; kind: "info" | "error" | "out"; text: string }[];
   undoDepth: [number, number];
 
+  /** A file the engine could not read as PE, ELF or Mach-O: asks the user for its CPU and base address. */
+  rawOpen: null | { path: string; name: string };
   open(src: OpenSource): Promise<void>;
+  /** File → Open firmware or raw image…: pick a file and ask for its CPU and base. */
+  openRaw(): Promise<void>;
   close(): Promise<void>;
   loadRecent(): Promise<void>;
   goto(va: number, opts?: { tab?: CenterTab; record?: boolean }): void;
@@ -135,6 +139,7 @@ export const useStore = create<State>((set, get) => ({
   aiSettingsOpen: false,
   memoryOpen: false,
   compare: null,
+  rawOpen: null,
   assistant: null,
   plugins: { dir: "", list: [], errors: [] },
   highlight: null,
@@ -198,8 +203,24 @@ export const useStore = create<State>((set, get) => ({
       get().loadRecent();
     } catch (e) {
       set({ loading: null });
-      get().toast(`Could not open ${name}: ${e instanceof Error ? e.message : String(e)}`, "error");
+      const message = e instanceof Error ? e.message : String(e);
+      // A header-less file (firmware, Intel HEX, S-record) is not an error: ask what it is.
+      if (src.kind === "path" && !src.raw && /give its architecture|say which CPU/.test(message)) {
+        set({ rawOpen: { path: src.path, name } });
+        return;
+      }
+      get().toast(`Could not open ${name}: ${message}`, "error");
     }
+  },
+
+  async openRaw() {
+    const src = await pickFile();
+    if (!src) return;
+    if (src.kind !== "path") {
+      get().toast("Firmware and raw images are opened by the desktop app.", "error");
+      return;
+    }
+    set({ rawOpen: { path: src.path, name: src.path.split(/[\\/]/).pop() ?? src.path } });
   },
 
   async close() {

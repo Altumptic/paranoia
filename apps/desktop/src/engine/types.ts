@@ -1,6 +1,6 @@
 // Mirror of crates/paranoia-core/src/model.rs. Keep in sync with the Rust side.
 
-export type Format = "pe" | "elf" | "macho";
+export type Format = "pe" | "elf" | "macho" | "raw";
 export type Arch = "x86" | "x86_64" | "arm" | "thumb" | "arm64" | "mips" | "powerpc" | "riscv" | "unknown";
 
 export interface Perms {

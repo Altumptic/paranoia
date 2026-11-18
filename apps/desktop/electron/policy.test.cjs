@@ -67,3 +67,13 @@ test("the title-bar overlay is only updated where the method exists", () => {
   // macOS has no `setTitleBarOverlay`; calling it throws inside the IPC handler.
   for (const platform of ["darwin", "freebsd", undefined]) assert.ok(!policy.titleBarOverlaySupported(platform));
 });
+
+test("raw image options: a known CPU and plain integers only, nothing else passes", () => {
+  assert.deepEqual(policy.rawOptions({ arch: "thumb", base: 0x08000000, entry: 0x08000101, big_endian: false, extra: "<script>" }), { arch: "thumb", base: 0x08000000, entry: 0x08000101, big_endian: false });
+  assert.deepEqual(policy.rawOptions({ arch: "arm64" }), { arch: "arm64" });
+  for (const bad of [null, undefined, [], "thumb", {}, { arch: "z80" }, { arch: "thumb", base: -1 }, { arch: "thumb", base: 1.5 }, { arch: "thumb", base: "0x1000" }, { arch: "thumb", entry: 2 ** 60 }, { arch: "thumb", big_endian: "yes" }, { arch: "__proto__" }]) {
+    assert.equal(policy.rawOptions(bad), null, JSON.stringify(bad));
+  }
+  // Every CPU the page may name is one the engine knows.
+  assert.ok(policy.RAW_ARCHES.has("riscv64") && policy.RAW_ARCHES.has("x86-64"));
+});

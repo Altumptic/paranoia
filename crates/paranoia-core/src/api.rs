@@ -170,6 +170,13 @@ impl Session {
         Ok(Session { bin })
     }
 
+    /// Loads firmware or a raw image with the architecture and base the user gave.
+    pub fn open_raw(name: &str, bytes: Vec<u8>, opts: &crate::firmware::RawOptions) -> Result<Self, String> {
+        let mut bin = Binary::load_raw(name, bytes, opts).map_err(|e| e.to_string())?;
+        bin.analyze();
+        Ok(Session { bin })
+    }
+
     pub fn binary(&self) -> &Binary {
         &self.bin
     }

@@ -180,13 +180,19 @@ function takeSavePath(p) {
 
 handle("engine:request", async (_e, req) => {
   // Only forward the protocol's known operations.
-  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug", "diff", "memory"].includes(req.op)) throw new Error("invalid engine request");
+  if (!req || !["open", "call", "close", "store", "ping", "export_patched", "load_pdb", "find_pdb", "debug", "diff", "memory", "raw_guess"].includes(req.op)) throw new Error("invalid engine request");
+  // Firmware and raw images: the CPU and base come from the page, so they are checked and cleaned here.
+  if (req.op === "open" && req.args !== undefined && req.args !== null) {
+    const raw = policy.rawOptions(req.args.raw);
+    if (!raw) throw new Error("invalid raw image options");
+    req = { op: "open", path: req.path, args: { raw } };
+  }
   // The function knowledge base: no paths, a fixed set of methods.
   if (req.op === "memory" && !policy.memoryMethodAllowed(req.method)) throw new Error("invalid memory request");
   // Exports may only go to a path the user just picked in a save dialog.
   if (req.op === "export_patched" && !takeSavePath(req.path)) throw new Error("export path was not chosen by the user");
   // Reads only from files the user chose.
-  if (["open", "load_pdb", "find_pdb"].includes(req.op) && !(await pathAllowed(req.path))) throw new Error("this file was not opened by the user");
+  if (["open", "load_pdb", "find_pdb", "raw_guess"].includes(req.op) && !(await pathAllowed(req.path))) throw new Error("this file was not opened by the user");
   // The store is also where the recent-files allow-list lives: the page gets a fixed set of
   // methods and may only add files it really opened.
   if (req.op === "store") {

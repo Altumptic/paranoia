@@ -24,6 +24,7 @@ mod demangle;
 pub mod disasm;
 mod discover;
 mod dwarf;
+pub mod firmware;
 mod flirt_sig;
 mod frame;
 mod items;
@@ -73,8 +74,10 @@ use loader::{MapRange, Seed};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("unrecognized file format (expected PE, ELF or Mach-O)")]
+    #[error("unrecognized file format (expected PE, ELF or Mach-O; for firmware or a raw image, give its architecture)")]
     UnknownFormat,
+    #[error("this is an {0} file: it has addresses but not the architecture, so say which CPU it is for")]
+    NeedsRawOptions(&'static str),
     #[error("malformed {0} file: {1}")]
     Malformed(&'static str, String),
     #[error("address {0:#x} is not mapped")]
@@ -182,7 +185,33 @@ pub struct Binary {
 impl Binary {
     /// Parses `bytes`. Cheap: no disassembly happens until [`Binary::analyze`].
     pub fn load(file_name: &str, bytes: Vec<u8>) -> Result<Self, Error> {
-        let (format, mut loaded) = loader::load(&bytes)?;
+        if loader::detect(&bytes).is_none() {
+            if let Some(kind) = firmware::sniff(&bytes) {
+                return Err(Error::NeedsRawOptions(kind));
+            }
+        }
+        let (format, loaded) = loader::load(&bytes)?;
+        Self::from_loaded(file_name, bytes, format, loaded)
+    }
+
+    /// Loads firmware or a raw image: a plain `.bin` placed at `opts.base`, or an Intel HEX or
+    /// S-record file (which carries its own addresses). The architecture comes from `opts`;
+    /// see [`firmware::guess`] for a way to suggest it and the base. The hashes and the bytes
+    /// the analysis sees are those of the decoded image.
+    pub fn load_raw(file_name: &str, bytes: Vec<u8>, opts: &firmware::RawOptions) -> Result<Self, Error> {
+        let raw = |e: String| Error::Malformed("raw image", e);
+        let (kind, segments, entry) = match firmware::decode(&bytes) {
+            Some(d) => {
+                let d = d.map_err(&raw)?;
+                (d.kind, d.segments, d.entry)
+            }
+            None => ("Raw image", firmware::plain(&bytes, opts.base).map_err(&raw)?, None),
+        };
+        let built = firmware::build(kind, segments, entry, opts).map_err(raw)?;
+        Self::from_loaded(file_name, built.data, Format::Raw, built.loaded)
+    }
+
+    fn from_loaded(file_name: &str, bytes: Vec<u8>, format: Format, mut loaded: loader::Loaded) -> Result<Self, Error> {
         if loaded.arch == Some(Arch::Arm) {
             loader::fix_arm_thumb(&mut loaded, format);
         }

@@ -20,14 +20,45 @@ struct Cli {
     /// Emit JSON instead of human-readable tables.
     #[arg(long, global = true)]
     json: bool,
+    /// CPU of a firmware or raw image, which has no header to say so: x86, x86-64, arm, thumb
+    /// (Cortex-M), arm64, mips, mips64, ppc, ppc64, riscv32, riscv64, or `auto` to take the guess
+    /// of `paranoia guess`. Ignored for PE, ELF and Mach-O files.
+    #[arg(long, global = true)]
+    arch: Option<String>,
+    /// Load address (hex) of a raw `.bin`; Intel HEX and S-record files carry their own. Guessed when omitted.
+    #[arg(long, global = true, value_parser = parse_hex)]
+    base: Option<u64>,
+    /// Entry point (hex) of a raw image; the vector table's reset handler or the file's start address when omitted.
+    #[arg(long, global = true, value_parser = parse_hex)]
+    entry: Option<u64>,
+    /// The raw image is big-endian (default: little-endian, except PowerPC).
+    #[arg(long, global = true)]
+    big_endian: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
+
+fn parse_hex(s: &str) -> Result<u64, String> {
+    u64::from_str_radix(s.trim_start_matches("0x").trim_start_matches("0X"), 16)
+        .map_err(|e| format!("`{s}` is not a hexadecimal address ({e})"))
+}
+
+/// What the command line said about a header-less image; read by `open`.
+struct RawArgs {
+    arch: Option<String>,
+    base: Option<u64>,
+    entry: Option<u64>,
+    big_endian: bool,
+}
+
+static RAW: std::sync::OnceLock<RawArgs> = std::sync::OnceLock::new();
 
 #[derive(Subcommand)]
 enum Cmd {
     /// File summary: format, architecture, hashes, mitigations.
     Info { file: PathBuf },
+    /// Suggest the architecture and load address of a firmware or raw image (Cortex-M vector table, string pointers).
+    Guess { file: PathBuf },
     /// Sections with permissions and entropy.
     Sections { file: PathBuf },
     /// Imported functions.
@@ -210,7 +241,55 @@ enum MemoryCmd {
 fn open(path: &PathBuf) -> Result<Binary> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(Binary::load(&name, bytes)?)
+    if paranoia_core::firmware::has_header(&bytes) {
+        return Ok(Binary::load(&name, bytes)?);
+    }
+    // No PE / ELF / Mach-O header: firmware or a raw image. The CPU has to come from the user.
+    let Some(raw) = RAW.get().filter(|r| r.arch.is_some()) else {
+        let e = Binary::load(&name, bytes).err().map(|e| e.to_string()).unwrap_or_default();
+        anyhow::bail!(
+            "{e}
+If it is firmware: `paranoia guess {0}` suggests a CPU and base address; then add --arch (and --base for a .bin).",
+            path.display()
+        );
+    };
+    let (decoded, guess) = match paranoia_core::firmware::decode(&bytes) {
+        Some(d) => {
+            let d = d.map_err(anyhow::Error::msg)?;
+            let first = d.segments.first().map(|s| s.data.clone()).unwrap_or_default();
+            (true, paranoia_core::firmware::guess(&first))
+        }
+        None => (false, paranoia_core::firmware::guess(&bytes)),
+    };
+    let wanted = raw.arch.as_deref().unwrap_or("auto");
+    let arch_name = if wanted == "auto" {
+        match guess.arch {
+            Some(a) => paranoia_core::firmware::ARCH_NAMES
+                .iter()
+                .find(|n| paranoia_core::firmware::parse_arch(n).map(|x| x.0) == Some(a))
+                .copied()
+                .unwrap_or("thumb")
+                .to_string(),
+            None => anyhow::bail!("could not tell the architecture of {}; say it with --arch", path.display()),
+        }
+    } else {
+        wanted.to_string()
+    };
+    let base = match (raw.base, guess.base) {
+        (Some(b), _) => b,
+        (None, Some(b)) if !decoded => {
+            eprintln!(
+                "paranoia: base address {b:#x} (guessed: {})",
+                guess.notes.first().map(String::as_str).unwrap_or("see `paranoia guess`")
+            );
+            b
+        }
+        _ => 0,
+    };
+    let mut opts = paranoia_core::firmware::RawOptions::for_arch(&arch_name, base).map_err(anyhow::Error::msg)?;
+    opts.big_endian = raw.big_endian || opts.big_endian;
+    opts.entry = raw.entry;
+    Ok(Binary::load_raw(&name, bytes, &opts)?)
 }
 
 fn resolve(bin: &Binary, at: &str) -> Result<u64> {
@@ -233,7 +312,41 @@ fn print_json<T: serde::Serialize + ?Sized>(v: &T) -> Result<()> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let _ = RAW.set(RawArgs { arch: cli.arch.clone(), base: cli.base, entry: cli.entry, big_endian: cli.big_endian });
     match cli.cmd {
+        Cmd::Guess { file } => {
+            let bytes = std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
+            let (kind, data) = match paranoia_core::firmware::decode(&bytes) {
+                Some(d) => {
+                    let d = d.map_err(anyhow::Error::msg)?;
+                    (d.kind, d.segments.into_iter().next().map(|s| s.data).unwrap_or_default())
+                }
+                None if paranoia_core::firmware::has_header(&bytes) => {
+                    anyhow::bail!("{} has an executable header; there is nothing to guess", file.display())
+                }
+                None => ("raw image", bytes),
+            };
+            let g = paranoia_core::firmware::guess(&data);
+            if cli.json {
+                return print_json(&g);
+            }
+            println!("{}: {kind}, {} bytes", file.display(), data.len());
+            match (g.arch, g.base) {
+                (None, None) => println!("  no guess: no Cortex-M vector table, and no base address that string pointers agree on"),
+                (arch, base) => {
+                    if let Some(a) = arch {
+                        println!("  architecture  {} (use --arch thumb)", a.label());
+                    }
+                    if let Some(b) = base {
+                        println!("  base          {b:#x} (use --base {b:#x})");
+                    }
+                }
+            }
+            for n in &g.notes {
+                println!("  {n}");
+            }
+            return Ok(());
+        }
         Cmd::Info { file } => {
             let bin = open(&file)?;
             let i = bin.info();

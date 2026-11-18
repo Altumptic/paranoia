@@ -4,6 +4,9 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 
 ## Unreleased
 
+### Added
+- Firmware and raw images: a flat `.bin`, Intel HEX and Motorola S-record open with the architecture (`--arch x86 … riscv64`, or a dialog in the app) and, for a `.bin`, the load address. Checksums are verified, every segment keeps its own address, and Cortex-M images get `Reset_Handler`, the exception and interrupt handlers and a `__vectors` table from their vector table. `paranoia guess` (and the dialog) suggest the CPU and base from the vector table or from pointers to strings. See [docs/FIRMWARE.md](docs/FIRMWARE.md).
+
 ## 0.10.0 — 2026-11-14
 
 A release process with release candidates, an opt-in update check, the debugger on Linux ARM64, user types in AArch64 pseudocode, and CI that starts every packaged desktop app for real.

@@ -131,7 +131,7 @@ export function bump(version, date) {
   });
   edit("CHANGELOG.md", (t) => {
     if (!/^## Unreleased\s*$/m.test(t)) throw new Error('CHANGELOG.md has no "## Unreleased" section');
-    return t.replace(/^## Unreleased\s*$/m, `## Unreleased\n\n## ${version} — ${date}`);
+    return t.replace(/^## Unreleased\s*$/m, `## Unreleased\n\n## ${version} — ${date}\n`);
   });
 }
 
