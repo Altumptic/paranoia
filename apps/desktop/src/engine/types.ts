@@ -209,6 +209,8 @@ export interface Annotations {
   types?: TypeLibrary;
   /** Pseudocode variable types (IDA's `Y`): function address → variable → C type. */
   var_types?: Record<string, Record<string, string>>;
+  /** Function prototypes set by the user: function address → C declaration. */
+  protos?: Record<string, string>;
   /** Renamed pseudocode variables: function address → generated name → user name. */
   var_names?: Record<string, Record<string, string>>;
 }

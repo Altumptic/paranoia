@@ -592,6 +592,21 @@ impl Binary {
         Some(Pseudocode { address: f.address, name, lines, note: None })
     }
 
+    /// The prototype the user set for the function at `va`, parsed.
+    fn user_proto(&self, va: u64) -> Option<crate::user_proto::Proto> {
+        self.annotations.protos.get(&va).and_then(|t| crate::user_proto::parse(t).ok())
+    }
+
+    /// Variable names for the function: the parameter names from its prototype, under the names
+    /// the user gave to individual variables.
+    fn var_names_with_proto(&self, va: u64, proto: Option<&crate::user_proto::Proto>) -> Option<BTreeMap<String, String>> {
+        let mut names = proto.map(|p| p.names()).unwrap_or_default();
+        if let Some(own) = self.annotations.var_names.get(&va) {
+            names.extend(own.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        (!names.is_empty()).then_some(names)
+    }
+
     pub fn pseudocode(&mut self, va: u64) -> Option<Pseudocode> {
         let a = self.analysis.as_ref()?;
         let idx = self.function_index_containing(va)?;
@@ -602,13 +617,24 @@ impl Binary {
         if self.info.arch == Arch::Arm64 {
             let mut lines = self.a64_c(idx, &name)?;
             // Types set with `Y` rewrite the signature, the declarations and member access, the
-            // same way as on x86. (Types do not yet flow across calls on AArch64.)
-            if let Some(user) = self.annotations.var_types.get(&f_addr).filter(|u| !u.is_empty()) {
-                crate::pseudo_structs::split_for_types(&mut lines);
-                crate::pseudo_structs::member_access(&mut lines, &self.type_view(), user);
+            // same way as on x86. (Types do not yet flow across calls on AArch64.) A prototype the
+            // user set supplies the parameter types too.
+            let proto = self.user_proto(f_addr);
+            let mut user = self.annotations.var_types.get(&f_addr).cloned().unwrap_or_default();
+            if let Some(p) = &proto {
+                for (k, v) in p.types() {
+                    user.entry(k).or_insert(v);
+                }
             }
-            if let Some(names) = self.annotations.var_names.get(&f_addr) {
-                crate::pseudo_types::apply_var_names(&mut lines, names);
+            if !user.is_empty() {
+                crate::pseudo_structs::split_for_types(&mut lines);
+                crate::pseudo_structs::member_access(&mut lines, &self.type_view(), &user);
+            }
+            if let Some(p) = &proto {
+                crate::user_proto::apply(&mut lines, p);
+            }
+            if let Some(names) = self.var_names_with_proto(f_addr, proto.as_ref()) {
+                crate::pseudo_types::apply_var_names(&mut lines, &names);
             }
             return Some(Pseudocode {
                 address: f_addr,
@@ -818,6 +844,12 @@ impl Binary {
         // Struct member access (IDA's `->field`): types set with `Y` in this function,
         // plus types inherited from callers (argument types) and callees (return types).
         let mut user = self.annotations.var_types.get(&f_addr).cloned().unwrap_or_default();
+        let proto = self.user_proto(f_addr);
+        if let Some(p) = &proto {
+            for (k, v) in p.types() {
+                user.entry(k).or_insert(v);
+            }
+        }
         let mut inherited: BTreeMap<u64, &Vec<Option<String>>> = BTreeMap::new();
         for (caller, edges) in &self.call_args {
             if let Some(arg_tys) = edges.get(&f_addr) {
@@ -916,8 +948,11 @@ impl Binary {
                 }
             }
         }
-        if let Some(names) = self.annotations.var_names.get(&f_addr) {
-            crate::pseudo_types::apply_var_names(&mut out, names);
+        if let Some(p) = &proto {
+            crate::user_proto::apply(&mut out, p);
+        }
+        if let Some(names) = self.var_names_with_proto(f_addr, proto.as_ref()) {
+            crate::pseudo_types::apply_var_names(&mut out, &names);
         }
         Some(Pseudocode { address: f_addr, name, lines: out, note: None })
     }

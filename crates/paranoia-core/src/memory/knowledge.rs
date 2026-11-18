@@ -24,6 +24,9 @@ pub struct KnownFunction {
     /// Pseudocode variable types set by the user.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub var_types: BTreeMap<String, String>,
+    /// The prototype the user set (`int __stdcall f(HANDLE h, char *buf)`), as typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proto: Option<String>,
     /// Local type declarations (C source) that the typed variables above need: the
     /// structs and enums from the learned file's Local Types, with what they use.
     /// Text [`Binary::set_types`] accepts. Empty when every type is a built-in one.
@@ -73,6 +76,9 @@ pub struct Applied {
     /// Local type declarations the target didn't have yet.
     #[serde(default)]
     pub types: usize,
+    /// The remembered prototype was applied.
+    #[serde(default)]
+    pub prototype: bool,
 }
 
 /// How close a differently named runner-up may score before the answer counts as ambiguous.
@@ -279,12 +285,20 @@ impl Binary {
             let var_types = ann.var_types.get(&f.address).cloned().unwrap_or_default();
             // The local declarations those variables name: a struct-typed variable in this
             // file is meaningless in the next one unless its definition travels with it.
-            let types = ann.types.declarations_for(var_types.values().map(String::as_str));
+            let proto = ann.protos.get(&f.address).cloned();
+            // A prototype's parameter types need their declarations as much as typed variables do.
+            let proto_types: Vec<String> = proto
+                .as_deref()
+                .and_then(|t| crate::user_proto::parse(t).ok())
+                .map(|p| p.params.into_iter().map(|q| q.ty).collect())
+                .unwrap_or_default();
+            let types = ann.types.declarations_for(var_types.values().map(String::as_str).chain(proto_types.iter().map(String::as_str)));
             out.push(KnownFunction {
                 name,
                 comment: ann.comments.get(&f.address).cloned(),
                 var_names: ann.var_names.get(&f.address).cloned().unwrap_or_default(),
                 var_types,
+                proto,
                 types,
                 comments,
                 calls,
@@ -326,6 +340,12 @@ impl Binary {
         // missing, a struct pointer would render as `int` and lose its `->field` accesses.
         if !k.types.is_empty() {
             done.types = self.merge_remembered_types(&k.types);
+        }
+        if let Some(text) = &k.proto {
+            // A prototype the user already set here wins; a remembered one that no longer parses is skipped.
+            if !self.annotations.protos.contains_key(&va) && self.set_prototype(va, text).is_ok() {
+                done.prototype = true;
+            }
         }
         for (var, name) in &k.var_names {
             if self.annotations.var_names.get(&va).is_some_and(|m| m.contains_key(var)) {

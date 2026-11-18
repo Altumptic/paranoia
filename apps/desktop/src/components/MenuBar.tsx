@@ -118,6 +118,7 @@ function useMenus(): Menu[] {
           { label: "String", keys: "A", disabled: noCursor, run: () => st().item("string", at()) },
           { label: "Undefine", keys: "U", disabled: noCursor, run: () => st().item("undefine", at()) },
           { label: "Create function", keys: "P", disabled: noCursor, run: () => st().makeFunction(at()) },
+          { label: "Function prototype…", keys: "Y", disabled: noCursor, run: () => void st().editPrototype(at()) },
           { label: "Apply struct…", keys: "Alt+Q", disabled: noCursor, run: () => st().set("dialog", { kind: "struct", va: at(), initial: "" }) },
           sep,
           { label: "Cross references…", keys: "X", disabled: noCursor, run: () => st().set("xrefsFor", at()) },

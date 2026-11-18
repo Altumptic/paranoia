@@ -999,3 +999,65 @@ fn arm64_pseudocode_applies_user_types() {
     }
     eprintln!("arm64 user types: {tried} function(s) checked");
 }
+
+/// A prototype set by the user replaces the decompiler's guess for the signature (return type,
+/// parameter count, types and names), a struct-pointer parameter turns loads into `->field`, and the
+/// prototype travels with the function through function memory.
+#[test]
+fn user_prototype_rewrites_the_signature_and_travels_with_function_memory() {
+    use paranoia_core::memory::{best_known, LearnFrom, RECALL_MIN_SCORE};
+    let Some((p, bytes)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
+    let text = |pc: &paranoia_core::Pseudocode| {
+        pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n")
+    };
+    let mut a = Binary::load(&p, bytes.clone()).unwrap();
+    a.analyze();
+    // A function with a first argument.
+    let mut hit = None;
+    for f in a.functions().iter().filter(|f| f.blocks > 6 && !f.is_import_thunk).take(200) {
+        let Some(pc) = a.pseudocode(f.address) else { continue };
+        let sig: String = pc.lines.first().map_or(String::new(), |l| l.tokens.iter().map(|t| t.t.as_str()).collect());
+        if sig.contains("a1") {
+            hit = Some((f.address, text(&pc)));
+            break;
+        }
+    }
+    let Some((f, plain)) = hit else { panic!("{}: no function with a first argument", a.info().file_name) };
+
+    // Bad text is refused with a reason and changes nothing.
+    assert!(a.set_prototype(f, "int f(").unwrap_err().contains("parenthesis"));
+    assert!(a.set_prototype(f, "int f(int a1)").is_err());
+    assert!(a.prototype(f).is_none());
+    assert_eq!(text(&a.pseudocode(f).unwrap()), plain);
+
+    a.set_prototype(f, "int __stdcall f(char *path, unsigned int flags)").unwrap();
+    let typed = text(&a.pseudocode(f).unwrap());
+    let sig = typed.lines().next().unwrap();
+    assert!(sig.starts_with("int ") && sig.contains("(char * path, unsigned int flags)"), "{sig}");
+    assert!(typed.contains("__stdcall"), "{sig}");
+    // An empty prototype restores the decompiler's guess.
+    a.set_prototype(f, "").unwrap();
+    assert_eq!(text(&a.pseudocode(f).unwrap()), plain);
+    a.set_prototype(f, "int __stdcall f(char *path, unsigned int flags)").unwrap();
+
+    // It travels with the function.
+    a.rename(f, "remembered_function");
+    let known = a.knowledge(LearnFrom::User);
+    assert_eq!(known.len(), 1);
+    assert_eq!(known[0].proto.as_deref(), Some("int __stdcall f(char *path, unsigned int flags)"));
+    let mut b = Binary::load(&p, bytes).unwrap();
+    b.analyze();
+    let print = b.fingerprint_at(f).expect("analysed again");
+    let (recalled, _) = best_known(&print.print, &known, RECALL_MIN_SCORE).expect("recognised in the copy");
+    let applied = b.apply_known(print.address, recalled, true);
+    assert!(applied.prototype, "{applied:?}");
+    assert_eq!(b.prototype(f), a.prototype(f));
+    assert_eq!(text(&b.pseudocode(f).unwrap()), text(&a.pseudocode(f).unwrap()));
+    // A prototype the user already set in the target wins over a remembered one.
+    let mut c = Binary::load(&p, std::fs::read(&p).unwrap()).unwrap();
+    c.analyze();
+    c.set_prototype(f, "void f(int only)").unwrap();
+    let applied = c.apply_known(f, &known[0], true);
+    assert!(!applied.prototype);
+    assert_eq!(c.prototype(f), Some("void f(int only)"));
+}
