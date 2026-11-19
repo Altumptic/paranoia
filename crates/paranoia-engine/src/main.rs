@@ -381,7 +381,6 @@ impl Engine {
     }
 }
 
-#[cfg(any(windows, all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
 fn hex_encode(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
