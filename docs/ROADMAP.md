@@ -89,6 +89,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] C, C·SSA and SSA views for AArch64. On two Go binaries, 5 700 of 5 720 functions call the same functions as the listing
 - [ ] Check signatures against symbols on Go, Rust and clang binaries (target: 90 % right)
 - [x] Types from the prototypes of called functions: argument counts, `void` results, parameter and variable types (C·SSA on x64 and AArch64)
+- [x] Assistant: follow-up chat about a function, and Name many functions… with review before anything is renamed ([ASSISTANT.md](ASSISTANT.md))
 - [x] Variable types you set (`Y`) apply to AArch64 pseudocode, travel with function memory, and flow from caller to callee across calls
 - [x] More prototypes: 146 for POSIX/bionic, Objective-C runtime, libdispatch, Core Foundation, Mach, Security, IOKit, dyld and Android (log, properties, assets, native window, JNI entry points)
 - [ ] A corpus of clang and Rust arm64 binaries on CI
@@ -140,7 +141,6 @@ The first published run names its own weaknesses ([BENCHMARK.md](BENCHMARK.md));
 
 - Signature checks for referenced functions, more built-in libraries
 - Plugin panels, hotkeys and event hooks
-- Batch naming and chat in the AI assistant
 - Debugger for Linux 32-bit and ARM32, and macOS
 - An independent security audit
 

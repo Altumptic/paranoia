@@ -267,6 +267,8 @@ handle("python:stop", () => python.stop());
 const aiFile = () => path.join(app.getPath("userData"), "ai-settings.json");
 /** The API key kept in memory when the OS cannot encrypt it for storage. */
 let aiSessionKey = null;
+/** The batch (naming many functions) the user approved for a remote host: its id and how many requests are left. */
+let aiBatch = null;
 let aiRemoteConfirmed = null;
 let aiCancel = null;
 function aiRead() {
@@ -421,7 +423,35 @@ handle("ai:ask", async (_e, req) => {
     redactions.ips += r.ips;
     return { ...m, content: r.text };
   });
-  if (!ep.local && aiRemoteConfirmed !== ep.host) {
+  // A batch is approved as a whole, with its size, before the first request leaves; the count is then enforced here.
+  let inBatch = false;
+  if (req.batch !== undefined && req.batch !== null) {
+    const b = req.batch;
+    if (typeof b !== "object" || typeof b.id !== "string" || b.id.length > 64 || !Number.isInteger(b.total) || b.total < 1 || b.total > 200) throw new Error("invalid batch");
+    if (aiBatch?.id !== b.id) {
+      aiBatch = null;
+      if (!ep.local) {
+        const r = await dialog.showMessageBox(win, {
+          type: "warning",
+          title: "Name many functions",
+          message: `Send the code of up to ${b.total} functions to ${ep.host}?`,
+          detail: `The decompiled code of each function will leave this computer, one request per function. ${ai.redactionSummary(redactStrings, redactIps)}
+
+Every request is recorded in the disclosure ledger. You can cancel the batch at any time.`,
+          buttons: ["Cancel", "Send"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        if (r.response !== 1) throw new Error("Cancelled");
+      }
+      aiBatch = { id: b.id, remaining: b.total };
+    }
+    if (aiBatch.remaining <= 0) throw new Error("This batch has used up the number of functions you agreed to");
+    aiBatch.remaining--;
+    inBatch = true;
+  }
+  if (!ep.local && aiRemoteConfirmed !== ep.host && !inBatch) {
     const r = await dialog.showMessageBox(win, {
       type: "question",
       title: ai.TASKS[req.task].title,
