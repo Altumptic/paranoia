@@ -89,8 +89,8 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] C, C·SSA and SSA views for AArch64. On two Go binaries, 5 700 of 5 720 functions call the same functions as the listing
 - [ ] Check signatures against symbols on Go, Rust and clang binaries (target: 90 % right)
 - [x] Types from the prototypes of called functions: argument counts, `void` results, parameter and variable types (C·SSA on x64 and AArch64)
-- [x] Variable types you set (`Y`) apply to AArch64 pseudocode and travel with function memory; not yet across calls
-- [ ] More prototypes: Apple and Android APIs
+- [x] Variable types you set (`Y`) apply to AArch64 pseudocode, travel with function memory, and flow from caller to callee across calls
+- [x] More prototypes: 146 for POSIX/bionic, Objective-C runtime, libdispatch, Core Foundation, Mach, Security, IOKit, dyld and Android (log, properties, assets, native window, JNI entry points)
 - [ ] A corpus of clang and Rust arm64 binaries on CI
 - [ ] Make C·SSA the default on x86/x64 once it has `else`, `while` and `switch`
 
