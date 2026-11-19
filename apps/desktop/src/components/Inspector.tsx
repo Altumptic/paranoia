@@ -66,6 +66,12 @@ export function Inspector() {
             <dd className="mono">{addr.offset != null ? `0x${hex(addr.offset)}` : "not in file"}</dd>
             <dt>Memory</dt>
             <dd>{addr.executable ? "code (executable)" : "data"}</dd>
+            {addr.region && (
+              <>
+                <dt>Region</dt>
+                <dd>{addr.region}</dd>
+              </>
+            )}
             {addr.source && (
               <>
                 <dt>Source</dt>
@@ -75,6 +81,23 @@ export function Inspector() {
               </>
             )}
           </dl>
+          {addr.register && (
+            <div className="insp-reg">
+              <div className="small muted">{addr.register.description || "Register"} · {addr.register.bits} bit</div>
+              {addr.register.fields.length > 0 && (
+                <table className="insp-fields mono small">
+                  <tbody>
+                    {addr.register.fields.map((f) => (
+                      <tr key={f.name} title={f.description}>
+                        <td>{f.width === 1 ? `[${f.lsb}]` : `[${f.lsb + f.width - 1}:${f.lsb}]`}</td>
+                        <td>{f.name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
           <div className="insp-actions">
             <button className="btn sm" onClick={() => openDialog("rename")} title="Rename (N)">
               <PenLine size={13} /> Rename

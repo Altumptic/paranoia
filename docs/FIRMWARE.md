@@ -41,6 +41,12 @@ When the architecture is `thumb` and the image starts with a vector table (a sta
 
 Names are the ARM CMSIS conventions, not a lookup of the part: Paranoia does not know which peripheral IRQ 17 is. An SVD file (below) gives the peripherals' and registers' names.
 
+## The Cortex-M system map and memory regions
+
+A Cortex-M image gets, without any file, the core's own registers (SysTick, NVIC, the System Control Block, DWT and the debug registers, with the bit fields of the common ones: `SCB_VTOR`, `SCB_ICSR`, `SysTick_CTRL`, …) and the architecture's memory map (Code, SRAM, Peripheral, External RAM, External device, Private peripheral bus). The Inspector shows the region an address is in.
+
+Name your own ranges with Edit → *Name memory region…* (`SRAM 20000000 20000 ram`; `-20000000` removes it): RAM, flash banks, a peripheral block. Your regions are saved with the file's annotations and take precedence over the architecture's map, smallest first. They name addresses; they do not change what is mapped or executable.
+
 ## SVD files: peripheral and register names
 
 The chip vendor's CMSIS-SVD file lists every peripheral with its base address and every register with its offset. Load it with File → *Load SVD file (peripheral names)…*, or `--svd FILE` on any command:
@@ -54,7 +60,7 @@ paranoia disasm fw.bin --arch thumb --svd STM32F407.svd -a 0x08000100
 
 On ARM and Thumb listings, a literal-pool load of a peripheral address is annotated with the peripheral's name, and so is every `ldr` / `str` through a register that holds one (`GPIOA_ODR`, or `GPIOA+0x24` for an offset the file does not name). The register value is tracked inside the listing and forgotten at labels, branches and calls and when it is overwritten; it follows `mov`, `add` and `sub` with an immediate. It does not follow values through memory or across functions, and it does not yet show in pseudocode (Thumb has none).
 
-What is read: peripherals (including `derivedFrom`), registers, clusters and `dim` arrays (`TIM%s`, `AFR[%s]`, ranges and lists). Fields, enumerated values and interrupts are ignored. The file is parsed by a small XML reader that refuses files over 32 MiB, nesting over 64 levels, and arrays over 4 096 entries, and does not read a DTD or entities beyond the five standard ones. SVD names are not saved with your annotations: load the file again when you reopen the firmware. Tested on a hand-written SVD that exercises each feature; not yet on vendors' real files.
+What is read: peripherals (including `derivedFrom`), registers, clusters, `dim` arrays (`TIM%s`, `AFR[%s]`, ranges and lists) and each register's bit fields (`bitOffset`/`bitWidth`, `lsb`/`msb` or `bitRange`). Enumerated values and interrupts are ignored. Put the cursor on a register's address (Go to address…) and the Inspector lists its fields with their bit positions. The file is parsed by a small XML reader that refuses files over 32 MiB, nesting over 64 levels, and arrays over 4 096 entries, and does not read a DTD or entities beyond the five standard ones. SVD names are not saved with your annotations: load the file again when you reopen the firmware. Tested on a hand-written SVD that exercises each feature; not yet on vendors' real files.
 
 ## How the guess works, and when it is wrong
 
@@ -89,6 +95,6 @@ Measured by cutting the executable section out of real files, opening it as a ra
 ## Not yet
 
 - Pseudocode for Thumb (the listing, graph, cross references and function memory work).
-- Named memory regions (RAM, flash banks) as their own objects, and bit-field names from SVD files.
+- Showing bit-field names in listings (the Inspector lists them; the listing names the register only), and enumerated values from SVD files.
 - Opening firmware in the browser build.
 - Function discovery for MIPS, PowerPC and RISC-V raw images (they get the entry point and what the descent follows).

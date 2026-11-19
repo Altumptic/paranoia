@@ -358,6 +358,12 @@ pub struct AddressInfo {
     pub executable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The named memory region the address is in (yours, or the Cortex-M map's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// The register at this address, from an SVD file, with its bit fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub register: Option<crate::svd::Register>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
