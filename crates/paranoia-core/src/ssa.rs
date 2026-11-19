@@ -216,6 +216,9 @@ struct Lifter {
     volatile: Vec<Var>,
     /// Registers that carry arguments (read by calls and tail jumps).
     args: Vec<Var>,
+    /// Indirect jumps through a jump table (by address) and the register that indexes it: the index
+    /// becomes the last value the jump reads, so the C generator can write `switch (index)`.
+    switch_idx: HashMap<u64, Var>,
 }
 
 impl Lifter {
@@ -332,9 +335,15 @@ impl Lifter {
                     .then(|| i.near_branch_target());
                 let mut uses = Vec::new();
                 if i.flow_control() == FlowControl::IndirectBranch {
-                    uses.push(self.operand(i, 0));
+                    // A jump table's target computation is replaced by `switch (index)`: it is not read.
+                    if !self.switch_idx.contains_key(&i.ip()) {
+                        uses.push(self.operand(i, 0));
+                    }
                     // A jump through a register or table may be a tail call: it passes the arguments on.
                     uses.extend(self.args.iter().chain(std::iter::once(&0)).map(|v| Expr::Use(*v, 0)));
+                    if let Some(v) = self.switch_idx.get(&i.ip()) {
+                        uses.push(Expr::Use(*v, 0));
+                    }
                 }
                 return vec![Kind::Branch { cond, uses, target }];
             }
@@ -662,10 +671,23 @@ pub(crate) fn build(
     volatile: &[Register],
     args: &[Register],
 ) -> SsaFunction {
+    build_switches(entry, blocks, bits, volatile, args, &HashMap::new())
+}
+
+/// [`build`], with the index register of each jump-table jump (by the jump's address).
+pub(crate) fn build_switches(
+    entry: u64,
+    blocks: &BTreeMap<u64, (Vec<Ins>, Vec<Edge>)>,
+    bits: u32,
+    volatile: &[Register],
+    args: &[Register],
+    switch_index: &HashMap<u64, Register>,
+) -> SsaFunction {
     let lifter = Lifter {
         bits,
         volatile: volatile.iter().filter_map(|r| var_of(*r)).collect(),
         args: args.iter().filter_map(|r| var_of(*r)).collect(),
+        switch_idx: switch_index.iter().filter_map(|(a, r)| var_of(*r).map(|v| (*a, v))).collect(),
     };
     let mut info = InstructionInfoFactory::new();
     let mut lifted: BTreeMap<u64, (Vec<Stmt>, Vec<Edge>)> = BTreeMap::new();

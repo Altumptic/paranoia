@@ -1217,35 +1217,51 @@ fn arm64_types_flow_from_caller_to_callee() {
 /// `goto` has its label, and every label that is left is jumped to.
 #[test]
 fn c_ssa_structure_is_well_formed_on_real_code() {
-    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
-    let mut bin = Binary::load(&p, b).unwrap();
-    if !matches!(bin.info().arch, Arch::X86 | Arch::X86_64) {
-        return;
-    }
-    bin.analyze();
-    let (mut n, mut with_else) = (0usize, 0usize);
-    let funcs: Vec<u64> =
-        bin.functions().iter().filter(|f| f.instructions > 4 && f.instructions < 600).map(|f| f.address).take(400).collect();
-    for va in funcs {
-        let Some(pc) = bin.pseudocode_from_ssa(va) else { continue };
-        let t: Vec<String> = pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect();
-        let depth: i64 = t.iter().map(|l| l.matches('{').count() as i64 - l.matches('}').count() as i64).sum();
-        assert_eq!(depth, 0, "{va:#x}: unbalanced\n{}", t.join("\n"));
-        let labels: Vec<&str> = t.iter().filter_map(|l| l.strip_suffix(':')).collect();
-        for l in &t {
-            if let Some(target) = l.trim_start().split("goto ").nth(1).map(|r| r.trim_end_matches(';')) {
-                assert!(!target.starts_with("loc_") || labels.contains(&target), "{va:#x}: goto {target} without label\n{}", t.join("\n"));
+    let (mut n, mut with_else, mut with_switch, mut line_switch) = (0usize, 0usize, 0usize, 0usize);
+    let mut files = 0;
+    for path in
+        ["C:/Windows/System32/notepad.exe", "C:/Windows/System32/msvcrt.dll", "C:/Windows/System32/ucrtbase.dll", "/bin/ls", "/usr/bin/ls"]
+    {
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        let Ok(mut bin) = Binary::load(path, bytes) else { continue };
+        if !matches!(bin.info().arch, Arch::X86 | Arch::X86_64) {
+            continue;
+        }
+        files += 1;
+        bin.analyze();
+        let funcs: Vec<u64> =
+            bin.functions().iter().filter(|f| f.instructions > 4 && f.instructions < 1500).map(|f| f.address).take(1500).collect();
+        for va in funcs {
+            let Some(pc) = bin.pseudocode_from_ssa(va) else { continue };
+            let t: Vec<String> = pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect();
+            let text = t.join("\n");
+            let depth: i64 = t.iter().map(|l| l.matches('{').count() as i64 - l.matches('}').count() as i64).sum();
+            assert_eq!(depth, 0, "{path} {va:#x}: unbalanced\n{text}");
+            let labels: Vec<&str> = t.iter().filter_map(|l| l.strip_suffix(':')).collect();
+            for l in &t {
+                if let Some(target) = l.trim_start().split("goto ").nth(1).map(|r| r.trim_end_matches(';')) {
+                    assert!(!target.starts_with("loc_") || labels.contains(&target), "{path} {va:#x}: goto {target} without label\n{text}");
+                }
+            }
+            for l in &labels {
+                assert!(
+                    t.iter().any(|x| x.trim_end().ends_with(&format!("goto {l};"))),
+                    "{path} {va:#x}: label {l} nobody jumps to\n{text}"
+                );
+            }
+            n += 1;
+            with_else += t.iter().any(|l| l.contains("} else {")) as usize;
+            let has_switch = t.iter().any(|l| l.trim_start().starts_with("switch ("));
+            with_switch += has_switch as usize;
+            // Whatever the line-based pseudocode finds a table for, C·SSA must find too.
+            if bin.pseudocode(va).is_some_and(|p| p.lines.iter().any(|l| l.tokens.first().is_some_and(|k| k.t == "switch"))) {
+                line_switch += 1;
+                assert!(has_switch, "{path} {va:#x}: a jump table the line-based pseudocode finds is missing\n{text}");
             }
         }
-        for l in &labels {
-            assert!(
-                t.iter().any(|x| x.trim_end().ends_with(&format!("goto {l};"))),
-                "{va:#x}: label {l} nobody jumps to\n{}",
-                t.join("\n")
-            );
-        }
-        n += 1;
-        with_else += t.iter().any(|l| l.contains("} else {")) as usize;
     }
-    eprintln!("C·SSA: {n} functions well formed, {with_else} with an else");
+    if files == 0 {
+        return;
+    }
+    eprintln!("C·SSA: {n} functions well formed, {with_else} with an else, {with_switch} with a switch ({line_switch} have one in the line-based pseudocode)");
 }

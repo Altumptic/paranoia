@@ -30,6 +30,8 @@ pub(crate) struct COptions<'a> {
     pub args: Vec<Var>,
     /// Name for a call target address (functions, imports).
     pub names: &'a dyn Fn(u64) -> Option<String>,
+    /// Jump-table jumps by address: the targets in table order. The jump's last read value is the index.
+    pub switches: HashMap<u64, Vec<u64>>,
 }
 
 /// The C type part of a prototype parameter: `const char *s` → `const char *`.
@@ -623,6 +625,15 @@ impl SsaFunction {
             if let Some(fl) = b.fall.filter(|fl| order.contains(fl) && Some(*fl) != next_of(i)) {
                 labels.insert(fl);
             }
+            // The targets of a jump table.
+            if let Some(t) = b
+                .stmts
+                .last()
+                .filter(|s| matches!(s.kind, Kind::Branch { target: None, cond: None, .. }))
+                .and_then(|s| o.switches.get(&s.address))
+            {
+                labels.extend(t.iter().filter(|t| order.contains(t)));
+            }
             // A jump's own target, also when the graph has no edge for it.
             for st in &b.stmts {
                 if let Kind::Branch { target: Some(t), .. } = &st.kind {
@@ -828,6 +839,40 @@ impl SsaFunction {
                                         ],
                                     ));
                                 }
+                            }
+                            // A jump through a recovered table: `switch (index) { case N: goto …; }`. The index is
+                            // the last value the jump reads; cases with the same target share one line.
+                            None if target.is_none() && u.len() > 1 && at.is_some_and(|a| o.switches.contains_key(&a)) => {
+                                let mut groups: Vec<(u64, Vec<usize>)> = Vec::new();
+                                for (n, t) in o.switches[&s.address].iter().enumerate().filter(|(_, t)| order.contains(t)) {
+                                    match groups.iter_mut().find(|g| g.0 == *t) {
+                                        Some(g) => g.1.push(n),
+                                        None => groups.push((*t, vec![n])),
+                                    }
+                                }
+                                let mut head = vec![tok("switch", TokenKind::Keyword), tok(" (", TokenKind::Punct)];
+                                head.extend(g.e(u.last().expect("checked above")));
+                                head.push(tok(") {", TokenKind::Punct));
+                                out.push(line(1, at, head));
+                                for (tg, cases) in groups {
+                                    let mut t = Vec::new();
+                                    for (k, c) in cases.iter().enumerate() {
+                                        if k > 0 {
+                                            t.push(tok(" ", TokenKind::Text));
+                                        }
+                                        t.push(tok("case", TokenKind::Keyword));
+                                        t.push(tok(" ", TokenKind::Text));
+                                        t.push(tok(c.to_string(), TokenKind::Number));
+                                        t.push(tok(":", TokenKind::Punct));
+                                    }
+                                    t.push(tok(" ", TokenKind::Text));
+                                    t.push(tok("goto", TokenKind::Keyword));
+                                    t.push(tok(" ", TokenKind::Text));
+                                    t.push(tok(lbl(tg), TokenKind::Symbol));
+                                    t.push(tok(";", TokenKind::Punct));
+                                    out.push(line(2, Some(tg), t));
+                                }
+                                out.push(line(1, None, vec![tok("}", TokenKind::Punct)]));
                             }
                             None => match target.or(b.taken) {
                                 Some(tg) if order.contains(&tg) => {
@@ -1302,7 +1347,14 @@ mod tests {
             0x700 => Some("free".to_string()),
             _ => None,
         };
-        let o = COptions { name: "f", entry, returns, args: if bits == 64 { vec![1, 2, 8, 9] } else { vec![] }, names: &names };
+        let o = COptions {
+            name: "f",
+            entry,
+            returns,
+            args: if bits == 64 { vec![1, 2, 8, 9] } else { vec![] },
+            names: &names,
+            switches: Default::default(),
+        };
         s.to_c(&o)
             .iter()
             .map(|l| format!("{}{}", "    ".repeat(l.indent as usize), l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()))
@@ -1361,6 +1413,45 @@ mod tests {
         assert!(t.contains("if (a1 == 0) {"), "{t}");
         assert!(t.contains("v1 = 1;") && t.contains("v1 = 2;"), "the phi and its inputs share one variable: {t}");
         assert!(!t.contains("goto"), "{t}");
+    }
+
+    #[test]
+    fn a_jump_table_becomes_a_switch_on_its_index() {
+        // idx = a1; switch via table: cases 0 and 2 go to 0x200, case 1 to 0x240.
+        let b = func(
+            64,
+            &[
+                (0x100, &["mov eax, ecx", "jmp qword ptr [rax*8+0x2000]"], &[(0x200, EdgeKind::Case), (0x240, EdgeKind::Case)]),
+                (0x200, &["mov eax, 1", "ret"], &[]),
+                (0x240, &["mov eax, 2", "ret"], &[]),
+            ],
+        );
+        let jmp = b[&0x100].0.last().unwrap().ip();
+        let index = std::collections::HashMap::from([(jmp, Register::RAX)]);
+        use Register as R;
+        let s = super::super::build_switches(0x100, &b, 64, &[R::RAX, R::RCX, R::RDX], &[R::RCX, R::RDX], &index);
+        let names = |_: u64| None;
+        let switches = std::collections::HashMap::from([(jmp, vec![0x200, 0x240, 0x200])]);
+        let o = COptions { name: "f", entry: 0x100, returns: true, args: vec![1, 2], names: &names, switches };
+        let text = s
+            .to_c(&o)
+            .iter()
+            .map(|l| format!("{}{}", "  ".repeat(l.indent as usize), l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("switch (v1) {") || text.contains("switch (a1) {"), "the switch is on the index: {text}");
+        assert!(
+            text.contains("case 0: case 2: goto loc_200;") && text.contains("case 1: goto loc_240;"),
+            "cases with one target share a line: {text}"
+        );
+        assert!(text.contains("loc_200:") && text.contains("loc_240:"), "the case labels survive: {text}");
+        assert!(!text.contains("goto *"), "no indirect goto is left: {text}");
+        let mut depth = 0i32;
+        for l in text.lines() {
+            depth += l.matches('{').count() as i32 - l.matches('}').count() as i32;
+            assert!(depth >= 0, "{text}");
+        }
+        assert_eq!(depth, 0, "braces balance: {text}");
     }
 
     #[test]
