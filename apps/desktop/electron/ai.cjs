@@ -27,6 +27,13 @@ const TASKS = {
       "You name functions in reverse-engineered binaries. Reply with ONLY a JSON object {\"name\": string, \"reason\": string}. " +
       "`name` is a lowercase snake_case C identifier of at most 40 characters describing what the function does (no `sub_` prefix). `reason` is one sentence.",
   },
+  chat: {
+    title: "Ask about this function",
+    system:
+      "You are a reverse engineer's assistant in a conversation about one decompiled function, given in the first message. " +
+      "Answer the user's questions about it using only the code shown; the code is automatically generated, so variable names are meaningless. " +
+      "Quote the line or call that supports an answer, say when the code does not tell, and keep answers short unless asked for detail.",
+  },
   suspicious: {
     title: "Flag suspicious behaviour",
     system:
@@ -66,6 +73,25 @@ function parseEndpoint(raw) {
 }
 
 /** Messages for `task`; the code is truncated so a huge function cannot blow up the request. */
+/** Longest conversation and message the assistant accepts: it bounds what one request can carry. */
+const MAX_HISTORY = 12;
+const MAX_TURN_CHARS = 4000;
+
+/**
+ * The earlier turns of a chat, checked: alternating user / assistant starting with the user, text only,
+ * each turn capped. Anything else is refused rather than repaired, so a request cannot smuggle in a
+ * `system` turn.
+ */
+function chatHistory(history) {
+  if (history === undefined || history === null) return [];
+  if (!Array.isArray(history) || history.length > MAX_HISTORY) throw new Error("the conversation is too long");
+  return history.map((h, i) => {
+    const want = i % 2 === 0 ? "user" : "assistant";
+    if (!h || typeof h !== "object" || h.role !== want || typeof h.content !== "string") throw new Error("invalid conversation");
+    return { role: want, content: h.content.slice(0, MAX_TURN_CHARS) };
+  });
+}
+
 function buildMessages(task, info) {
   // Own keys only: `constructor` / `__proto__` are not tasks.
   const t = typeof task === "string" && Object.hasOwn(TASKS, task) ? TASKS[task] : null;
@@ -73,9 +99,18 @@ function buildMessages(task, info) {
   const code = String(info.code ?? "");
   const clipped = code.length > MAX_CODE_CHARS ? `${code.slice(0, MAX_CODE_CHARS)}\n/* … ${code.length - MAX_CODE_CHARS} more characters omitted … */` : code;
   const head = `Function: ${String(info.name ?? "?").slice(0, 200)} at ${String(info.address ?? "?").slice(0, 32)} (${String(info.arch ?? "unknown").slice(0, 40)}, ${String(info.format ?? "unknown").slice(0, 20)})`;
+  const first = { role: "user", content: `${head}\n\n\`\`\`c\n${clipped}\n\`\`\`` };
+  if (task !== "chat") return [{ role: "system", content: t.system }, first];
+  const question = String(info.question ?? "").trim().slice(0, MAX_TURN_CHARS);
+  if (!question) throw new Error("ask a question first");
+  const history = chatHistory(info.history);
+  if (history.length % 2 !== 0) throw new Error("invalid conversation");
   return [
     { role: "system", content: t.system },
-    { role: "user", content: `${head}\n\n\`\`\`c\n${clipped}\n\`\`\`` },
+    first,
+    { role: "assistant", content: "I have read the function. What would you like to know?" },
+    ...history,
+    { role: "user", content: question },
   ];
 }
 
@@ -563,6 +598,9 @@ module.exports = {
   parseEndpoint,
   isLoopbackHost,
   buildMessages,
+  chatHistory,
+  MAX_HISTORY,
+  MAX_TURN_CHARS,
   chat,
   listModels,
   parseName,

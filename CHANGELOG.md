@@ -5,6 +5,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 ## Unreleased
 
 ### Added
+- AI assistant: follow-up questions about the function in the answer dialog, and Assistant → Name many functions…, which asks for a name for each of the most-referenced automatically named functions and lets you review, edit and untick the suggestions before one undoable rename. For a hosted model the whole batch is confirmed natively, with its size, before the first request. See [docs/ASSISTANT.md](docs/ASSISTANT.md).
 - Remote debugging: Debug → Connect to GDB server… debugs a program or firmware that `gdbserver` or QEMU's gdbstub runs (x86, x86-64, ARM, AArch64 and whatever the server's `target.xml` describes), with breakpoints, stepping, step over and registers. The engine's first socket opens only on request, after a native confirmation of the host and port; the security documents describe it. Tested against a fake server; not yet against a real one. See [docs/REMOTE-DEBUGGING.md](docs/REMOTE-DEBUGGING.md).
 - Named memory regions (Edit → Name memory region…), the Cortex-M system map (SysTick, NVIC, SCB, DWT and debug registers with their common bit fields, and the architecture's memory regions) for every Cortex-M image, and SVD bit-field names, which the Inspector lists for a register's address.
 - Types flow across calls on AArch64 as on x86: a caller that passes its typed argument gives the callee that type in its signature, and a callee's known result type types the variable that stores it.

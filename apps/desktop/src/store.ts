@@ -52,7 +52,22 @@ interface State {
   memoryOpen: boolean;
   /** Analysis → Compare with another file: the second file and the match report. */
   compare: null | { other: Session; name: string; report: DiffReport };
-  assistant: null | { title: string; fn: string; va: number | null; state: "busy" | "done" | "error"; text: string; name: { name: string; reason: string } | null; host: string; local: boolean };
+  assistant: null | {
+    title: string;
+    fn: string;
+    va: number | null;
+    state: "busy" | "done" | "error";
+    text: string;
+    name: { name: string; reason: string } | null;
+    host: string;
+    local: boolean;
+    /** The conversation after the first answer: follow-up questions and answers. */
+    chat?: { role: "user" | "assistant"; content: string }[];
+    /** A follow-up is waiting for its answer. */
+    asking?: boolean;
+  };
+  /** Assistant → Name many functions…: suggestions for functions that still have automatic names. */
+  batchName: null | BatchName;
   plugins: { dir: string; list: PluginInfo[]; errors: { id: string; error: string }[] };
   /** Token text highlighted across views (IDA's yellow highlight). */
   highlight: string | null;
@@ -103,6 +118,12 @@ interface State {
   /** Refreshes derived state after an engine-side edit. */
   afterEdit(reanalyzed: boolean): Promise<void>;
   askAssistant(task: "explain" | "name" | "suspicious"): Promise<void>;
+  /** A follow-up question about the function in the assistant dialog. */
+  askFollowUp(question: string): Promise<void>;
+  openBatchName(): Promise<void>;
+  runBatchName(count: number): Promise<void>;
+  cancelBatchName(): void;
+  applyBatchName(): Promise<void>;
   /** Opens a second file and matches its functions against the open one. */
   compareWith(): Promise<void>;
   closeCompare(): Promise<void>;
@@ -111,6 +132,27 @@ interface State {
   print(text: string, kind?: "info" | "error" | "out"): void;
   set<K extends keyof State>(key: K, value: State[K]): void;
   toast(text: string, kind?: Toast["kind"]): void;
+}
+
+/** One function in a batch of name suggestions. */
+export interface BatchItem {
+  va: number;
+  name: string;
+  suggestion: string;
+  reason: string;
+  picked: boolean;
+  status: "waiting" | "busy" | "done" | "skipped" | "error";
+  note?: string;
+}
+
+export interface BatchName {
+  phase: "setup" | "running" | "review";
+  /** How many of the candidates to ask about. */
+  count: number;
+  items: BatchItem[];
+  host: string;
+  local: boolean;
+  cancelled: boolean;
 }
 
 let toastSeq = 0;
@@ -145,6 +187,7 @@ export const useStore = create<State>((set, get) => ({
   compare: null,
   rawOpen: null,
   assistant: null,
+  batchName: null,
   plugins: { dir: "", list: [], errors: [] },
   highlight: null,
   xrefsFor: null,
@@ -358,6 +401,153 @@ export const useStore = create<State>((set, get) => ({
     const [annotations, undoDepth] = await Promise.all([persist(session, info), session.history()]);
     const extra = reanalyzed ? { functions: await session.functions(), stats: await session.stats() } : {};
     set({ annotations, undoDepth, revision: get().revision + 1, ...extra });
+  },
+
+  async askFollowUp(question) {
+    const { session, info, assistant: a } = get();
+    const q = question.trim();
+    if (!desktop || !session || !a || a.va == null || a.state !== "done" || !q || a.asking) return;
+    const clean = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+    // The conversation so far: the first answer stands for the question that produced it.
+    const seed = a.chat ?? [
+      { role: "user" as const, content: a.title },
+      { role: "assistant" as const, content: a.name ? `${a.name.name}: ${a.name.reason}` : a.text },
+    ];
+    const show = (chat: NonNullable<NonNullable<State["assistant"]>["chat"]>, asking: boolean) => {
+      const cur = get().assistant;
+      if (cur && cur.va === a.va) set({ assistant: { ...cur, chat, asking } });
+    };
+    show([...seed, { role: "user", content: q }], true);
+    try {
+      const s = await desktop.ai.get();
+      const pc = await session.pseudocode(a.va);
+      if (!pc || pc.lines.length === 0) throw new Error("There is no pseudocode for this function");
+      const code = pc.lines.map((l) => "  ".repeat(l.indent) + l.tokens.map((t) => t.t).join("")).join("\n");
+      const strings = s.redactStrings || s.redactIps ? (await session.strings()).map((x) => x.value) : undefined;
+      const r = await desktop.ai.ask({
+        task: "chat",
+        name: a.fn,
+        address: `0x${a.va.toString(16)}`,
+        arch: info?.arch ?? "unknown",
+        format: info?.format ?? "unknown",
+        code,
+        question: q,
+        history: seed,
+        ...(strings ? { strings } : {}),
+        redactStrings: s.redactStrings,
+        redactIps: s.redactIps,
+      });
+      show([...seed, { role: "user", content: q }, { role: "assistant", content: r.text }], false);
+    } catch (e) {
+      const msg = clean(e);
+      show([...seed, { role: "user", content: q }, { role: "assistant", content: /^Cancelled$/i.test(msg) ? "(cancelled)" : `Error: ${msg}` }], false);
+    }
+  },
+
+  async openBatchName() {
+    const { session, functions } = get();
+    if (!desktop || !session) return;
+    const s = await desktop.ai.get();
+    if (!s.endpoint) {
+      get().toast("The assistant is off — set it up first", "info");
+      set({ aiSettingsOpen: true });
+      return;
+    }
+    // Functions that still carry an automatic name, the most referenced first: they teach the most about the rest.
+    const candidates = functions
+      .filter((f) => /^(sub|fun|func|fn)_[0-9a-f]+$/i.test(f.name) && !f.library && !f.is_import_thunk && f.instructions >= 6)
+      .sort((a, b) => b.xrefs - a.xrefs || b.instructions - a.instructions)
+      .slice(0, 100);
+    if (candidates.length === 0) {
+      get().toast("Every function already has a name, or is too small to ask about", "info");
+      return;
+    }
+    set({
+      batchName: {
+        phase: "setup",
+        count: Math.min(20, candidates.length),
+        items: candidates.map((f) => ({ va: f.address, name: f.name, suggestion: "", reason: "", picked: true, status: "waiting" as const })),
+        host: s.host,
+        local: s.local,
+        cancelled: false,
+      },
+    });
+  },
+
+  async runBatchName(count) {
+    const { session, info, batchName: b } = get();
+    if (!desktop || !session || !b || b.phase === "running") return;
+    const total = Math.max(1, Math.min(count, b.items.length, 100));
+    const id = `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const patch = (i: number, p: Partial<BatchItem>) => {
+      const cur = get().batchName;
+      if (!cur) return;
+      set({ batchName: { ...cur, items: cur.items.map((it, k) => (k === i ? { ...it, ...p } : it)) } });
+    };
+    set({ batchName: { ...b, phase: "running", count: total, cancelled: false, items: b.items.map((it, i) => ({ ...it, status: i < total ? ("waiting" as const) : ("skipped" as const), note: i < total ? undefined : "not asked", picked: false })) } });
+    try {
+      const s = await desktop.ai.get();
+      const strings = s.redactStrings || s.redactIps ? (await session.strings()).map((x) => x.value) : undefined;
+      for (let i = 0; i < total; i++) {
+        if (get().batchName?.cancelled || !get().batchName) break;
+        const it = get().batchName!.items[i];
+        patch(i, { status: "busy" });
+        try {
+          const pc = await session.pseudocode(it.va);
+          if (!pc || pc.lines.length === 0) {
+            patch(i, { status: "skipped", note: "no pseudocode for this CPU" });
+            continue;
+          }
+          const code = pc.lines.map((l) => "  ".repeat(l.indent) + l.tokens.map((t) => t.t).join("")).join("\n");
+          const r = await desktop.ai.ask({
+            task: "name",
+            name: it.name,
+            address: `0x${it.va.toString(16)}`,
+            arch: info?.arch ?? "unknown",
+            format: info?.format ?? "unknown",
+            code,
+            batch: { id, total },
+            ...(strings ? { strings } : {}),
+            redactStrings: s.redactStrings,
+            redactIps: s.redactIps,
+          });
+          patch(i, r.name ? { status: "done", suggestion: r.name.name, reason: r.name.reason, picked: true } : { status: "error", note: "the model did not answer with a name" });
+        } catch (e) {
+          const msg = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+          patch(i, { status: "error", note: msg });
+          if (/^Cancelled$/i.test(msg) || /used up|ledger|Set an endpoint|No model/.test(msg)) break;
+        }
+      }
+    } finally {
+      const cur = get().batchName;
+      if (cur) set({ batchName: { ...cur, phase: "review", items: cur.items.map((it) => (it.status === "busy" || it.status === "waiting" ? { ...it, status: "skipped" as const, note: "cancelled" } : it)) } });
+    }
+  },
+
+  cancelBatchName() {
+    const b = get().batchName;
+    if (b?.phase === "running") {
+      set({ batchName: { ...b, cancelled: true } });
+      desktop?.ai.cancel().catch(() => {});
+    } else {
+      set({ batchName: null });
+    }
+  },
+
+  async applyBatchName() {
+    const { session, batchName: b } = get();
+    if (!session || !b) return;
+    const items = b.items.filter((it) => it.picked && it.status === "done" && /^[A-Za-z_.$@?][\w.$@?:<>~-]*$/.test(it.suggestion)).map((it) => ({ va: it.va, text: it.suggestion }));
+    if (items.length === 0) {
+      get().toast("Nothing is selected", "info");
+      return;
+    }
+    const { memory } = await import("./engine/memory");
+    const n = await memory.renameMany(session, items);
+    set({ batchName: null });
+    await get().afterEdit(false);
+    set({ functions: await session.functions() });
+    get().toast(`Renamed ${n} function${n === 1 ? "" : "s"}. Ctrl+Z undoes it.`, "success");
   },
 
   async compareWith() {
