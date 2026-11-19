@@ -5,6 +5,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 ## Unreleased
 
 ### Added
+- Named memory regions (Edit → Name memory region…), the Cortex-M system map (SysTick, NVIC, SCB, DWT and debug registers with their common bit fields, and the architecture's memory regions) for every Cortex-M image, and SVD bit-field names, which the Inspector lists for a register's address.
 - Types flow across calls on AArch64 as on x86: a caller that passes its typed argument gives the callee that type in its signature, and a callee's known result type types the variable that stores it.
 - 146 more API prototypes: POSIX and bionic (processes, files, signals, epoll, `ptrace`, `prctl`, `syscall`), the Objective-C runtime, libdispatch, Core Foundation, Mach, Security, CommonCrypto, IOKit, dyld, and Android's log, properties, assets, native window and JNI entry points. Pseudocode calls get the right argument count and names for them.
 - SVD files: File → Load SVD file…, or `--svd FILE`, names a microcontroller's peripherals and registers; ARM and Thumb listings then say `GPIOA` at the literal-pool load of a peripheral address and `GPIOA_ODR` at every `ldr` / `str` through it. See [docs/FIRMWARE.md](docs/FIRMWARE.md).

@@ -113,7 +113,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [ ] Measure the base-address guess and the Cortex-M logic on real firmware images
 - [ ] Thumb pseudocode
 - [x] SVD files: peripheral and register names in ARM / Thumb listings ([FIRMWARE.md](FIRMWARE.md)); tested on a hand-written file, not yet on vendors' files
-- [ ] Named memory regions as their own objects, and SVD bit-field names
+- [x] Named memory regions (yours, plus the Cortex-M map), the Cortex-M system registers, and SVD bit-field names in the Inspector
 
 ### 0.13: remote debugging
 

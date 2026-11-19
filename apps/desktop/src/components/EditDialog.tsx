@@ -81,6 +81,25 @@ export function EditDialog() {
       } catch (e) {
         st.toast(e instanceof Error ? e.message : String(e), "error");
       }
+    } else if (dialog.kind === "region") {
+      // `NAME START SIZE [kind]`, addresses in hex; `-START` removes the region that starts there.
+      const v = value.trim();
+      try {
+        const rm = /^-\s*(?:0x)?([0-9a-f]+)$/i.exec(v);
+        if (rm) {
+          await st.session!.removeRegion(parseInt(rm[1], 16));
+          await st.afterEdit(false);
+          st.toast("Region removed", "success");
+          return;
+        }
+        const m = /^(.+?)\s+(?:0x)?([0-9a-f]+)\s+(?:0x)?([0-9a-f]+)(?:\s+(ram|flash|rom|peripheral|other))?$/i.exec(v);
+        if (!m) throw new Error("Write NAME START SIZE [ram|flash|rom|peripheral|other], addresses in hex, e.g. SRAM 20000000 20000 ram");
+        await st.session!.setRegion(m[1], parseInt(m[2], 16), parseInt(m[3], 16), (m[4] ?? "other").toLowerCase());
+        await st.afterEdit(false);
+        st.toast(`Region ${m[1]} set`, "success");
+      } catch (e) {
+        st.toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(e), "error");
+      }
     } else if (dialog.kind === "proto") {
       const v = value.trim();
       try {
@@ -138,6 +157,7 @@ export function EditDialog() {
             vartype: "Type variable",
             varname: "Rename variable",
             proto: "Function prototype",
+            region: "Memory region",
           }[dialog.kind]}{" "}
           {dialog.kind === "vartype" || dialog.kind === "varname" ? <span className="mono muted">{dialog.varName}</span> : <span className="mono muted">{fmtAddr(dialog.va, info)}</span>}
         </div>
@@ -163,6 +183,8 @@ export function EditDialog() {
                 ? "A C identifier — leave empty to restore the generated name"
                 : dialog.kind === "proto"
                 ? "e.g. int __stdcall f(HANDLE h, const char *buf, DWORD n) — empty removes it"
+                : dialog.kind === "region"
+                ? "NAME START SIZE [ram|flash|rom|peripheral|other] in hex, e.g. SRAM 20000000 20000 ram — or -START to remove"
                 : dialog.kind === "assemble"
                 ? "e.g. mov eax, 1  ·  jz 0x401020  ·  nop  ·  db 0x90, 0xcc"
                 : dialog.kind === "bookmark"

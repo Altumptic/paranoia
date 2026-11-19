@@ -1531,6 +1531,23 @@
   width: 100%;
 }
 
+/* ---- Inspector: SVD register ---- */
+.insp-reg {
+  margin: 8px 0 2px;
+}
+.insp-fields {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+}
+.insp-fields td {
+  padding: 1px 6px 1px 0;
+}
+.insp-fields td:first-child {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* ---- Open firmware or raw image ---- */
 .modal.raw-modal {
   width: min(460px, calc(100vw - 32px));

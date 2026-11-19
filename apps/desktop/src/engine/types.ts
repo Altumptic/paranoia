@@ -189,6 +189,10 @@ export interface AddressInfo {
   executable: boolean;
   /** `file:line` from DWARF debug info. */
   source?: string;
+  /** The named memory region the address is in (yours, or the Cortex-M map's). */
+  region?: string;
+  /** The register at this address, from an SVD file (or the Cortex-M core registers), with its bit fields. */
+  register?: { name: string; address: number; bits: number; description: string; fields: { name: string; lsb: number; width: number; description: string }[] };
 }
 
 export interface SearchHit {
@@ -209,6 +213,8 @@ export interface Annotations {
   types?: TypeLibrary;
   /** Pseudocode variable types (IDA's `Y`): function address → variable → C type. */
   var_types?: Record<string, Record<string, string>>;
+  /** Named memory regions set by the user. */
+  regions?: { name: string; start: number; size: number; kind: string }[];
   /** Function prototypes set by the user: function address → C declaration. */
   protos?: Record<string, string>;
   /** Renamed pseudocode variables: function address → generated name → user name. */
