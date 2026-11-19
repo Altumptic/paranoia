@@ -1212,3 +1212,40 @@ fn arm64_types_flow_from_caller_to_callee() {
         assert!(found > 0, "no callee adopted the type of the argument its caller passed");
     }
 }
+
+/// The C·SSA text stays well formed on real x86 code now that it also recovers `else`: braces balance, every
+/// `goto` has its label, and every label that is left is jumped to.
+#[test]
+fn c_ssa_structure_is_well_formed_on_real_code() {
+    let Some((p, b)) = sample(&["C:/Windows/System32/notepad.exe", "/bin/ls", "/usr/bin/ls"]) else { return };
+    let mut bin = Binary::load(&p, b).unwrap();
+    if !matches!(bin.info().arch, Arch::X86 | Arch::X86_64) {
+        return;
+    }
+    bin.analyze();
+    let (mut n, mut with_else) = (0usize, 0usize);
+    let funcs: Vec<u64> =
+        bin.functions().iter().filter(|f| f.instructions > 4 && f.instructions < 600).map(|f| f.address).take(400).collect();
+    for va in funcs {
+        let Some(pc) = bin.pseudocode_from_ssa(va) else { continue };
+        let t: Vec<String> = pc.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect()).collect();
+        let depth: i64 = t.iter().map(|l| l.matches('{').count() as i64 - l.matches('}').count() as i64).sum();
+        assert_eq!(depth, 0, "{va:#x}: unbalanced\n{}", t.join("\n"));
+        let labels: Vec<&str> = t.iter().filter_map(|l| l.strip_suffix(':')).collect();
+        for l in &t {
+            if let Some(target) = l.trim_start().split("goto ").nth(1).map(|r| r.trim_end_matches(';')) {
+                assert!(!target.starts_with("loc_") || labels.contains(&target), "{va:#x}: goto {target} without label\n{}", t.join("\n"));
+            }
+        }
+        for l in &labels {
+            assert!(
+                t.iter().any(|x| x.trim_end().ends_with(&format!("goto {l};"))),
+                "{va:#x}: label {l} nobody jumps to\n{}",
+                t.join("\n")
+            );
+        }
+        n += 1;
+        with_else += t.iter().any(|l| l.contains("} else {")) as usize;
+    }
+    eprintln!("C·SSA: {n} functions well formed, {with_else} with an else");
+}

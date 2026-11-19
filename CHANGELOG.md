@@ -5,6 +5,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 ## Unreleased
 
 ### Added
+- C·SSA pseudocode recovers `if` / `else` (nested too): a branch that jumps over an `else` part, or whose two sides both jump to the same place, becomes `if (…) { … } else { … }`. On 392 real functions from `notepad.exe` the output stays well formed (balanced braces, every `goto` has its label, no unused label), and 90 of them gained an `else`. `switch` is still done by the line-based pseudocode only.
 - A Flatpak manifest and metadata (`packaging/flatpak`), with a generator that fills it from a release's checksums. The sandbox has no network and no home-folder access by default. Not yet built with `flatpak-builder` or submitted to Flathub.
 - Plugins: a command can have a hotkey (`"key": "Ctrl+Alt+R"`, Ctrl or Alt required, the app's own keys refused), and a plugin can hook the `open` and `rename` events. Hooks run without a click, so only for a plugin version you chose to always run; they never nest and a hook that fails three times is switched off. See [docs/PLUGINS.md](docs/PLUGINS.md) and `examples/plugins/open-report`.
 - `PARANOIA_DATA_DIR` moves the app's data folder (workspace, settings, plugins, ledger), for tests and portable setups.
