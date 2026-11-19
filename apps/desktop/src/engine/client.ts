@@ -226,7 +226,12 @@ export interface DesktopBridge {
     /** `key`: undefined keeps the stored key, "" clears it. A remote host asks the user in a native dialog. */
     set(s: { endpoint: string; model: string; key?: string; redactStrings?: boolean; redactIps?: boolean }): Promise<AiSettings>;
     ask(req: {
-      task: "explain" | "name" | "suspicious";
+      task: "explain" | "name" | "suspicious" | "chat";
+      /** `chat` only: the question, and the earlier turns (user, assistant, user, …). */
+      question?: string;
+      history?: { role: "user" | "assistant"; content: string }[];
+      /** Naming many functions: the main process confirms the whole batch for a remote host and enforces `total`. */
+      batch?: { id: string; total: number };
       name: string;
       address: string;
       arch: string;

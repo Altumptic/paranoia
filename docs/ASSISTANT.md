@@ -22,6 +22,18 @@ Any other server that speaks the OpenAI `/v1/chat/completions` API works too: ty
 
 Local servers keep everything on your machine. With a hosted one, the decompiled text of the function you ask about goes to that company. Paranoia asks you to confirm the host when you save it and again before the first request of each session. Only `localhost`, `127.x.x.x` and `::1` count as local. What that text contains is up to the privacy options below, and every request is recorded in a local disclosure ledger. Details are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md#ai-assistant).
 
+## Follow-up questions and naming many functions
+
+**Follow-ups.** After any answer, the dialog has a box for a follow-up question ("what does it return?", "is that a CRC?"). Each question is a new request that sends the function's code again together with the earlier turns, so the model has the context; the main process checks the conversation (alternating user and assistant turns, at most 12, each cut at 4 000 characters) and refuses anything else, including a smuggled `system` turn. Every question is redacted like the first request and recorded in the disclosure ledger.
+
+**Name many functions…** (Assistant menu). Takes the functions that still have an automatic name (`sub_…`), the most-referenced first, asks the model for a name for each one (up to 100, you choose how many), and shows the suggestions in a list you can edit and untick. Nothing is renamed until you press *Rename*, and the whole batch is one undo step. It sends one request per function, so:
+
+- with a model on this computer nothing leaves it;
+- with a hosted model the main process shows a native confirmation with the number of functions *before the first request*, and refuses requests beyond that number;
+- each request is recorded in the ledger and redacted as configured; you can stop the batch at any time.
+
+Suggestions are the model's guesses from one function at a time, without the rest of the program. Read the code before you keep a name.
+
 ## Privacy: redaction and the disclosure ledger
 
 Two opt-in checkboxes in **Assistant → Settings** decide what a request contains; both are off until you tick them.
