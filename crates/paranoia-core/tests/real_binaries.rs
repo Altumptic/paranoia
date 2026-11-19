@@ -1159,3 +1159,56 @@ fn raw_dump_of_real_code_finds_most_of_its_functions() {
         assert!(recall >= 0.5, "{name}: the raw dump finds only {:.1} % of the functions", 100.0 * recall);
     }
 }
+
+/// Argument types flow across calls on AArch64 as on x86: type a function's first argument, and a callee it
+/// forwards that argument to shows the type in its own signature without being typed itself.
+#[test]
+fn arm64_types_flow_from_caller_to_callee() {
+    let text = |pc: &paranoia_core::Pseudocode| {
+        pc.lines.first().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).unwrap_or_default()
+    };
+    let mut found = 0;
+    for (name, bytes) in arm64_samples() {
+        let Ok(mut bin) = Binary::load(&name, bytes) else { continue };
+        if bin.info().arch != Arch::Arm64 {
+            continue;
+        }
+        bin.analyze();
+        bin.set_types("typedef struct _FLOW_CTX { DWORD magic; DWORD count; } FLOW_CTX;").unwrap();
+        let funcs: Vec<u64> = bin
+            .functions()
+            .iter()
+            .filter(|f| f.instructions > 3 && f.instructions < 300 && !f.is_import_thunk)
+            .map(|f| f.address)
+            .take(500)
+            .collect();
+        for &c in &funcs {
+            let Some(before) = bin.pseudocode(c) else { continue };
+            if !text(&before).contains("a1") {
+                continue;
+            }
+            let callees: Vec<u64> = bin.callees(c).into_iter().map(|x| x.address).filter(|a| funcs.contains(a) && *a != c).collect();
+            let plain: Vec<(u64, String)> = callees.iter().filter_map(|&g| bin.pseudocode(g).map(|p| (g, text(&p)))).collect();
+            bin.set_var_type(c, "a1", "FLOW_CTX *");
+            let _ = bin.pseudocode(c);
+            for (g, was) in plain {
+                let now = bin.pseudocode(g).map(|p| text(&p)).unwrap_or_default();
+                if now.contains("FLOW_CTX * a1") && !was.contains("FLOW_CTX") {
+                    found += 1;
+                    eprintln!("{name}: {c:#x} passes its typed a1 to {g:#x}:\n  {was}\n  {now}");
+                }
+            }
+            bin.set_var_type(c, "a1", "");
+            let _ = bin.pseudocode(c);
+            if found >= 2 {
+                break;
+            }
+        }
+        if found >= 2 {
+            break;
+        }
+    }
+    if cfg!(target_arch = "aarch64") && std::env::var_os("CI").is_some() || std::env::var_os("PARANOIA_ARM64_DIR").is_some() {
+        assert!(found > 0, "no callee adopted the type of the argument its caller passed");
+    }
+}

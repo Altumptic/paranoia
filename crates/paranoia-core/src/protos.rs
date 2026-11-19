@@ -247,6 +247,156 @@ static PROTOS: &[(&str, Proto)] = protos! {
     "textdomain" => "char *"("const char *domainname");
     "gettext" => "char *"("const char *msgid");
     "__libc_start_main" => "int"("int (*main)(int, char **, char **)", "int argc", "char **argv", "void (*init)(void)", "void (*fini)(void)", "void (*rtld_fini)(void)", "void *stack_end");
+    // POSIX and bionic: processes, files, memory, time
+    "execv" => "int"("const char *pathname", "char *const argv[]");
+    "getpid" => "pid_t"();
+    "getppid" => "pid_t"();
+    "getuid" => "uid_t"();
+    "geteuid" => "uid_t"();
+    "setuid" => "int"("uid_t uid");
+    "sigaction" => "int"("int signum", "const struct sigaction *act", "struct sigaction *oldact");
+    "sigaltstack" => "int"("const stack_t *ss", "stack_t *old_ss");
+    "ptrace" => "long"("int request", "pid_t pid", "void *addr", "void *data");
+    "prctl" => "int"("int option", "unsigned long arg2", "unsigned long arg3", "unsigned long arg4", "unsigned long arg5");
+    "syscall" => "long"("long number", "...");
+    "getauxval" => "unsigned long"("unsigned long type");
+    "fstat" => "int"("int fd", "struct stat *statbuf");
+    "lstat" => "int"("const char *pathname", "struct stat *statbuf");
+    "access" => "int"("const char *pathname", "int mode");
+    "chmod" => "int"("const char *pathname", "mode_t mode");
+    "chown" => "int"("const char *pathname", "uid_t owner", "gid_t group");
+    "readlink" => "ssize_t"("const char *pathname", "char *buf", "size_t bufsiz");
+    "symlink" => "int"("const char *target", "const char *linkpath");
+    "rename" => "int"("const char *oldpath", "const char *newpath");
+    "mkdir" => "int"("const char *pathname", "mode_t mode");
+    "rmdir" => "int"("const char *pathname");
+    "opendir" => "DIR *"("const char *name");
+    "readdir" => "struct dirent *"("DIR *dirp");
+    "closedir" => "int"("DIR *dirp");
+    "getcwd" => "char *"("char *buf", "size_t size");
+    "chdir" => "int"("const char *path");
+    "dup" => "int"("int oldfd");
+    "dup2" => "int"("int oldfd", "int newfd");
+    "pipe" => "int"("int pipefd[2]");
+    "fcntl" => "int"("int fd", "int cmd", "...");
+    "ioctl" => "int"("int fd", "unsigned long request", "...");
+    "poll" => "int"("struct pollfd *fds", "nfds_t nfds", "int timeout");
+    "select" => "int"("int nfds", "fd_set *readfds", "fd_set *writefds", "fd_set *exceptfds", "struct timeval *timeout");
+    "epoll_create1" => "int"("int flags");
+    "epoll_ctl" => "int"("int epfd", "int op", "int fd", "struct epoll_event *event");
+    "epoll_wait" => "int"("int epfd", "struct epoll_event *events", "int maxevents", "int timeout");
+    "inotify_init1" => "int"("int flags");
+    "memfd_create" => "int"("const char *name", "unsigned int flags");
+    "madvise" => "int"("void *addr", "size_t length", "int advice");
+    "mlock" => "int"("const void *addr", "size_t len");
+    "uname" => "int"("struct utsname *buf");
+    "gettimeofday" => "int"("struct timeval *tv", "struct timezone *tz");
+    "clock_gettime" => "int"("clockid_t clockid", "struct timespec *tp");
+    "nanosleep" => "int"("const struct timespec *req", "struct timespec *rem");
+    "usleep" => "int"("useconds_t usec");
+    "sleep" => "unsigned int"("unsigned int seconds");
+    "setenv" => "int"("const char *name", "const char *value", "int overwrite");
+    "atexit" => "int"("void (*function)(void)");
+    "_exit" => "void"("int status");
+    "dladdr" => "int"("const void *addr", "Dl_info *info");
+    "dlclose" => "int"("void *handle");
+    "__cxa_atexit" => "int"("void (*func)(void *)", "void *arg", "void *dso_handle");
+    "__cxa_finalize" => "void"("void *dso_handle");
+    "__stack_chk_fail" => "void"();
+    // Apple: Objective-C runtime
+    "objc_msgSend" => "id"("id self", "SEL op", "...");
+    "objc_retain" => "id"("id obj");
+    "objc_release" => "void"("id obj");
+    "objc_autorelease" => "id"("id obj");
+    "objc_retainAutoreleasedReturnValue" => "id"("id obj");
+    "objc_autoreleasePoolPush" => "void *"();
+    "objc_autoreleasePoolPop" => "void"("void *pool");
+    "objc_alloc" => "id"("Class cls");
+    "objc_alloc_init" => "id"("Class cls");
+    "objc_getClass" => "Class"("const char *name");
+    "objc_lookUpClass" => "Class"("const char *name");
+    "objc_storeStrong" => "void"("id *location", "id obj");
+    "sel_registerName" => "SEL"("const char *str");
+    "sel_getName" => "const char *"("SEL sel");
+    "class_getName" => "const char *"("Class cls");
+    "class_getInstanceMethod" => "Method"("Class cls", "SEL name");
+    "method_setImplementation" => "IMP"("Method m", "IMP imp");
+    "method_exchangeImplementations" => "void"("Method m1", "Method m2");
+    "object_getClass" => "Class"("id obj");
+    "NSLog" => "void"("NSString *format", "...");
+    // Apple: libdispatch, Core Foundation, Mach, Security, IOKit, dyld
+    "dispatch_async" => "void"("dispatch_queue_t queue", "dispatch_block_t block");
+    "dispatch_sync" => "void"("dispatch_queue_t queue", "dispatch_block_t block");
+    "dispatch_after" => "void"("dispatch_time_t when", "dispatch_queue_t queue", "dispatch_block_t block");
+    "dispatch_once" => "void"("dispatch_once_t *predicate", "dispatch_block_t block");
+    "dispatch_get_global_queue" => "dispatch_queue_t"("long identifier", "unsigned long flags");
+    "dispatch_queue_create" => "dispatch_queue_t"("const char *label", "dispatch_queue_attr_t attr");
+    "dispatch_semaphore_create" => "dispatch_semaphore_t"("long value");
+    "dispatch_semaphore_wait" => "long"("dispatch_semaphore_t dsema", "dispatch_time_t timeout");
+    "dispatch_semaphore_signal" => "long"("dispatch_semaphore_t dsema");
+    "dispatch_time" => "dispatch_time_t"("dispatch_time_t when", "int64_t delta");
+    "CFRetain" => "CFTypeRef"("CFTypeRef cf");
+    "CFRelease" => "void"("CFTypeRef cf");
+    "CFStringCreateWithCString" => "CFStringRef"("CFAllocatorRef alloc", "const char *cStr", "CFStringEncoding encoding");
+    "CFStringGetCString" => "Boolean"("CFStringRef theString", "char *buffer", "CFIndex bufferSize", "CFStringEncoding encoding");
+    "CFStringGetLength" => "CFIndex"("CFStringRef theString");
+    "CFDictionaryGetValue" => "const void *"("CFDictionaryRef theDict", "const void *key");
+    "CFDictionaryCreateMutable" => "CFMutableDictionaryRef"("CFAllocatorRef allocator", "CFIndex capacity", "const CFDictionaryKeyCallBacks *keyCallBacks", "const CFDictionaryValueCallBacks *valueCallBacks");
+    "CFDictionarySetValue" => "void"("CFMutableDictionaryRef theDict", "const void *key", "const void *value");
+    "CFArrayGetCount" => "CFIndex"("CFArrayRef theArray");
+    "CFArrayGetValueAtIndex" => "const void *"("CFArrayRef theArray", "CFIndex idx");
+    "CFDataCreate" => "CFDataRef"("CFAllocatorRef allocator", "const UInt8 *bytes", "CFIndex length");
+    "CFBundleGetMainBundle" => "CFBundleRef"();
+    "CFBundleGetValueForInfoDictionaryKey" => "CFTypeRef"("CFBundleRef bundle", "CFStringRef key");
+    "mach_task_self" => "mach_port_t"();
+    "mach_absolute_time" => "uint64_t"();
+    "mach_vm_allocate" => "kern_return_t"("vm_map_t target", "mach_vm_address_t *address", "mach_vm_size_t size", "int flags");
+    "mach_vm_protect" => "kern_return_t"("vm_map_t target_task", "mach_vm_address_t address", "mach_vm_size_t size", "boolean_t set_maximum", "vm_prot_t new_protection");
+    "mach_vm_write" => "kern_return_t"("vm_map_t target_task", "mach_vm_address_t address", "vm_offset_t data", "mach_msg_type_number_t dataCnt");
+    "mach_vm_read_overwrite" => "kern_return_t"("vm_map_t target_task", "mach_vm_address_t address", "mach_vm_size_t size", "mach_vm_address_t data", "mach_vm_size_t *outsize");
+    "task_for_pid" => "kern_return_t"("mach_port_t target_tport", "int pid", "mach_port_t *t");
+    "task_info" => "kern_return_t"("task_name_t target_task", "task_flavor_t flavor", "task_info_t task_info_out", "mach_msg_type_number_t *task_info_outCnt");
+    "proc_pidinfo" => "int"("int pid", "int flavor", "uint64_t arg", "void *buffer", "int buffersize");
+    "sysctl" => "int"("int *name", "u_int namelen", "void *oldp", "size_t *oldlenp", "void *newp", "size_t newlen");
+    "sysctlbyname" => "int"("const char *name", "void *oldp", "size_t *oldlenp", "void *newp", "size_t newlen");
+    "SecItemCopyMatching" => "OSStatus"("CFDictionaryRef query", "CFTypeRef *result");
+    "SecItemAdd" => "OSStatus"("CFDictionaryRef attributes", "CFTypeRef *result");
+    "SecItemDelete" => "OSStatus"("CFDictionaryRef query");
+    "SecRandomCopyBytes" => "int"("SecRandomRef rnd", "size_t count", "void *bytes");
+    "CC_SHA256" => "unsigned char *"("const void *data", "CC_LONG len", "unsigned char *md");
+    "CC_MD5" => "unsigned char *"("const void *data", "CC_LONG len", "unsigned char *md");
+    "CCCrypt" => "CCCryptorStatus"("CCOperation op", "CCAlgorithm alg", "CCOptions options", "const void *key", "size_t keyLength", "const void *iv", "const void *dataIn", "size_t dataInLength", "void *dataOut", "size_t dataOutAvailable", "size_t *dataOutMoved");
+    "IOServiceMatching" => "CFMutableDictionaryRef"("const char *name");
+    "IOServiceGetMatchingService" => "io_service_t"("mach_port_t mainPort", "CFDictionaryRef matching");
+    "IORegistryEntryCreateCFProperty" => "CFTypeRef"("io_registry_entry_t entry", "CFStringRef key", "CFAllocatorRef allocator", "IOOptionBits options");
+    "_dyld_image_count" => "uint32_t"();
+    "_dyld_get_image_name" => "const char *"("uint32_t image_index");
+    "_dyld_get_image_header" => "const struct mach_header *"("uint32_t image_index");
+    "_dyld_register_func_for_add_image" => "void"("void (*func)(const struct mach_header *, intptr_t)");
+    // Android: log, properties, assets, native window, JNI entry points
+    "__android_log_print" => "int"("int prio", "const char *tag", "const char *fmt", "...");
+    "__android_log_write" => "int"("int prio", "const char *tag", "const char *text");
+    "__android_log_vprint" => "int"("int prio", "const char *tag", "const char *fmt", "va_list ap");
+    "__android_log_assert" => "void"("const char *cond", "const char *tag", "const char *fmt", "...");
+    "__system_property_get" => "int"("const char *name", "char *value");
+    "__system_property_find" => "const prop_info *"("const char *name");
+    "__system_property_read" => "int"("const prop_info *pi", "char *name", "char *value");
+    "android_dlopen_ext" => "void *"("const char *filename", "int flags", "const android_dlextinfo *extinfo");
+    "android_set_abort_message" => "void"("const char *msg");
+    "AAssetManager_fromJava" => "AAssetManager *"("JNIEnv *env", "jobject assetManager");
+    "AAssetManager_open" => "AAsset *"("AAssetManager *mgr", "const char *filename", "int mode");
+    "AAsset_read" => "int"("AAsset *asset", "void *buf", "size_t count");
+    "AAsset_getLength" => "off_t"("AAsset *asset");
+    "AAsset_close" => "void"("AAsset *asset");
+    "ANativeWindow_fromSurface" => "ANativeWindow *"("JNIEnv *env", "jobject surface");
+    "ANativeWindow_lock" => "int32_t"("ANativeWindow *window", "ANativeWindow_Buffer *outBuffer", "ARect *inOutDirtyBounds");
+    "ANativeWindow_unlockAndPost" => "int32_t"("ANativeWindow *window");
+    "ALooper_forThread" => "ALooper *"();
+    "ALooper_pollOnce" => "int"("int timeoutMillis", "int *outFd", "int *outEvents", "void **outData");
+    "JNI_OnLoad" => "jint"("JavaVM *vm", "void *reserved");
+    "JNI_OnUnload" => "void"("JavaVM *vm", "void *reserved");
+    "AndroidBitmap_getInfo" => "int"("JNIEnv *env", "jobject jbitmap", "AndroidBitmapInfo *info");
+    "AndroidBitmap_lockPixels" => "int"("JNIEnv *env", "jobject jbitmap", "void **addrPtr");
 };
 
 /// Looks up a prototype by (possibly decorated) name: `__imp_`, a leading `_`
@@ -516,5 +666,32 @@ mod tests {
         assert_eq!(param_name("LPCWSTR lpFileName"), "lpFileName");
         assert_eq!(param_name("char *const argv[]"), "argv");
         assert!(lookup("NotAnApi").is_none());
+    }
+
+    #[test]
+    fn apple_and_android_apis_are_known() {
+        // Mach-O symbols carry a leading underscore; bionic and Apple names resolve like the rest.
+        assert_eq!(lookup("_objc_msgSend").unwrap().params, &["id self", "SEL op", "..."]);
+        assert_eq!(lookup("_dispatch_async").unwrap().params.len(), 2);
+        assert_eq!(lookup("_CFStringCreateWithCString").unwrap().ret, "CFStringRef");
+        assert_eq!(lookup("__android_log_print").unwrap().params.len(), 4);
+        assert_eq!(lookup("AAssetManager_open").unwrap().params.len(), 3);
+        assert_eq!(lookup("_sysctlbyname").unwrap().params.len(), 5);
+        assert!(lookup("ptrace").is_some() && lookup("JNI_OnLoad").is_some());
+    }
+
+    #[test]
+    fn every_prototype_is_well_formed_and_named_once() {
+        let mut seen = std::collections::HashSet::new();
+        for (name, p) in PROTOS {
+            assert!(seen.insert(*name), "{name} is listed twice");
+            assert!(!p.ret.is_empty(), "{name}: no return type");
+            for (i, param) in p.params.iter().enumerate() {
+                assert!(!param.trim().is_empty(), "{name}: empty parameter");
+                // `...` only as the last parameter.
+                assert!(*param != "..." || i + 1 == p.params.len(), "{name}: `...` is not last");
+                assert!(!param.contains(';') && !param.contains('{'), "{name}: {param}");
+            }
+        }
     }
 }

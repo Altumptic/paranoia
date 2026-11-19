@@ -617,8 +617,9 @@ impl Binary {
         if self.info.arch == Arch::Arm64 {
             let mut lines = self.a64_c(idx, &name)?;
             // Types set with `Y` rewrite the signature, the declarations and member access, the
-            // same way as on x86. (Types do not yet flow across calls on AArch64.) A prototype the
-            // user set supplies the parameter types too.
+            // same way as on x86. A prototype the user set supplies the parameter types too, and
+            // types flow across calls as on x86: a caller that passes its typed `a1` gives the callee
+            // that argument type, and a callee's known result type types the variable that stores it.
             let proto = self.user_proto(f_addr);
             let mut user = self.annotations.var_types.get(&f_addr).cloned().unwrap_or_default();
             if let Some(p) = &proto {
@@ -626,9 +627,56 @@ impl Binary {
                     user.entry(k).or_insert(v);
                 }
             }
+            crate::pseudo_structs::split_for_types(&mut lines);
+            let params = lines.first().map_or(0, |l| l.tokens.iter().filter(|t| t.k == TokenKind::Register).count());
+            for edges in self.call_args.iter().filter_map(|(_, e)| e.get(&f_addr)) {
+                for (k, ty) in edges.iter().enumerate() {
+                    if k < params {
+                        if let Some(ty) = ty {
+                            user.entry(format!("a{}", k + 1)).or_insert_with(|| ty.clone());
+                        }
+                    }
+                }
+            }
+            let names: HashMap<String, u64> = self.functions().into_iter().map(|s| (s.name, s.address)).collect();
+            let mut writes: HashMap<String, usize> = HashMap::new();
+            for l in &lines {
+                if let Some((lhs, _)) = crate::pseudo_opt::assignment(l) {
+                    *writes.entry(lhs.t.clone()).or_default() += 1;
+                }
+            }
+            for l in &lines {
+                if crate::pseudo_opt::call_at(l) != Some(2) || l.tokens[1].t != " = " {
+                    continue;
+                }
+                let Some(&callee) = names.get(&l.tokens[2].t) else { continue };
+                if let (Some(ty), Some(1)) = (self.ret_types.get(&callee), writes.get(&l.tokens[0].t).copied()) {
+                    user.entry(l.tokens[0].t.clone()).or_insert_with(|| ty.clone());
+                }
+            }
             if !user.is_empty() {
-                crate::pseudo_structs::split_for_types(&mut lines);
-                crate::pseudo_structs::member_access(&mut lines, &self.type_view(), &user);
+                let view = self.type_view();
+                let types = crate::pseudo_structs::resolved_var_types(&lines, &view, &user);
+                crate::pseudo_structs::member_access(&mut lines, &view, &user);
+                // Record what this function passes to its callees, so they can adopt the types.
+                let mut edges: HashMap<u64, Vec<Option<String>>> = HashMap::new();
+                for l in &lines {
+                    let Some(c) = crate::pseudo_opt::call_at(l) else { continue };
+                    let Some(&callee) = names.get(&l.tokens[c].t) else { continue };
+                    edges.insert(callee, call_arg_types(l, c, &types));
+                    if c == 2 && l.tokens[1].t == " = " && writes.get(&l.tokens[0].t).copied() == Some(1) {
+                        if let Some(ty) = types.get(&l.tokens[0].t) {
+                            self.ret_types.entry(callee).or_insert_with(|| ty.clone());
+                        }
+                    }
+                }
+                if edges.is_empty() || types.is_empty() {
+                    self.call_args.remove(&f_addr);
+                } else {
+                    self.call_args.insert(f_addr, edges);
+                }
+            } else {
+                self.call_args.remove(&f_addr);
             }
             if let Some(p) = &proto {
                 crate::user_proto::apply(&mut lines, p);
