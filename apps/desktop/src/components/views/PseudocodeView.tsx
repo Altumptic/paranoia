@@ -133,7 +133,9 @@ export function PseudocodeView() {
         <span className="badge">
           {info.arch === "arm64"
             ? "AArch64 · AAPCS64 · experimental"
-            : info.arch === "x86"
+            : info.arch === "thumb"
+              ? "Thumb-2 · AAPCS · experimental"
+              : info.arch === "x86"
               ? "x86 · cdecl"
               : info.format === "pe"
                 ? "x64 · Microsoft ABI"

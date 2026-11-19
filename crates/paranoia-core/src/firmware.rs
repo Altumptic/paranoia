@@ -800,6 +800,18 @@ mod tests {
         // The code is decoded as Thumb: push {r7, lr} at the reset handler.
         let first = b.disassemble(base as u64 + 0x100, 1).unwrap();
         assert!(first[0].mnemonic.to_lowercase().contains("push"), "{:?}", first[0]);
+        // And it has pseudocode: a function that calls and returns, with its vector-table name.
+        let text = |p: crate::pseudo::Pseudocode| {
+            p.lines.iter().map(|l| l.tokens.iter().map(|t| t.t.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n")
+        };
+        let p = b.pseudocode(base as u64 + 0x100).unwrap();
+        assert!(p.note.as_deref().is_some_and(|n| n.starts_with("Thumb-2")), "{:?}", p.note);
+        let c = text(p);
+        assert!(c.contains("Reset_Handler") && c.contains("return"), "{c}");
+        let ssa = b.ssa(base as u64 + 0x100).unwrap();
+        assert!(!ssa.lines.is_empty(), "SSA form for Thumb");
+        let c = text(b.pseudocode_from_ssa(base as u64 + 0x130).unwrap());
+        assert!(c.contains("HardFault_Handler"), "{c}");
 
         // The same program as Intel HEX, with and without a start address, gives the same functions.
         for start in [None, Some(base + 0x100 + 1)] {

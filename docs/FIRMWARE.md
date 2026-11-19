@@ -92,9 +92,20 @@ Measured by cutting the executable section out of real files, opening it as a ra
 
 "Not in reference" is not an error rate for the PE files: the unwind table leaves leaf functions out, so some of those are real. For the two Go rows the reference (Go's function table) is complete, so there it is a fair estimate of false functions: 3 % and 8 %. Rust code built with MinGW is the weak case: many of its functions are frameless and follow no recognisable pattern. Thumb and ARM use the same scan, tested on synthetic code only.
 
+## Thumb-2 pseudocode
+
+Thumb-2 functions have pseudocode (the C view, C·SSA and the SSA view) built the way AArch64's is: the code is lifted to the shared SSA form, then phi classes become variables, `r0`–`r3` become `a1`–`a4`, the stack frame disappears, conditions come from `cmp`/`subs`/`tst`, and `if`, loops and `goto` are recovered from the branches. `push {…, lr}` / `pop {…, pc}`, `bx lr`, `bl`, `blx`, `cbz`/`cbnz`, `movw`/`movt`, loads and stores with write-back, `ldrd`/`strd`, shifts and the usual data-processing instructions are modelled.
+
+What it does not do, and where to be careful:
+
+- Instructions inside an `it` block are kept as text with their condition (`/* if e */`) instead of being turned into an `if`; a conditional branch in a block is modelled. So a function full of `it` blocks reads like assembly in those places.
+- Instructions the lifter has no model for (VFP, bit-field and saturating instructions, `ldm`/`stm` other than `push`/`pop`, `tbb`/`tbh` jump tables) are kept as text with the registers they read and write; a jump table is a bare indirect jump.
+- A function the analysis found in ARM mode (a mixed image), and big-endian images, get no pseudocode and a note saying so.
+- It is tested on hand-encoded functions, on a synthetic Cortex-M image, and by lifting 30,000 random decodable instruction words without a panic. It has **not** been compared with the source of real firmware, so treat it as experimental and check it against the listing, as the badge says.
+
 ## Not yet
 
-- Pseudocode for Thumb (the listing, graph, cross references and function memory work).
+- Pseudocode for ARM32 (ARM mode). Thumb-2 has experimental pseudocode (below); in a mixed image it covers the functions that are Thumb.
 - Showing bit-field names in listings (the Inspector lists them; the listing names the register only), and enumerated values from SVD files.
 - Opening firmware in the browser build.
 - Function discovery for MIPS, PowerPC and RISC-V raw images (they get the entry point and what the descent follows).

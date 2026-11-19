@@ -13,7 +13,7 @@ Claims on this page are measured, not asserted: a reproducible benchmark compare
 When two things compete, they're done in this order:
 
 1. crashes or hangs on bad input
-2. readable pseudocode on x86/x64 and AArch64
+2. readable pseudocode on x86/x64, AArch64 and Thumb-2
 3. the agent interface and scripting
 4. Linux and macOS packages
 5. firmware, remote debugging, more architectures
@@ -43,6 +43,7 @@ When two things compete, they're done in this order:
 | Search | ✅ | Bytes, text, immediates |
 | Hex view, patching, assembler | ✅ | NOP/invert/force-jump on x86 and AArch64; an x86 assembler for anything else |
 | Pseudocode, x86/x64 | 🟡 | Typed variables, API constants, loops and `switch`, struct member access, types across calls. An SSA view and a second C view built from it (C·SSA) |
+| Pseudocode, Thumb-2 | 🟡 | Experimental, same engine as AArch64 (AAPCS: `r0`–`r3`). `it` blocks are kept as text with their condition. Synthetic tests only |
 | Pseudocode, AArch64 | 🟡 | Experimental, built from the SSA form. Types come from the prototypes of called libc and WinAPI functions and from the types you set (`Y`: signature, declaration, `->field`); they do not follow calls yet |
 | Operand display (`H` `R` `B` `M`) | ✅ | Windows and POSIX enums applied to API arguments |
 | Local types, structs, enums | ✅ | C declarations; apply a struct to data |
@@ -115,7 +116,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Guess the CPU of other raw images from machine-code patterns (36 of 37 real files right, none wrong; MIPS, PowerPC, RISC-V, ARM and Thumb only on synthetic data)
 - [x] Function discovery in raw x86-64, AArch64, ARM and Thumb images: 95–99.8 % of the functions on six of the seven dumps measured, 64 % on MinGW Rust ([FIRMWARE.md](FIRMWARE.md))
 - [ ] Measure the base-address guess and the Cortex-M logic on real firmware images
-- [ ] Thumb pseudocode
+- [x] Thumb-2 pseudocode, experimental, built from the SSA form like AArch64's (`it` blocks and unmodelled instructions stay as text); tested on hand-encoded code and a synthetic Cortex-M image, not yet compared with real firmware source ([FIRMWARE.md](FIRMWARE.md))
 - [x] SVD files: peripheral and register names in ARM / Thumb listings ([FIRMWARE.md](FIRMWARE.md)); tested on a hand-written file, not yet on vendors' files
 - [x] Named memory regions (yours, plus the Cortex-M map), the Cortex-M system registers, and SVD bit-field names in the Inspector
 
