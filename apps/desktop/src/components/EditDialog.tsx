@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { debug } from "../debug";
 import { setOperand } from "../operands";
 import { fmtAddr, useStore } from "../store";
 
@@ -81,6 +82,14 @@ export function EditDialog() {
       } catch (e) {
         st.toast(e instanceof Error ? e.message : String(e), "error");
       }
+    } else if (dialog.kind === "gdb") {
+      // `host:port [load base in hex]`, e.g. 127.0.0.1:1234 — the main process asks for confirmation.
+      const m = /^([A-Za-z0-9._-]+)?:(\d{1,5})(?:\s+(?:base=)?(?:0x)?([0-9a-f]+))?$/i.exec(value.trim());
+      if (!m || +m[2] < 1 || +m[2] > 65535) {
+        st.toast("Write host:port, for example 127.0.0.1:1234 (optionally followed by the image's load address in hex)", "error");
+        return;
+      }
+      await debug.connect(m[1] || "127.0.0.1", parseInt(m[2], 10), m[3] ? parseInt(m[3], 16) : undefined);
     } else if (dialog.kind === "region") {
       // `NAME START SIZE [kind]`, addresses in hex; `-START` removes the region that starts there.
       const v = value.trim();
@@ -158,6 +167,7 @@ export function EditDialog() {
             varname: "Rename variable",
             proto: "Function prototype",
             region: "Memory region",
+            gdb: "Connect to a GDB server",
           }[dialog.kind]}{" "}
           {dialog.kind === "vartype" || dialog.kind === "varname" ? <span className="mono muted">{dialog.varName}</span> : <span className="mono muted">{fmtAddr(dialog.va, info)}</span>}
         </div>
@@ -183,6 +193,8 @@ export function EditDialog() {
                 ? "A C identifier — leave empty to restore the generated name"
                 : dialog.kind === "proto"
                 ? "e.g. int __stdcall f(HANDLE h, const char *buf, DWORD n) — empty removes it"
+                : dialog.kind === "gdb"
+                ? "host:port of a gdbserver or QEMU gdbstub, e.g. 127.0.0.1:1234 — add the load address in hex if the program is relocated"
                 : dialog.kind === "region"
                 ? "NAME START SIZE [ram|flash|rom|peripheral|other] in hex, e.g. SRAM 20000000 20000 ram — or -START to remove"
                 : dialog.kind === "assemble"

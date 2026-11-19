@@ -198,6 +198,7 @@ function useMenus(): Menu[] {
                     return debug.cmd("continue");
                   },
                 },
+                { label: "Connect to GDB server…", disabled: noFile || live, run: () => st().set("dialog", { kind: "gdb", va: 0, initial: "127.0.0.1:1234" }) },
                 { label: "Pause", disabled: dbg?.state !== "running", run: () => debug.cmd("pause") },
                 { label: "Stop", keys: "Shift+F5", disabled: !live, run: () => debug.cmd("stop") },
                 sep,

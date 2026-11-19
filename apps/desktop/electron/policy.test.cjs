@@ -68,6 +68,21 @@ test("the title-bar overlay is only updated where the method exists", () => {
   for (const platform of ["darwin", "freebsd", undefined]) assert.ok(!policy.titleBarOverlaySupported(platform));
 });
 
+test("GDB server targets: a plain host and port, loopback told apart, nothing else passes", () => {
+  const t = policy.gdbTarget({ host: "127.0.0.1", port: 1234, base: 0x400000, breakpoints: [16, 32], break_on_entry: true, extra: "x" });
+  assert.deepEqual(t, { host: "127.0.0.1", port: 1234, breakpoints: [16, 32], loopback: true, base: 0x400000, break_on_entry: true });
+  assert.equal(policy.gdbTarget({ port: 3333 }).host, "127.0.0.1");
+  assert.ok(policy.gdbTarget({ host: "localhost", port: 1 }).loopback);
+  assert.ok(!policy.gdbTarget({ host: "192.168.1.5", port: 1234 }).loopback);
+  assert.ok(!policy.gdbTarget({ host: "10.0.0.1.evil.example", port: 1234 }).loopback);
+  assert.ok(!policy.gdbTarget({ host: "127.evil.example", port: 1234 }).loopback);
+  for (const bad of [null, [], {}, { port: 0 }, { port: 65536 }, { port: "1234" }, { host: "-oProxyCommand=x", port: 1 }, { host: "a b", port: 1 }, { host: "h/x", port: 1 }, { host: "x".repeat(300), port: 1 }, { port: 1, base: -1 }, { port: 1, breakpoints: "x" }, { port: 1, breakpoints: [1.5] }, { port: 1, break_on_entry: "yes" }]) {
+    assert.equal(policy.gdbTarget(bad), null, JSON.stringify(bad));
+  }
+  assert.match(policy.gdbDetail(policy.gdbTarget({ host: "8.8.8.8", port: 1 })), /NOT on this computer.*not encrypted/s);
+  assert.doesNotMatch(policy.gdbDetail(policy.gdbTarget({ host: "127.0.0.1", port: 1 })), /NOT on this computer/);
+});
+
 test("raw image options: a known CPU and plain integers only, nothing else passes", () => {
   assert.deepEqual(policy.rawOptions({ arch: "thumb", base: 0x08000000, entry: 0x08000101, big_endian: false, extra: "<script>" }), { arch: "thumb", base: 0x08000000, entry: 0x08000101, big_endian: false });
   assert.deepEqual(policy.rawOptions({ arch: "arm64" }), { arch: "arm64" });

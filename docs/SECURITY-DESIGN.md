@@ -81,7 +81,11 @@ Paranoia doesn't encrypt anything and has no accounts or keys of its own.
 
 ## Network
 
-The app and the engine make no network connections by themselves: no telemetry, crash reports, fonts or scripts from CDNs, and nothing at start-up. The page CSP limits connections to the app itself. What can reach the network: your own Python scripts, your own code in the script worker, the AI assistant once you've set it up, and the update check when you press its button.
+The app and the engine make no network connections by themselves: no telemetry, crash reports, fonts or scripts from CDNs, and nothing at start-up. The page CSP limits connections to the app itself. What can reach the network: your own Python scripts, your own code in the script worker, the AI assistant once you've set it up, the update check when you press its button, and a GDB server you connect the debugger to.
+
+### Remote debugging
+
+`Debug → Connect to GDB server…` makes the engine open a TCP connection, the only socket it ever opens. The page cannot start it on its own: the main process validates the request (`policy.gdbTarget`: a host name or IP made of letters, digits, `.`, `_` and `-`, a port, a load address, breakpoint addresses), shows a native confirmation with the host and port (a stronger one, saying the traffic is not encrypted, when the server is not on this computer), and only then forwards a cleaned request. The engine connects to that address and sends debugger packets (registers, memory reads, breakpoints, continue and step) and nothing else. The connection is closed when you stop debugging or close the file. A GDB server is trusted: it decides what runs and what Paranoia shows. Packet parsing is safe Rust, with size limits (replies are capped, a description over 4 MiB is refused) and checksums verified. See [REMOTE-DEBUGGING.md](REMOTE-DEBUGGING.md).
 
 ### Update check
 

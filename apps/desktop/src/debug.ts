@@ -88,6 +88,20 @@ export const debug = {
     }
   },
 
+  /** Debugs a program or firmware that a GDB server (gdbserver, QEMU) runs. The main process asks the user first. */
+  async connect(host: string, port: number, base?: number) {
+    const st = useStore.getState();
+    try {
+      await dbg("connect", { host, port, ...(base != null ? { base } : {}), breakpoints: [...st.breakpoints], break_on_entry: true });
+      useStore.setState({ debug: { state: "running", reason: "Connecting…", pc: null, pc_runtime: 0, base: 0, regs: [], stack: [], breakpoints: [], log: [], exit_code: null }, debugOpen: true });
+      st.print(`▶ Connected to the GDB server at ${host}:${port}`, "info");
+      startPolling();
+    } catch (e) {
+      const msg = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+      if (!/cancelled/.test(msg)) st.toast(msg, "error");
+    }
+  },
+
   async cmd(name: "continue" | "step_into" | "step_over" | "pause" | "stop") {
     const d = useStore.getState().debug;
     if (!d || d.state === "exited" || d.state === "idle") {
