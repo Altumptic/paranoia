@@ -1,0 +1,55 @@
+# Flatpak manifest for Paranoia, repackaging the .deb that CI builds, signs and attests for each release.
+# `scripts/flatpak-manifest.mjs` fills in the version, URLs and SHA-256 sums from a release's SHA256SUMS;
+# do not edit the generated file by hand. See packaging/flatpak/README.md.
+app-id: app.paranoia.Paranoia
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+command: paranoia
+separate-locales: false
+
+# Least privilege. No network, no home folder: files are chosen in the portal's file dialog. The app's
+# optional features that need more (assistant, update check, remote debugging) are listed in the README.
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --device=dri
+  - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
+
+modules:
+  - name: paranoia
+    buildsystem: simple
+    build-commands:
+      # The deb is an ar archive; its payload is data.tar.* (xz or zst).
+      - ar x paranoia.deb
+      - mkdir -p /app/paranoia
+      - tar -xf data.tar.* -C /app/paranoia --strip-components=3 ./opt/Paranoia
+      - install -Dm755 paranoia.sh /app/bin/paranoia
+      - install -Dm644 app.paranoia.Paranoia.desktop /app/share/applications/app.paranoia.Paranoia.desktop
+      - install -Dm644 app.paranoia.Paranoia.metainfo.xml /app/share/metainfo/app.paranoia.Paranoia.metainfo.xml
+      - install -Dm644 app.paranoia.Paranoia.png /app/share/icons/hicolor/512x512/apps/app.paranoia.Paranoia.png
+    sources:
+      - type: file
+        only-arches: [x86_64]
+        url: "@DEB_X64_URL@"
+        sha256: "@DEB_X64_SHA256@"
+        dest-filename: paranoia.deb
+      - type: file
+        only-arches: [aarch64]
+        url: "@DEB_ARM64_URL@"
+        sha256: "@DEB_ARM64_SHA256@"
+        dest-filename: paranoia.deb
+      - type: script
+        dest-filename: paranoia.sh
+        commands:
+          # zypak runs Chromium's sandbox inside Flatpak's.
+          - exec zypak-wrapper /app/paranoia/paranoia "$@"
+      - type: file
+        path: app.paranoia.Paranoia.desktop
+      - type: file
+        path: app.paranoia.Paranoia.metainfo.xml
+      - type: file
+        path: app.paranoia.Paranoia.png

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.paranoia.Paranoia</id>
+  <name>Paranoia</name>
+  <summary>Local-first disassembler and decompiler</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer_name>Paranoia contributors</developer_name>
+  <description>
+    <p>Paranoia opens PE, ELF and Mach-O programs and firmware images and shows a listing, a control-flow graph, pseudocode, cross references and strings. It runs entirely on your computer: no account, no telemetry, and no network traffic unless you ask for it.</p>
+    <p>It remembers the functions you name and recognises them in the next file, compares two versions of a program function by function, debugs local programs and GDB servers, and can be scripted in Python and JavaScript.</p>
+  </description>
+  <launchable type="desktop-id">app.paranoia.Paranoia.desktop</launchable>
+  <url type="homepage">https://github.com/Altumptic/paranoia</url>
+  <url type="bugtracker">https://github.com/Altumptic/paranoia/issues</url>
+  <url type="vcs-browser">https://github.com/Altumptic/paranoia</url>
+  <content_rating type="oars-1.1" />
+  <categories>
+    <category>Development</category>
+    <category>Debugger</category>
+  </categories>
+  <provides>
+    <binary>paranoia</binary>
+  </provides>
+  <releases>
+    <release version="@VERSION@" date="@DATE@">
+      <url>https://github.com/Altumptic/paranoia/releases/tag/@TAG@</url>
+    </release>
+  </releases>
+</component>

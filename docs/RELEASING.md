@@ -39,7 +39,8 @@ Everything below is checked by `node scripts/release.mjs check` (CI runs it on e
 5. **Release candidate.** Tag the commit `v0.10.0-rc.1` and push the tag. The publish job builds, checksums, signs and attests the files and creates a **pre-release** with notes generated from the CHANGELOG. Install it on each platform you can. A minor release gets at least one candidate; a patch release may skip it when the fix is small and covered by a test.
 6. **Fix and repeat** (`-rc.2`) if the candidate has problems. Fixes go to `main` first; the candidate tag is moved only by creating the next one.
 7. **Release.** When the candidate holds up, tag **the same commit** `v0.10.0` and push the tag. Same workflow, same checks; the release is marked latest.
-8. **Afterwards.** Download the release once and run the verification steps from the notes ([VERIFY.md](VERIFY.md)); update the *Unreleased* section so new work has a place; mention the release wherever it is announced.
+8. **Flatpak (optional).** For a final release, `node scripts/flatpak-manifest.mjs --tag vX.Y.Z --sums SHA256SUMS --date YYYY-MM-DD` writes the Flatpak manifest from the verified checksums ([packaging/flatpak](../packaging/flatpak/README.md)).
+9. **Afterwards.** Download the release once and run the verification steps from the notes ([VERIFY.md](VERIFY.md)); update the *Unreleased* section so new work has a place; mention the release wherever it is announced.
 
 If a published release turns out to be broken: do not delete or retag it. Mark it in the CHANGELOG and on its page ("Superseded by 0.10.1: …"), fix on `main`, and release the next patch.
 

@@ -5,6 +5,7 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 ## Unreleased
 
 ### Added
+- A Flatpak manifest and metadata (`packaging/flatpak`), with a generator that fills it from a release's checksums. The sandbox has no network and no home-folder access by default. Not yet built with `flatpak-builder` or submitted to Flathub.
 - Plugins: a command can have a hotkey (`"key": "Ctrl+Alt+R"`, Ctrl or Alt required, the app's own keys refused), and a plugin can hook the `open` and `rename` events. Hooks run without a click, so only for a plugin version you chose to always run; they never nest and a hook that fails three times is switched off. See [docs/PLUGINS.md](docs/PLUGINS.md) and `examples/plugins/open-report`.
 - `PARANOIA_DATA_DIR` moves the app's data folder (workspace, settings, plugins, ledger), for tests and portable setups.
 - AI assistant: follow-up questions about the function in the answer dialog, and Assistant → Name many functions…, which asks for a name for each of the most-referenced automatically named functions and lets you review, edit and untick the suggestions before one undoable rename. For a hosted model the whole batch is confirmed natively, with its size, before the first request. See [docs/ASSISTANT.md](docs/ASSISTANT.md).

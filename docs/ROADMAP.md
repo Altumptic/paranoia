@@ -99,7 +99,8 @@ Moved to the next releases: redaction of symbol and function names on request. S
 ### 0.11: Linux and macOS packaging
 
 - [x] AppImage and `.deb` built by CI for x64 and ARM64 (since 0.9.0); Sigstore-signed checksums and attestations cover them
-- [ ] Flatpak, submitted to Flathub
+- [x] Flatpak manifest (no network or home access by default) and a generator that fills it from a release's SHA256SUMS ([packaging/flatpak](../packaging/flatpak/README.md)); not yet built with `flatpak-builder` or submitted to Flathub
+- [ ] Build the Flatpak once on a machine with `flatpak-builder`, fix what it finds, and submit it to Flathub
 - [x] macOS `.dmg` and `.zip` for arm64 and x64, ad-hoc signed (since 0.9.0)
 - [ ] macOS notarisation. This needs a paid Apple Developer ID, so it waits until there is one. Signing and notarisation are already wired behind the secrets in [SIGNING.md](SIGNING.md)
 - [x] CLI builds for Linux and macOS (since 0.8.0)
