@@ -473,6 +473,59 @@ impl Binary {
         Some(out)
     }
 
+    /// Decodes every block of the Thumb-2 function at `index`. A halfword that does not decode ends
+    /// its block; a function in ARM mode (a mixed image) has no Thumb pseudocode.
+    fn thumb_blocks(&self, index: usize) -> Option<crate::ssa::thumb::Blocks> {
+        use yaxpeax_arch::{Decoder as _, U8Reader};
+        let f = &self.analysis.as_ref()?.functions[index];
+        if self.info.endian == crate::model::Endian::Big || !self.is_thumb_at(f.address) {
+            return None;
+        }
+        let decoder = yaxpeax_arm::armv7::InstDecoder::default_thumb();
+        let mut out = crate::ssa::thumb::Blocks::new();
+        for b in &f.blocks {
+            let bytes = self.bytes_at(b.start)?;
+            let len = ((b.end.saturating_sub(b.start)) as usize).min(bytes.len());
+            let (mut at, mut v) = (0usize, Vec::new());
+            while at + 2 <= len {
+                let Ok(i) = decoder.decode(&mut U8Reader::new(&bytes[at..len])) else { break };
+                let size = if i.wide { 4 } else { 2 };
+                if at + size > len {
+                    break;
+                }
+                v.push((b.start + at as u64, i));
+                at += size;
+            }
+            out.insert(b.start, (v, b.succs.clone()));
+        }
+        Some(out)
+    }
+
+    /// C text for a Thumb-2 function, generated from its SSA form.
+    fn thumb_c(&self, index: usize, name: &str) -> Option<Vec<PseudoLine>> {
+        let f = &self.analysis.as_ref()?.functions[index];
+        let blocks = self.thumb_blocks(index)?;
+        let s = crate::ssa::thumb::build(f.address, &blocks);
+        let lookup = |a: u64| self.name_at(a);
+        let o = crate::ssa::COptions {
+            name,
+            entry: f.address,
+            returns: crate::ssa::thumb::returns_value(&blocks),
+            args: crate::ssa::thumb::ARGS.to_vec(),
+            names: &lookup,
+        };
+        Some(s.to_c(&o))
+    }
+
+    /// C text for an ARM-family function whose lifter exists (AArch64, Thumb-2).
+    fn arm_c(&self, index: usize, name: &str) -> Option<Vec<PseudoLine>> {
+        if self.info.arch == Arch::Thumb {
+            self.thumb_c(index, name)
+        } else {
+            self.a64_c(index, name)
+        }
+    }
+
     /// C text for an AArch64 function, generated from its SSA form.
     fn a64_c(&self, index: usize, name: &str) -> Option<Vec<PseudoLine>> {
         let f = &self.analysis.as_ref()?.functions[index];
@@ -505,12 +558,24 @@ impl Binary {
             let s = crate::ssa::a64::build(f.address, &blocks);
             return Some(ssa_page(f.address, name, &s));
         }
+        if self.info.arch == Arch::Thumb {
+            let Some(blocks) = self.thumb_blocks(index) else {
+                return Some(Pseudocode {
+                    address: f.address,
+                    name,
+                    lines: Vec::new(),
+                    note: Some("This function is ARM code or big-endian; SSA form is available for Thumb-2 only.".into()),
+                });
+            };
+            let s = crate::ssa::thumb::build(f.address, &blocks);
+            return Some(ssa_page(f.address, name, &s));
+        }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             return Some(Pseudocode {
                 address: f.address,
                 name,
                 lines: Vec::new(),
-                note: Some("SSA form is available for x86, x86-64 and AArch64 code.".into()),
+                note: Some("SSA form is available for x86, x86-64, AArch64 and Thumb-2 code.".into()),
             });
         }
         let bits = if self.info.arch == Arch::X86 { 32 } else { 64 };
@@ -551,6 +616,17 @@ impl Binary {
         if self.info.arch == Arch::Arm64 {
             let lines = self.a64_c(index, &name)?;
             return Some(Pseudocode { address: f.address, name, lines, note: None });
+        }
+        if self.info.arch == Arch::Thumb {
+            return Some(match self.thumb_c(index, &name) {
+                Some(lines) => Pseudocode { address: f.address, name, lines, note: None },
+                None => Pseudocode {
+                    address: f.address,
+                    name,
+                    lines: Vec::new(),
+                    note: Some("This function is ARM code or big-endian; pseudocode is available for Thumb-2 only.".into()),
+                },
+            });
         }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {
             return Some(Pseudocode {
@@ -614,8 +690,15 @@ impl Binary {
         let f_addr = f.address;
         let name = self.function_name(f);
         // AArch64: the C text comes from the SSA form (the line lifter below is x86 only).
-        if self.info.arch == Arch::Arm64 {
-            let mut lines = self.a64_c(idx, &name)?;
+        if matches!(self.info.arch, Arch::Arm64 | Arch::Thumb) {
+            let Some(mut lines) = self.arm_c(idx, &name) else {
+                return Some(Pseudocode {
+                    address: f_addr,
+                    name,
+                    lines: Vec::new(),
+                    note: Some("This function is ARM code or big-endian; pseudocode is available for Thumb-2 only.".into()),
+                });
+            };
             // Types set with `Y` rewrite the signature, the declarations and member access, the
             // same way as on x86. A prototype the user set supplies the parameter types too, and
             // types flow across calls as on x86: a caller that passes its typed `a1` gives the callee
@@ -688,7 +771,10 @@ impl Binary {
                 address: f_addr,
                 name,
                 lines,
-                note: Some("AArch64, generated from the SSA form (experimental). Check it against the listing.".into()),
+                note: Some(format!(
+                    "{}, generated from the SSA form (experimental). Check it against the listing.",
+                    if self.info.arch == Arch::Thumb { "Thumb-2" } else { "AArch64" }
+                )),
             });
         }
         if !matches!(self.info.arch, Arch::X86 | Arch::X86_64) {

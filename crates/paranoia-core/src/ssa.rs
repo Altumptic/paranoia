@@ -23,6 +23,7 @@ use crate::model::Edge;
 
 pub(crate) mod a64;
 mod c;
+pub(crate) mod thumb;
 pub(crate) use c::COptions;
 
 /// A register family (`rax` … `r15`), numbered 0..16.
@@ -50,6 +51,8 @@ const A64_NAMES: [&str; 32] = [
     "x0", "x1", "x2", "x3", "sp", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x18", "x19",
     "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "x4",
 ];
+/// Thumb-2 numbering, on the same scheme: `r0` is 0, `sp` is 4 and `r4` takes 31.
+const THUMB_NAMES: [&str; 16] = ["r0", "r1", "r2", "r3", "sp", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13", "lr", "pc"];
 /// The stack pointer's variable on every ISA.
 const RSP: Var = 4;
 /// Variables per function (the largest register file: AArch64's 31 + sp).
@@ -60,6 +63,7 @@ const VARS: usize = 32;
 pub(crate) enum Isa {
     X86,
     A64,
+    Thumb,
 }
 
 /// How variables are spelled for one function.
@@ -73,6 +77,9 @@ impl Names {
     fn get(self, v: Var) -> &'static str {
         match self.isa {
             Isa::A64 => A64_NAMES.get(v as usize).copied().unwrap_or("x?"),
+            // `r4` is variable 31 (see above); `r13` (sp) is variable 4, so slot 13 is unused.
+            Isa::Thumb if v == 31 => "r4",
+            Isa::Thumb => THUMB_NAMES.get(v as usize).copied().unwrap_or("r?"),
             Isa::X86 if self.bits == 32 && (v as usize) < 8 => NAMES32[v as usize],
             Isa::X86 => NAMES64.get(v as usize).copied().unwrap_or("r?"),
         }

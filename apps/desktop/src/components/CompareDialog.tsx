@@ -62,7 +62,7 @@ function lineDiff(a: PseudoLine[], b: PseudoLine[]): [boolean[], boolean[]] {
 }
 
 function Code({ code, marks, side }: { code: Pseudocode | null; marks: boolean[]; side: "a" | "b" }) {
-  if (!code) return <div className="muted small cmp-empty">No pseudocode for this function (pseudocode exists for x86, x64 and AArch64).</div>;
+  if (!code) return <div className="muted small cmp-empty">No pseudocode for this function (pseudocode exists for x86, x64, AArch64 and Thumb-2).</div>;
   return (
     <div className="cmp-code mono">
       {code.lines.map((l, i) => (
