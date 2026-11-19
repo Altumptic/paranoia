@@ -888,6 +888,44 @@ mod tests {
         assert!(b.load_svd(b"<html/>").unwrap_err().contains("not an SVD"));
     }
 
+    /// A Cortex-M image knows the core's own registers and the architecture's memory map without any file;
+    /// SVD bit fields and the user's own regions come on top.
+    #[test]
+    fn cortex_m_images_know_the_system_map_regions_and_bit_fields() {
+        let base = 0x0800_0000u32;
+        let mut b =
+            crate::Binary::load_raw("fw.bin", cortex_image(base, 0x400), &RawOptions::for_arch("thumb", base as u64).unwrap()).unwrap();
+        assert_eq!(b.mmio_name(0xe000_ed08).as_deref(), Some("SCB_VTOR"));
+        assert_eq!(b.mmio_name(0xe000_e010).as_deref(), Some("SysTick_CTRL"));
+        assert_eq!(b.mmio_name(0xe000_e104).as_deref(), Some("NVIC_ISER1"));
+        let ctrl = b.register_info(0xe000_e010).unwrap();
+        assert_eq!(
+            ctrl.fields.iter().map(|f| (f.name.as_str(), f.lsb)).collect::<Vec<_>>(),
+            vec![("ENABLE", 0), ("TICKINT", 1), ("CLKSOURCE", 2), ("COUNTFLAG", 16)]
+        );
+        // The architecture's map names addresses; the user's regions win over it, smallest first.
+        assert_eq!(b.region_at(0x2000_0010).map(|r| r.name.as_str()), Some("SRAM"));
+        assert_eq!(b.region_at(0x4002_0014).map(|r| r.name.as_str()), Some("Peripheral"));
+        b.set_region("CCM RAM", 0x1000_0000, 0x1_0000, "ram").unwrap();
+        b.set_region("Main SRAM", 0x2000_0000, 0x2_0000, "ram").unwrap();
+        assert_eq!(b.region_at(0x2000_0010).map(|r| r.name.as_str()), Some("Main SRAM"));
+        assert_eq!(b.region_at(0x1000_0004).map(|r| r.name.as_str()), Some("CCM RAM"));
+        assert_eq!(b.region_at(0x2002_0000).map(|r| r.name.as_str()), Some("SRAM"), "past the user's region, the map answers");
+        let info = b.address_info(0xe000_ed04);
+        assert_eq!((info.region.as_deref(), info.name.as_deref()), (Some("Private peripheral bus"), Some("SCB_ICSR")));
+        assert!(info.register.unwrap().fields.iter().any(|f| f.name == "PENDSVSET"));
+        // Regions are saved with the annotations and can be removed; bad ones are refused.
+        assert_eq!(b.annotations().regions.len(), 2);
+        b.remove_region(0x1000_0000);
+        assert_eq!(b.annotations().regions.len(), 1);
+        assert!(b.set_region("", 0, 4, "ram").is_err());
+        assert!(b.set_region("x", 0, 0, "ram").is_err());
+        assert!(b.set_region("x", u64::MAX, 2, "ram").is_err());
+        // A plain image that is not Cortex-M has no built-in map.
+        let plain = crate::Binary::load_raw("raw.bin", vec![0x90; 64], &RawOptions::for_arch("x86", 0x1000).unwrap()).unwrap();
+        assert!(plain.region_at(0x2000_0000).is_none() && plain.mmio_name(0xe000_ed08).is_none());
+    }
+
     #[test]
     fn architecture_names() {
         assert_eq!(parse_arch("AArch64"), Some((Arch::Arm64, 64)));

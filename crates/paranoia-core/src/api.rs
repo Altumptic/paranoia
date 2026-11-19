@@ -45,6 +45,17 @@ struct Rename {
 }
 
 #[derive(Deserialize)]
+struct RegionArgs {
+    #[serde(default)]
+    name: String,
+    start: u64,
+    #[serde(default)]
+    size: u64,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct SvdArgs {
     hex: String,
 }
@@ -249,6 +260,18 @@ impl Session {
                 let a: VarType = args(args_v)?;
                 b.checkpoint();
                 b.set_var_name(a.va, &a.var, &a.ty)?;
+                Ok(Value::Null)
+            }
+            "setRegion" => {
+                let a: RegionArgs = args(args_v)?;
+                b.checkpoint();
+                b.set_region(&a.name, a.start, a.size, a.kind.as_deref().unwrap_or("other"))?;
+                Ok(Value::Null)
+            }
+            "removeRegion" => {
+                let a: RegionArgs = args(args_v)?;
+                b.checkpoint();
+                b.remove_region(a.start);
                 Ok(Value::Null)
             }
             "setPrototype" => {

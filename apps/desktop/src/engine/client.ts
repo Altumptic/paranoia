@@ -397,6 +397,9 @@ export class Session {
   debugTypeCounts = () => this.c<[number, number]>("debugTypeCounts");
   setTypes = (text: string) => this.c<number>("setTypes", { text });
   applyStruct = (va: number, name: string, count = 1) => this.c<null>("applyStruct", { va, name, count });
+  /** Names an address range (RAM, a flash bank, a peripheral block). `kind`: ram, flash, rom, peripheral or other. */
+  setRegion = (name: string, start: number, size: number, kind: string) => this.c<null>("setRegion", { name, start, size, kind });
+  removeRegion = (start: number) => this.c<null>("removeRegion", { start });
   /** Sets the prototype of the function at `va` from C text (`int __stdcall f(char *s, DWORD n)`); empty removes it. Rejects with the reason when the text is not a prototype. */
   setPrototype = (va: number, text: string) => this.c<null>("setPrototype", { va, text });
   /** Types a pseudocode variable (IDA's `Y`): `va` is the function address, `ty` like `MY_STRUCT *` (empty resets). */

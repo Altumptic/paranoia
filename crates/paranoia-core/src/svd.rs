@@ -5,7 +5,7 @@
 //! register with its offset. Loading one lets the listing say `GPIOA_ODR` where the code uses `0x40020014`.
 //!
 //! This reads the part of the format that carries names and addresses: peripherals (with `derivedFrom`),
-//! registers, clusters and `dim` arrays. Fields, enumerated values and interrupts are skipped. The XML reader is
+//! registers, clusters and `dim` arrays, and each register's bit fields. Enumerated values and interrupts are skipped. The XML reader is
 //! small and deliberately strict about size and nesting, since SVD files come from vendors' web pages.
 
 use std::collections::BTreeMap;
@@ -16,8 +16,18 @@ const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 2_000_000;
 const MAX_REGISTERS: usize = 500_000;
 
+/// A bit field of a register.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Field {
+    pub name: String,
+    /// Lowest bit.
+    pub lsb: u32,
+    pub width: u32,
+    pub description: String,
+}
+
 /// A memory-mapped register.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Register {
     /// `GPIOA_ODR`: the peripheral's name and the register's.
     pub name: String,
@@ -25,6 +35,7 @@ pub struct Register {
     /// Width in bits (32 when the file does not say).
     pub bits: u32,
     pub description: String,
+    pub fields: Vec<Field>,
 }
 
 /// A peripheral and where it lives.
@@ -42,6 +53,114 @@ pub struct Svd {
     pub device: String,
     pub peripherals: Vec<Peripheral>,
     pub registers: Vec<Register>,
+}
+
+/// The registers every Cortex-M core has at fixed addresses (SysTick, NVIC, System Control Block, DWT, debug),
+/// named as in the ARMv7-M reference manual. Vendors' SVD files usually leave these out.
+pub fn cortex_m_system() -> Svd {
+    let reg = |name: &str, address: u64, description: &str, fields: &[(&str, u32, u32)]| Register {
+        name: name.to_string(),
+        address,
+        bits: 32,
+        description: description.to_string(),
+        fields: fields.iter().map(|(n, l, w)| Field { name: n.to_string(), lsb: *l, width: *w, description: String::new() }).collect(),
+    };
+    let mut r = vec![
+        reg(
+            "SysTick_CTRL",
+            0xe000_e010,
+            "SysTick control and status",
+            &[("ENABLE", 0, 1), ("TICKINT", 1, 1), ("CLKSOURCE", 2, 1), ("COUNTFLAG", 16, 1)],
+        ),
+        reg("SysTick_LOAD", 0xe000_e014, "SysTick reload value", &[("RELOAD", 0, 24)]),
+        reg("SysTick_VAL", 0xe000_e018, "SysTick current value", &[("CURRENT", 0, 24)]),
+        reg("SysTick_CALIB", 0xe000_e01c, "SysTick calibration value", &[("TENMS", 0, 24), ("SKEW", 30, 1), ("NOREF", 31, 1)]),
+        reg(
+            "SCB_CPUID",
+            0xe000_ed00,
+            "CPUID base",
+            &[("REVISION", 0, 4), ("PARTNO", 4, 12), ("ARCHITECTURE", 16, 4), ("VARIANT", 20, 4), ("IMPLEMENTER", 24, 8)],
+        ),
+        reg(
+            "SCB_ICSR",
+            0xe000_ed04,
+            "Interrupt control and state",
+            &[
+                ("VECTACTIVE", 0, 9),
+                ("RETTOBASE", 11, 1),
+                ("VECTPENDING", 12, 9),
+                ("PENDSTSET", 26, 1),
+                ("PENDSVSET", 28, 1),
+                ("NMIPENDSET", 31, 1),
+            ],
+        ),
+        reg("SCB_VTOR", 0xe000_ed08, "Vector table offset", &[("TBLOFF", 7, 25)]),
+        reg(
+            "SCB_AIRCR",
+            0xe000_ed0c,
+            "Application interrupt and reset control",
+            &[("VECTRESET", 0, 1), ("SYSRESETREQ", 2, 1), ("PRIGROUP", 8, 3), ("VECTKEY", 16, 16)],
+        ),
+        reg("SCB_SCR", 0xe000_ed10, "System control", &[("SLEEPONEXIT", 1, 1), ("SLEEPDEEP", 2, 1), ("SEVONPEND", 4, 1)]),
+        reg(
+            "SCB_CCR",
+            0xe000_ed14,
+            "Configuration and control",
+            &[("NONBASETHRDENA", 0, 1), ("USERSETMPEND", 1, 1), ("UNALIGN_TRP", 3, 1), ("DIV_0_TRP", 4, 1), ("STKALIGN", 9, 1)],
+        ),
+        reg("SCB_SHPR1", 0xe000_ed18, "System handler priority 1 (MemManage, BusFault, UsageFault)", &[]),
+        reg("SCB_SHPR2", 0xe000_ed1c, "System handler priority 2 (SVCall)", &[]),
+        reg("SCB_SHPR3", 0xe000_ed20, "System handler priority 3 (PendSV, SysTick)", &[]),
+        reg(
+            "SCB_SHCSR",
+            0xe000_ed24,
+            "System handler control and state",
+            &[("MEMFAULTENA", 16, 1), ("BUSFAULTENA", 17, 1), ("USGFAULTENA", 18, 1)],
+        ),
+        reg("SCB_CFSR", 0xe000_ed28, "Configurable fault status", &[]),
+        reg("SCB_HFSR", 0xe000_ed2c, "HardFault status", &[("VECTTBL", 1, 1), ("FORCED", 30, 1), ("DEBUGEVT", 31, 1)]),
+        reg("SCB_DFSR", 0xe000_ed30, "Debug fault status", &[]),
+        reg("SCB_MMFAR", 0xe000_ed34, "MemManage fault address", &[]),
+        reg("SCB_BFAR", 0xe000_ed38, "BusFault address", &[]),
+        reg("SCB_CPACR", 0xe000_ed88, "Coprocessor access control", &[("CP10", 20, 2), ("CP11", 22, 2)]),
+        reg("STIR", 0xe000_ef00, "Software trigger interrupt", &[("INTID", 0, 9)]),
+        reg("DWT_CTRL", 0xe000_1000, "DWT control", &[("CYCCNTENA", 0, 1)]),
+        reg("DWT_CYCCNT", 0xe000_1004, "DWT cycle counter", &[]),
+        reg(
+            "CoreDebug_DHCSR",
+            0xe000_edf0,
+            "Debug halting control and status",
+            &[("C_DEBUGEN", 0, 1), ("C_HALT", 1, 1), ("C_STEP", 2, 1), ("S_HALT", 17, 1)],
+        ),
+        reg(
+            "CoreDebug_DEMCR",
+            0xe000_edfc,
+            "Debug exception and monitor control",
+            &[("VC_CORERESET", 0, 1), ("MON_EN", 16, 1), ("TRCENA", 24, 1)],
+        ),
+    ];
+    for n in 0..8u64 {
+        r.push(reg(&format!("NVIC_ISER{n}"), 0xe000_e100 + 4 * n, "Interrupt set-enable", &[]));
+        r.push(reg(&format!("NVIC_ICER{n}"), 0xe000_e180 + 4 * n, "Interrupt clear-enable", &[]));
+        r.push(reg(&format!("NVIC_ISPR{n}"), 0xe000_e200 + 4 * n, "Interrupt set-pending", &[]));
+        r.push(reg(&format!("NVIC_ICPR{n}"), 0xe000_e280 + 4 * n, "Interrupt clear-pending", &[]));
+        r.push(reg(&format!("NVIC_IABR{n}"), 0xe000_e300 + 4 * n, "Interrupt active bit", &[]));
+    }
+    for n in 0..60u64 {
+        r.push(reg(&format!("NVIC_IPR{n}"), 0xe000_e400 + 4 * n, "Interrupt priority", &[]));
+    }
+    r.sort_by_key(|x| x.address);
+    Svd {
+        device: "Cortex-M system".into(),
+        peripherals: vec![
+            Peripheral { name: "SysTick".into(), base: 0xe000_e010, size: 0x10, description: "System timer".into() },
+            Peripheral { name: "NVIC".into(), base: 0xe000_e100, size: 0xf00, description: "Nested vectored interrupt controller".into() },
+            Peripheral { name: "SCB".into(), base: 0xe000_ed00, size: 0x90, description: "System control block".into() },
+            Peripheral { name: "DWT".into(), base: 0xe000_1000, size: 0x100, description: "Data watchpoint and trace".into() },
+            Peripheral { name: "CoreDebug".into(), base: 0xe000_edf0, size: 0x10, description: "Core debug registers".into() },
+        ],
+        registers: r,
+    }
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -223,8 +342,33 @@ fn dim_names(node: &Node, name: &str) -> Result<Vec<(String, u64)>, String> {
         .collect())
 }
 
-/// A register relative to its peripheral: name without the peripheral prefix, offset, width, description.
-type RelRegister = (String, u64, u32, String);
+/// A register relative to its peripheral: name without the peripheral prefix, offset, width, description, fields.
+type RelRegister = (String, u64, u32, String, Vec<Field>);
+
+/// The bit fields of a register element: `bitOffset` + `bitWidth`, `lsb` + `msb`, or `bitRange` `[msb:lsb]`.
+fn fields_of(reg: &Node) -> Vec<Field> {
+    let Some(list) = reg.child("fields") else { return Vec::new() };
+    let mut out = Vec::new();
+    for f in list.children.iter().filter(|c| c.tag == "field") {
+        let Some(name) = f.text_of("name") else { continue };
+        let range = f.text_of("bitRange").and_then(|r| {
+            let (msb, lsb) = r.trim().trim_start_matches('[').trim_end_matches(']').split_once(':')?;
+            Some((lsb.trim().parse::<u32>().ok()?, msb.trim().parse::<u32>().ok()?))
+        });
+        let (lsb, width) = if let Some((lsb, msb)) = range {
+            (lsb, msb.saturating_sub(lsb) + 1)
+        } else if let (Some(lsb), Some(msb)) = (f.text_of("lsb").and_then(number), f.text_of("msb").and_then(number)) {
+            (lsb as u32, (msb as u32).saturating_sub(lsb as u32) + 1)
+        } else {
+            (f.text_of("bitOffset").and_then(number).unwrap_or(0) as u32, f.text_of("bitWidth").and_then(number).unwrap_or(1) as u32)
+        };
+        if width == 0 || width > 64 || lsb > 63 || out.len() >= 128 {
+            continue;
+        }
+        out.push(Field { name: name.to_string(), lsb, width, description: f.text_of("description").unwrap_or("").to_string() });
+    }
+    out
+}
 
 struct Ctx {
     registers: Vec<Register>,
@@ -251,6 +395,7 @@ fn walk(node: &Node, prefix: &str, base: u64, default_bits: u32, ctx: &mut Ctx) 
                     address: at,
                     bits,
                     description: c.text_of("description").unwrap_or("").to_string(),
+                    fields: fields_of(c),
                 });
             } else {
                 walk(c, &format!("{prefix}_{n}"), at, bits, ctx)?;
@@ -299,7 +444,7 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
                 let rel = ctx
                     .registers
                     .iter()
-                    .map(|r| (r.name[n.len() + 1..].to_string(), r.address - at, r.bits, r.description.clone()))
+                    .map(|r| (r.name[n.len() + 1..].to_string(), r.address - at, r.bits, r.description.clone(), r.fields.clone()))
                     .collect();
                 own.insert(n.clone(), (at, rel));
             }
@@ -315,12 +460,18 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
             continue;
         }
         let Some((_, regs)) = own.get(from) else { continue };
-        for (rname, rel, bits, desc) in regs {
-            svd.registers.push(Register { name: format!("{name}_{rname}"), address: base + rel, bits: *bits, description: desc.clone() });
+        for (rname, rel, bits, desc, fields) in regs {
+            svd.registers.push(Register {
+                name: format!("{name}_{rname}"),
+                address: base + rel,
+                bits: *bits,
+                description: desc.clone(),
+                fields: fields.clone(),
+            });
         }
         // A derived peripheral is as big as the one it copies.
         if let Some(per) = svd.peripherals.iter_mut().find(|q| q.name == name) {
-            per.size = per.size.max(regs.iter().map(|(_, rel, bits, _)| rel + (*bits as u64).div_ceil(8)).max().unwrap_or(0));
+            per.size = per.size.max(regs.iter().map(|(_, rel, bits, _, _)| rel + (*bits as u64).div_ceil(8)).max().unwrap_or(0));
         }
     }
     if svd.peripherals.is_empty() {
@@ -348,7 +499,12 @@ mod tests {
       <addressBlock><offset>0</offset><size>0x400</size><usage>registers</usage></addressBlock>
       <registers>
         <register><name>MODER</name><addressOffset>0x0</addressOffset><description>mode</description></register>
-        <register><name>ODR</name><addressOffset>0x14</addressOffset></register>
+        <register><name>ODR</name><addressOffset>0x14</addressOffset>
+          <fields>
+            <field><name>OD0</name><description>Port output data 0</description><bitOffset>0</bitOffset><bitWidth>1</bitWidth></field>
+            <field><name>OD1</name><lsb>1</lsb><msb>1</msb></field>
+            <field><name>HI</name><bitRange>[15:8]</bitRange></field>
+          </fields></register>
         <register><name>AFR[%s]</name><dim>2</dim><dimIncrement>4</dimIncrement><dimIndex>L,H</dimIndex><addressOffset>0x20</addressOffset></register>
       </registers>
     </peripheral>
@@ -384,6 +540,14 @@ mod tests {
         assert_eq!(s.peripherals[0].description, "General-purpose I/O & alternate functions");
         assert_eq!(s.peripherals[0].size, 0x400);
         assert_eq!(at(&s, 0x4002_0014), vec!["GPIOA_ODR"]);
+        // Bit fields in all three spellings, carried to the derived peripheral too.
+        let odr = s.registers.iter().find(|r| r.name == "GPIOA_ODR").unwrap();
+        assert_eq!(
+            odr.fields.iter().map(|f| (f.name.as_str(), f.lsb, f.width)).collect::<Vec<_>>(),
+            vec![("OD0", 0, 1), ("OD1", 1, 1), ("HI", 8, 8)]
+        );
+        assert_eq!(odr.fields[0].description, "Port output data 0");
+        assert_eq!(s.registers.iter().find(|r| r.name == "GPIOB_ODR").unwrap().fields.len(), 3);
         // dimIndex list.
         assert_eq!(at(&s, 0x4002_0020), vec!["GPIOA_AFRL"]);
         assert_eq!(at(&s, 0x4002_0024), vec!["GPIOA_AFRH"]);

@@ -50,7 +50,7 @@ mod sigs;
 mod ssa;
 pub use sigs::SigReport;
 mod strings;
-mod svd;
+pub mod svd;
 mod switch;
 mod tools;
 mod types;
@@ -138,6 +138,18 @@ pub struct Annotations {
     /// address: the pseudocode signature, parameter names and types follow them.
     #[serde(default)]
     pub protos: BTreeMap<u64, String>,
+    /// Named address ranges (RAM, flash banks, peripheral blocks) set by the user.
+    #[serde(default)]
+    pub regions: Vec<MemoryRegion>,
+}
+
+/// A named range of addresses: `kind` is `ram`, `flash`, `rom`, `peripheral` or `other`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryRegion {
+    pub name: String,
+    pub start: u64,
+    pub size: u64,
+    pub kind: String,
 }
 
 #[derive(Default)]
@@ -177,8 +189,12 @@ pub struct Binary {
     raw_names: HashMap<u64, String>,
     /// Functions whose PDB module is a Microsoft runtime library object.
     pdb_library: BTreeSet<u64>,
+    /// Registers from a loaded SVD file (or the Cortex-M system map), by address (see `svd`).
+    svd_registers: HashMap<u64, svd::Register>,
     /// Register names from a loaded SVD file, by address (see `svd`).
     svd_names: HashMap<u64, String>,
+    /// Memory regions every Cortex-M part has (code, SRAM, peripherals, …); the user's own are in the annotations.
+    builtin_regions: Vec<MemoryRegion>,
     /// Peripherals from a loaded SVD file: `(start, end, name)`, sorted by start.
     svd_ranges: Vec<(u64, u64, String)>,
     /// Built-in signature matches (recomputed by every analysis).
@@ -229,7 +245,12 @@ impl Binary {
             None => ("Raw image", firmware::plain(&bytes, opts.base).map_err(&raw)?, None),
         };
         let built = firmware::build(kind, segments, entry, opts).map_err(raw)?;
-        Self::from_loaded(file_name, built.data, Format::Raw, built.loaded)
+        let cortex_m = built.loaded.kind.contains("Cortex-M");
+        let mut bin = Self::from_loaded(file_name, built.data, Format::Raw, built.loaded)?;
+        if cortex_m {
+            bin.add_cortex_m_system();
+        }
+        Ok(bin)
     }
 
     fn from_loaded(file_name: &str, bytes: Vec<u8>, format: Format, mut loaded: loader::Loaded) -> Result<Self, Error> {
@@ -387,7 +408,9 @@ impl Binary {
             pdb_names: BTreeSet::new(),
             raw_names: HashMap::new(),
             pdb_library: BTreeSet::new(),
+            svd_registers: HashMap::new(),
             svd_names: HashMap::new(),
+            builtin_regions: Vec::new(),
             svd_ranges: Vec::new(),
             lib_names: HashMap::new(),
             undo_stack: Vec::new(),
@@ -865,6 +888,8 @@ impl Binary {
             function_name: f.map(|f| self.function_name(f)),
             executable: self.is_executable(va),
             source: self.source_line(va),
+            region: self.region_at(va).map(|r| r.name.clone()),
+            register: self.register_info(va).cloned(),
         }
     }
 
@@ -1026,10 +1051,15 @@ impl Binary {
     /// reads or writes `0x40020014`. Names the file already has are kept. Not saved with the annotations:
     /// load the file again next time.
     pub fn load_svd(&mut self, bytes: &[u8]) -> Result<SvdReport, String> {
-        let svd = svd::parse(bytes)?;
+        Ok(self.apply_svd(svd::parse(bytes)?))
+    }
+
+    /// Adds a parsed SVD map's names, registers and peripheral ranges.
+    fn apply_svd(&mut self, svd: svd::Svd) -> SvdReport {
         let mut added = 0usize;
         for r in &svd.registers {
             self.svd_names.entry(r.address).or_insert_with(|| r.name.clone());
+            self.svd_registers.entry(r.address).or_insert_with(|| r.clone());
         }
         for p in &svd.peripherals {
             self.svd_names.entry(p.base).or_insert_with(|| p.name.clone());
@@ -1043,7 +1073,63 @@ impl Binary {
                 added += 1;
             }
         }
-        Ok(SvdReport { device: svd.device, peripherals: svd.peripherals.len(), registers: svd.registers.len(), names: added })
+        SvdReport { device: svd.device, peripherals: svd.peripherals.len(), registers: svd.registers.len(), names: added }
+    }
+
+    /// What a Cortex-M image gets without any file: the core's own registers (SysTick, NVIC, SCB, DWT, debug)
+    /// and the architecture's memory map. Called by `load_raw` when the image has a Cortex-M vector table.
+    pub(crate) fn add_cortex_m_system(&mut self) {
+        self.apply_svd(svd::cortex_m_system());
+        let region = |name: &str, start: u64, end: u64, kind: &str| MemoryRegion {
+            name: name.into(),
+            start,
+            size: end - start + 1,
+            kind: kind.into(),
+        };
+        self.builtin_regions = vec![
+            region("Code", 0, 0x1fff_ffff, "flash"),
+            region("SRAM", 0x2000_0000, 0x3fff_ffff, "ram"),
+            region("Peripheral", 0x4000_0000, 0x5fff_ffff, "peripheral"),
+            region("External RAM", 0x6000_0000, 0x9fff_ffff, "ram"),
+            region("External device", 0xa000_0000, 0xdfff_ffff, "peripheral"),
+            region("Private peripheral bus", 0xe000_0000, 0xe00f_ffff, "peripheral"),
+            region("Vendor-specific", 0xe010_0000, 0xffff_ffff, "other"),
+        ];
+    }
+
+    /// The register at `addr` from a loaded SVD file, with its bit fields.
+    pub fn register_info(&self, addr: u64) -> Option<&svd::Register> {
+        self.svd_registers.get(&addr)
+    }
+
+    /// Names a range of addresses (RAM, a flash bank, a peripheral block). Replaces a region that starts at the
+    /// same address. Saved with the annotations.
+    pub fn set_region(&mut self, name: &str, start: u64, size: u64, kind: &str) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() || name.len() > 64 || name.chars().any(|c| c.is_control()) {
+            return Err("a region name is 1 to 64 printable characters".into());
+        }
+        if size == 0 || start.checked_add(size).is_none() {
+            return Err("a region needs a size above zero that does not run past the end of the address space".into());
+        }
+        let kind = if matches!(kind, "ram" | "flash" | "peripheral" | "rom" | "other") { kind } else { "other" };
+        self.annotations.regions.retain(|r| r.start != start);
+        self.annotations.regions.push(MemoryRegion { name: name.into(), start, size, kind: kind.into() });
+        self.annotations.regions.sort_by_key(|r| r.start);
+        Ok(())
+    }
+
+    /// Removes the region that starts at `start`.
+    pub fn remove_region(&mut self, start: u64) {
+        self.annotations.regions.retain(|r| r.start != start);
+    }
+
+    /// The smallest region (yours first, then the architecture's) that contains `va`.
+    pub fn region_at(&self, va: u64) -> Option<&MemoryRegion> {
+        fn find(list: &[MemoryRegion], va: u64) -> Option<&MemoryRegion> {
+            list.iter().filter(|r| va >= r.start && va - r.start < r.size).min_by_key(|r| r.size)
+        }
+        find(&self.annotations.regions, va).or_else(|| find(&self.builtin_regions, va))
     }
 
     /// The SVD name of a memory-mapped address: the register, or `PERIPHERAL+0xOFF` inside a peripheral.
