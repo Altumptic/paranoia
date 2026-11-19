@@ -20,6 +20,16 @@ import { debug } from "./debug";
 import { fromFile, pickFile } from "./files";
 import { useStore } from "./store";
 
+/** The plugin command bound to this key press, if any: `[plugin id, command id]`. */
+function pluginHotkey(e: KeyboardEvent, list: { id: string; commands: { id: string; key?: string | null }[] }[]): [string, string] | null {
+  if (!(e.ctrlKey || e.metaKey || e.altKey) || e.repeat) return null;
+  const k = e.key.toUpperCase();
+  if (!/^([A-Z0-9]|F([1-9]|1[0-2]))$/.test(k)) return null;
+  const combo = [e.ctrlKey || e.metaKey ? "Ctrl" : null, e.altKey ? "Alt" : null, e.shiftKey ? "Shift" : null, k].filter(Boolean).join("+");
+  for (const p of list) for (const c of p.commands) if (c.key === combo) return [p.id, c.id];
+  return null;
+}
+
 export function App() {
   const session = useStore((s) => s.session);
   const loading = useStore((s) => s.loading);
@@ -79,7 +89,7 @@ export function App() {
     const onKey = async (e: KeyboardEvent) => {
       const st = useStore.getState();
       const mod = e.ctrlKey || e.metaKey;
-      const typing = (e.target as HTMLElement)?.closest("input, textarea");
+      const typing = (e.target as HTMLElement)?.closest?.("input, textarea");
       if (mod && e.key.toLowerCase() === "o") {
         e.preventDefault();
         const src = await pickFile();
@@ -90,6 +100,10 @@ export function App() {
       } else if (mod && e.key === "`") {
         e.preventDefault();
         st.set("consoleOpen", !st.consoleOpen);
+      } else if (!typing && !st.dialog && st.session && pluginHotkey(e, st.plugins.list)) {
+        const [pid, cid] = pluginHotkey(e, st.plugins.list)!;
+        e.preventDefault();
+        void st.runPlugin(pid, cid);
       } else if (typing || st.dialog || st.paletteOpen || st.search || st.xrefsFor != null || st.memoryOpen || st.rawOpen || st.batchName || st.compare || !st.session) {
         return;
       } else if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {

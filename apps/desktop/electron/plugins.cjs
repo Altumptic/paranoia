@@ -14,6 +14,28 @@ const MAX_MANIFEST = 32 * 1024;
 const MAX_SOURCE = 256 * 1024;
 const MAX_PLUGINS = 64;
 const MAX_COMMANDS = 32;
+const MAX_HOOKS = 8;
+/** Events a plugin can hook. `open`: a file was opened and analysed. `rename`: a name was changed. */
+const EVENTS = ["open", "rename"];
+/** Keys the app itself uses; a plugin cannot take them. */
+const RESERVED_KEYS = new Set(["Ctrl+O", "Ctrl+K", "Ctrl+P", "Ctrl+Z", "Ctrl+Y", "Ctrl+S", "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+A", "Ctrl+F", "Ctrl+W", "Ctrl+Q", "Ctrl+N", "Ctrl+R", "Ctrl+T", "Ctrl+L", "Ctrl+Shift+Z", "Alt+F4", "F5", "F7", "F8", "F9", "F10", "F11", "F12", "Alt+Q", "Alt+B", "Alt+T", "Alt+I", "Alt+M"]);
+
+/**
+ * A hotkey as written in the manifest, normalised (`ctrl+alt+h` → `Ctrl+Alt+H`), or null when it is not
+ * allowed: it needs Ctrl or Alt (a plain letter would steal typing), a single letter, digit or F-key,
+ * and must not be one the app uses.
+ */
+function normalizeKey(key) {
+  if (typeof key !== "string" || key.length > 24) return null;
+  const parts = key.split("+").map((p) => p.trim());
+  const last = parts.pop();
+  if (!last || !/^([A-Za-z0-9]|F([1-9]|1[0-2]))$/.test(last)) return null;
+  const mods = new Set(parts.map((p) => p.toLowerCase()));
+  if (mods.size !== parts.length || [...mods].some((m) => !["ctrl", "alt", "shift"].includes(m))) return null;
+  if (!mods.has("ctrl") && !mods.has("alt")) return null;
+  const norm = [mods.has("ctrl") ? "Ctrl" : null, mods.has("alt") ? "Alt" : null, mods.has("shift") ? "Shift" : null, last.length === 1 ? last.toUpperCase() : last.toUpperCase()].filter(Boolean).join("+");
+  return RESERVED_KEYS.has(norm) ? null : norm;
+}
 
 const str = (v, max) => (typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null);
 
@@ -49,9 +71,24 @@ function validate(manifest, dirName) {
     const title = str(c.title, 80);
     if (!title) return { ok: false, error: `command ${cid} needs a \`title\`` };
     if (c.run != null && (typeof c.run !== "string" || !IDENT.test(c.run))) return { ok: false, error: `command ${cid}: \`run\` must be a function name` };
-    commands.push({ id: cid, title, run: c.run ?? null });
+    let key = null;
+    if (c.key != null) {
+      key = normalizeKey(c.key);
+      if (!key) return { ok: false, error: `command ${cid}: \`key\` must be Ctrl or Alt plus a letter, digit or F-key, and not one the app uses (${String(c.key).slice(0, 24)})` };
+      if (commands.some((o) => o.key === key)) return { ok: false, error: `command ${cid}: the key ${key} is already used by another command` };
+    }
+    commands.push({ id: cid, title, run: c.run ?? null, key });
   }
-  return { ok: true, plugin: { id, name, version, description: description || "", language, entry, commands } };
+  const hooks = [];
+  if (manifest.hooks != null) {
+    if (!Array.isArray(manifest.hooks) || manifest.hooks.length > MAX_HOOKS) return { ok: false, error: `\`hooks\` needs at most ${MAX_HOOKS} entries` };
+    for (const h of manifest.hooks) {
+      if (!h || typeof h !== "object" || !EVENTS.includes(h.event)) return { ok: false, error: `a hook needs an \`event\`: ${EVENTS.join(" or ")}` };
+      if (h.run != null && (typeof h.run !== "string" || !IDENT.test(h.run))) return { ok: false, error: `hook ${h.event}: \`run\` must be a function name` };
+      hooks.push({ event: h.event, run: h.run ?? null });
+    }
+  }
+  return { ok: true, plugin: { id, name, version, description: description || "", language, entry, commands, hooks } };
 }
 
 /** Reads a plugin's script without following links out of its folder. */
@@ -120,6 +157,19 @@ function invocation(plugin, commandId, code) {
   return plugin.language === "js" ? `${code}\n;await ${cmd.run}();\n` : `${code}\n${cmd.run}()\n`;
 }
 
+/**
+ * The script for an event hook: the entry, an `event` object describing what happened (plain data, as
+ * JSON), and a call of the hook's function if it names one.
+ */
+function hookInvocation(plugin, event, data, code) {
+  const hooks = plugin.hooks.filter((h) => h.event === event);
+  if (hooks.length === 0) throw new Error(`plugin ${plugin.id} does not hook ${event}`);
+  const payload = JSON.stringify(JSON.stringify({ name: event, ...data }));
+  const head = plugin.language === "js" ? `globalThis.event = JSON.parse(${payload});\n` : `import json\nevent = json.loads(${payload})\n`;
+  const calls = hooks.filter((h) => h.run).map((h) => (plugin.language === "js" ? `;await ${h.run}(event);\n` : `${h.run}(event)\n`));
+  return `${head}${code}\n${calls.join("")}`;
+}
+
 /** Trusted fingerprints, remembered across sessions. */
 function readTrust(file) {
   try {
@@ -134,4 +184,4 @@ function writeTrust(file, set) {
   fs.writeFileSync(file, JSON.stringify([...set].slice(-500)), "utf8");
 }
 
-module.exports = { validate, load, scan, invocation, fingerprint, readTrust, writeTrust, MAX_SOURCE };
+module.exports = { validate, load, scan, invocation, hookInvocation, normalizeKey, fingerprint, readTrust, writeTrust, EVENTS, MAX_SOURCE };

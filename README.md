@@ -115,7 +115,7 @@ On macOS, the CLI binary is quarantined too because it isn't notarised; `xattr -
 
 ## Privacy and security
 
-The app makes no network connections on its own. Two things reach the network, and only when you start them: Help → Check for updates (one request to GitHub's release list; nothing is downloaded or installed) and the AI assistant, after you point it at a server. Your names, comments and recent files are stored in the app's data folder — `%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS — and nowhere else. When you ask the assistant, its request and answer are recorded in a hash-chained `assistant-ledger.jsonl` in that folder, and the file's strings and IP-like numbers can be hidden from the request.
+The app makes no network connections on its own. Two things reach the network, and only when you start them: Help → Check for updates (one request to GitHub's release list; nothing is downloaded or installed) and the AI assistant, after you point it at a server. Your names, comments and recent files are stored in the app's data folder (or `PARANOIA_DATA_DIR`, if set) — `%APPDATA%\Paranoia` on Windows, `~/.config/Paranoia` on Linux, `~/Library/Application Support/Paranoia` on macOS — and nowhere else. When you ask the assistant, its request and answer are recorded in a hash-chained `assistant-ledger.jsonl` in that folder, and the file's strings and IP-like numbers can be hidden from the request.
 
 The renderer is sandboxed, the engine runs in its own process and only opens files you chose, and starting the debugger or a Python script asks for confirmation first. The debugger runs the program you're analysing, so use a VM for malware. There has been no independent audit.
 

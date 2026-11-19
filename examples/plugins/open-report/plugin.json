@@ -1,0 +1,13 @@
+{
+  "id": "open-report",
+  "name": "Open report",
+  "version": "1.0.0",
+  "description": "Prints a short report when a file is opened, notes renames, and has a hotkey for the report.",
+  "language": "js",
+  "entry": "main.js",
+  "commands": [{ "id": "report", "title": "Print the report", "run": "report", "key": "Ctrl+Alt+R" }],
+  "hooks": [
+    { "event": "open", "run": "onOpen" },
+    { "event": "rename", "run": "onRename" }
+  ]
+}

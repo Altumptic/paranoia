@@ -177,7 +177,9 @@ export interface PluginInfo {
   description: string;
   language: "js" | "py";
   entry: string;
-  commands: { id: string; title: string; run: string | null }[];
+  commands: { id: string; title: string; run: string | null; /** Hotkey, e.g. "Ctrl+Alt+H". */ key?: string | null }[];
+  /** Scripts run when something happens (`open`, `rename`); only for a version you chose to always run. */
+  hooks?: { event: "open" | "rename"; run: string | null }[];
   hash: string;
   trusted: boolean;
 }
@@ -253,6 +255,8 @@ export interface DesktopBridge {
     folder(): Promise<void>;
     /** Asks the user (native dialog) and returns the script to execute. */
     run(id: string, commandId: string): Promise<{ language: "js" | "py"; name: string; code: string }>;
+    /** The script for an event hook, only for a trusted version of the plugin. */
+    hook(id: string, event: "open" | "rename", data: Record<string, unknown>): Promise<{ language: "js" | "py"; name: string; code: string }>;
   };
   python: {
     status(): Promise<{ available: boolean; version?: string; exe?: string }>;
