@@ -31,6 +31,10 @@ mod debugger;
 #[path = "debugger_linux.rs"]
 mod debugger;
 
+// The GDB remote protocol client works on every platform: it only needs a socket.
+#[path = "debugger_gdb.rs"]
+mod gdb;
+
 use paranoia_core::api::Session;
 use paranoia_core::firmware::RawOptions;
 use paranoia_core::memory::{self, DiffOptions, LearnFrom};
@@ -65,6 +69,8 @@ struct Request {
 }
 
 struct Engine {
+    /// A debug session on a GDB server (gdbserver, QEMU), alongside the local debugger.
+    remote: Option<gdb::Remote>,
     sessions: HashMap<u32, Session>,
     paths: HashMap<u32, String>,
     #[cfg(any(windows, all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
@@ -161,7 +167,20 @@ impl Engine {
                 std::fs::write(&path, s.binary().file_bytes()).map_err(|e| format!("cannot write {path}: {e}"))?;
                 Ok(Value::Null)
             }
-            "debug" => self.debug_op(r.handle, r.method.as_deref().unwrap_or(""), r.args),
+            "debug" => {
+                let method = r.method.clone().unwrap_or_default();
+                match method.as_str() {
+                    "connect" => self.gdb_connect(r.handle, r.args),
+                    // A remote session answers the debugger methods until it ends or a local one starts.
+                    m if m != "start" && self.remote.is_some() => self.remote_op(m, r.args),
+                    m => {
+                        if m == "start" {
+                            self.remote = None;
+                        }
+                        self.debug_op(r.handle, m, r.args)
+                    }
+                }
+            }
             "store" => self.store_op(r.method.as_deref().unwrap_or(""), r.args),
             "diff" => {
                 // Function matching between two open files.
@@ -176,6 +195,62 @@ impl Engine {
             "memory" => self.memory_op(r.handle, r.method.as_deref().unwrap_or(""), r.args),
             "ping" => Ok(json!({ "version": env!("CARGO_PKG_VERSION") })),
             other => Err(format!("unknown op `{other}`")),
+        }
+    }
+
+    /// Connects to a GDB server for the open file's CPU. `args`: `host`, `port`, and optionally `base` (where the
+    /// image is loaded on the target, when that is not its own base address), `breakpoints`, `break_on_entry`.
+    fn gdb_connect(&mut self, handle: Option<u32>, args: Value) -> Result<Value, String> {
+        let h = handle.ok_or("missing handle")?;
+        let s = self.sessions.get(&h).ok_or_else(|| format!("no session {h}"))?;
+        let info = s.binary().info();
+        let host = args.get("host").and_then(Value::as_str).filter(|h| !h.is_empty()).unwrap_or("127.0.0.1").to_string();
+        let port = args
+            .get("port")
+            .and_then(Value::as_u64)
+            .and_then(|p| u16::try_from(p).ok())
+            .filter(|p| *p != 0)
+            .ok_or("missing or invalid port")?;
+        let delta = args.get("base").and_then(Value::as_u64).map_or(0, |b| b as i64 - info.image_base as i64);
+        let size = info.sections.iter().map(|x| x.vaddr + x.vsize).max().unwrap_or(0).saturating_sub(info.image_base);
+        let bps =
+            args.get("breakpoints").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+        self.remote = None;
+        let r = gdb::Remote::connect(gdb::ConnectArgs {
+            host,
+            port,
+            arch: info.arch,
+            delta,
+            image_base: info.image_base,
+            image_size: size,
+            entry: info.entry,
+            breakpoints: bps,
+            break_on_entry: args.get("break_on_entry").and_then(Value::as_bool).unwrap_or(true),
+        })?;
+        self.remote = Some(r);
+        Ok(json!(true))
+    }
+
+    /// The debugger methods against the remote session.
+    fn remote_op(&mut self, method: &str, args: Value) -> Result<Value, String> {
+        let va = args.get("va").and_then(Value::as_u64);
+        match method {
+            "poll" => {
+                Ok(self.remote.as_ref().map_or(json!({ "state": "idle" }), |r| serde_json::to_value(r.snapshot()).unwrap_or(Value::Null)))
+            }
+            "read" => {
+                let len = args.get("len").and_then(Value::as_u64).unwrap_or(256) as usize;
+                let r = self.remote.as_ref().ok_or("no debug session")?;
+                Ok(json!(hex_encode(&r.read(va.ok_or("missing va")?, len)?)))
+            }
+            "end" => {
+                self.remote = None;
+                Ok(Value::Null)
+            }
+            cmd => {
+                self.remote.as_ref().ok_or("no debug session")?.command(cmd, va)?;
+                Ok(Value::Null)
+            }
         }
     }
 
@@ -339,6 +414,7 @@ fn main() {
         paths: HashMap::new(),
         #[cfg(any(windows, all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
         debugger: None,
+        remote: None,
         next: 0,
         store,
         memory_path,
