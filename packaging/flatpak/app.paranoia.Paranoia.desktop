@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Paranoia
+GenericName=Reverse-engineering tool
+Comment=Local-first disassembler and decompiler for PE, ELF, Mach-O and firmware
+Exec=paranoia %f
+Icon=app.paranoia.Paranoia
+Terminal=false
+Categories=Development;Debugger;
+MimeType=application/x-dosexec;application/x-executable;application/x-sharedlib;application/x-pie-executable;
+StartupWMClass=Paranoia
