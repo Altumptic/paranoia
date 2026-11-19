@@ -42,7 +42,7 @@ When two things compete, they're done in this order:
 | Auto names, demangling | ✅ | IDA-style names; MSVC, Itanium and Rust demangling |
 | Search | ✅ | Bytes, text, immediates |
 | Hex view, patching, assembler | ✅ | NOP/invert/force-jump on x86 and AArch64; an x86 assembler for anything else |
-| Pseudocode, x86/x64 | 🟡 | Typed variables, API constants, loops and `switch`, struct member access, types across calls. An SSA view and a second C view built from it (C·SSA) |
+| Pseudocode, x86/x64 | 🟡 | Typed variables, API constants, loops and `switch`, struct member access, types across calls. An SSA view and a second C view built from it (C·SSA: `if`/`else`, loops, `switch` as `goto` cases; fewer types) |
 | Pseudocode, Thumb-2 | 🟡 | Experimental, same engine as AArch64 (AAPCS: `r0`–`r3`). `it` blocks are kept as text with their condition. Synthetic tests only |
 | Pseudocode, AArch64 | 🟡 | Experimental, built from the SSA form. Types come from the prototypes of called libc and WinAPI functions and from the types you set (`Y`: signature, declaration, `->field`); they do not follow calls yet |
 | Operand display (`H` `R` `B` `M`) | ✅ | Windows and POSIX enums applied to API arguments |
@@ -95,8 +95,8 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Variable types you set (`Y`) apply to AArch64 pseudocode, travel with function memory, and flow from caller to callee across calls
 - [x] More prototypes: 146 for POSIX/bionic, Objective-C runtime, libdispatch, Core Foundation, Mach, Security, IOKit, dyld and Android (log, properties, assets, native window, JNI entry points)
 - [ ] A corpus of clang and Rust arm64 binaries on CI
-- [x] C·SSA recovers `else` (nested too), `while`, `do … while` and `for`; well-formedness is checked on 392 real functions (90 of them have an `else`)
-- [ ] C·SSA `switch` from jump tables, then make C·SSA the default on x86/x64
+- [x] C·SSA recovers `else` (nested too), `while`, `do … while` and `for`, and writes a jump table as `switch (index) { case N: goto …; }`; well-formedness (balanced braces, every `goto` has its label, no unused label) is checked on 3 393 real functions from three files (763 have an `else`), and all 31 functions whose jump table the line-based pseudocode finds get a `switch` in C·SSA too
+- [ ] Make C·SSA the default on x86/x64: it still lacks what the line-based view has (variable types you set, struct member access, API constants, bodies inside `case`s instead of `goto`s), so it stays the second view
 
 ### 0.11: Linux and macOS packaging
 

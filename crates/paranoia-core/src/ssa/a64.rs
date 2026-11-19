@@ -484,7 +484,8 @@ mod tests {
 
     fn c_text(f: &SsaFunction, returns: bool) -> String {
         let names = |_: u64| None;
-        let o = super::super::COptions { name: "f", entry: 0x1000, returns, args: ARGS.to_vec(), names: &names };
+        let o =
+            super::super::COptions { name: "f", entry: 0x1000, returns, args: ARGS.to_vec(), names: &names, switches: Default::default() };
         f.to_c(&o)
             .iter()
             .map(|l| "  ".repeat(l.indent as usize) + &l.tokens.iter().map(|t| t.t.as_str()).collect::<String>())

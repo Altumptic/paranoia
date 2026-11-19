@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use iced_x86::{ConditionCode, Decoder, DecoderOptions, Instruction as Ins, Mnemonic, OpKind, Register};
+use iced_x86::{ConditionCode, Decoder, DecoderOptions, FlowControl, Instruction as Ins, Mnemonic, OpKind, Register};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Arch, Format, StringEncoding, Token, TokenKind};
@@ -513,6 +513,7 @@ impl Binary {
             returns: crate::ssa::thumb::returns_value(&blocks),
             args: crate::ssa::thumb::ARGS.to_vec(),
             names: &lookup,
+            switches: Default::default(),
         };
         Some(s.to_c(&o))
     }
@@ -538,6 +539,7 @@ impl Binary {
             returns: crate::ssa::a64::returns_value(&blocks),
             args: crate::ssa::a64::ARGS.to_vec(),
             names: &lookup,
+            switches: Default::default(),
         };
         Some(s.to_c(&o))
     }
@@ -654,7 +656,8 @@ impl Binary {
             blocks.insert(b.start, (v, b.succs.clone()));
         }
         let args = ssa_args(bits, self.info.format);
-        let s = crate::ssa::build(f.address, &blocks, bits, ssa_volatile(bits, self.info.format), args);
+        let (switches, index) = self.jump_tables(&blocks, bits);
+        let s = crate::ssa::build_switches(f.address, &blocks, bits, ssa_volatile(bits, self.info.format), args, &index);
         let lookup = |a: u64| self.name_at(a);
         let returns = blocks.values().flat_map(|(v, _)| v.iter()).any(|i| i.mnemonic() == Mnemonic::Ret) && writes_rax_before_ret(&blocks);
         let o = crate::ssa::COptions {
@@ -663,9 +666,43 @@ impl Binary {
             returns,
             args: if bits == 64 { args.iter().filter_map(|r| crate::ssa::var_index(*r)).collect() } else { Vec::new() },
             names: &lookup,
+            switches,
         };
         let lines = s.to_c(&o);
         Some(Pseudocode { address: f.address, name, lines, note: None })
+    }
+
+    /// The jump tables of a function: for every block that ends in an indirect jump through a recovered
+    /// table, the targets in table order and the register that indexes the table.
+    fn jump_tables(
+        &self,
+        blocks: &BTreeMap<u64, (Vec<Ins>, Vec<crate::model::Edge>)>,
+        bits: u32,
+    ) -> (HashMap<u64, Vec<u64>>, HashMap<u64, Register>) {
+        let (mut targets, mut index) = (HashMap::new(), HashMap::new());
+        for (start, (insns, _)) in blocks {
+            let Some(jmp) = insns.last().filter(|i| i.mnemonic() == Mnemonic::Jmp && i.flow_control() == FlowControl::IndirectBranch)
+            else {
+                continue;
+            };
+            let Some(sw) = crate::switch::recover(&crate::Source(self), bits, *start, jmp.ip(), jmp.len() as u64) else { continue };
+            // The scaled index of the table load is the switch variable.
+            let Some(idx) = insns
+                .iter()
+                .rev()
+                .find(|i| {
+                    (0..i.op_count()).any(|k| i.op_kind(k) == OpKind::Memory)
+                        && i.memory_index() != Register::None
+                        && i.memory_index_scale() >= 4
+                })
+                .map(|i| i.memory_index().full_register())
+            else {
+                continue;
+            };
+            targets.insert(jmp.ip(), sw.targets);
+            index.insert(jmp.ip(), idx);
+        }
+        (targets, index)
     }
 
     /// The prototype the user set for the function at `va`, parsed.
