@@ -199,6 +199,24 @@ handle("engine:request", async (_e, req) => {
     if (!policy.storeMethodAllowed(req.method)) throw new Error("invalid store request");
     if (req.method === "recent_add" && !policy.recentAddAllowed(req.args, (p) => allowedPaths.has(normPath(p)))) throw new Error("this file was not opened by the user");
   }
+  // Connecting to a GDB server opens the engine's first socket: checked and confirmed here, never by the page.
+  if (req.op === "debug" && req.method === "connect") {
+    const target = policy.gdbTarget(req.args);
+    if (!target) throw new Error("invalid GDB server address");
+    const r = await dialog.showMessageBox(win, {
+      type: target.loopback ? "question" : "warning",
+      title: "Connect to a GDB server",
+      message: target.loopback ? "Connect the debugger to a GDB server on this computer?" : "Connect the debugger to a server on another computer?",
+      detail: policy.gdbDetail(target),
+      buttons: ["Cancel", "Connect"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (r.response !== 1) throw new Error("Connection cancelled");
+    const { loopback, ...clean } = target;
+    req = { op: "debug", method: "connect", handle: req.handle, args: clean };
+  }
   // Starting a debuggee executes it: confirmed here, where the page cannot answer for the user.
   // The dialog names the program and the arguments, which come from the page.
   if (req.op === "debug" && req.method === "start") {
