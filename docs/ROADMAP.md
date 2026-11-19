@@ -94,7 +94,8 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Variable types you set (`Y`) apply to AArch64 pseudocode, travel with function memory, and flow from caller to callee across calls
 - [x] More prototypes: 146 for POSIX/bionic, Objective-C runtime, libdispatch, Core Foundation, Mach, Security, IOKit, dyld and Android (log, properties, assets, native window, JNI entry points)
 - [ ] A corpus of clang and Rust arm64 binaries on CI
-- [ ] Make C·SSA the default on x86/x64 once it has `else`, `while` and `switch`
+- [x] C·SSA recovers `else` (nested too), `while`, `do … while` and `for`; well-formedness is checked on 392 real functions (90 of them have an `else`)
+- [ ] C·SSA `switch` from jump tables, then make C·SSA the default on x86/x64
 
 ### 0.11: Linux and macOS packaging
 

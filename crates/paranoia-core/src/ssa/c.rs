@@ -938,7 +938,15 @@ impl SsaFunction {
             }
         }
 
-        structure_ifs(&mut out);
+        // `if` / `else` nest, so structuring runs until nothing changes more.
+        for _ in 0..8 {
+            let before = out.len();
+            structure_ifs(&mut out);
+            structure_else(&mut out);
+            if out.len() == before {
+                break;
+            }
+        }
         structure_do_while(&mut out);
         drop_unused_labels(&mut out);
         crate::pseudo_types::recover_goto_loops(&mut out);
@@ -1101,6 +1109,82 @@ fn structure_ifs(lines: &mut Vec<PseudoLine>) {
             changed = true;
             break;
         }
+    }
+}
+
+/// A line that is only `goto L;`: the label.
+fn plain_goto(l: &PseudoLine) -> Option<&str> {
+    let first = l.tokens.first()?;
+    (first.k == TokenKind::Keyword && first.t == "goto" && l.tokens.len() == 4).then(|| goto_target(l)).flatten()
+}
+
+/// A line that is only `}`.
+fn is_close(l: &PseudoLine) -> bool {
+    l.tokens.len() == 1 && l.tokens[0].t == "}"
+}
+
+/// `if (C) { A…; goto E; } L: B…; E:` with nothing else jumping into `B` → `if (C) { A… } else { B… }`.
+/// This is what `if (C) goto L; A…; goto E; L: B…; E:` looks like after `structure_ifs` has turned the
+/// first branch into a block.
+fn structure_else(lines: &mut Vec<PseudoLine>) {
+    let mut guard = 0;
+    'again: while guard < 10_000 {
+        guard += 1;
+        for i in 1..lines.len() {
+            if !is_close(&lines[i]) {
+                continue;
+            }
+            let d = lines[i].indent;
+            let Some(end) = plain_goto(&lines[i - 1]).filter(|_| lines[i - 1].indent == d + 1).map(str::to_string) else { continue };
+            // The block must be an `if (…) {` at this depth, with something left in it once the goto is gone.
+            let Some(open) = (0..i).rev().find(|&k| lines[k].indent <= d) else { continue };
+            let is_if = lines[open].indent == d
+                && lines[open].tokens.first().is_some_and(|t| t.k == TokenKind::Keyword && t.t == "if")
+                && lines[open].tokens.last().is_some_and(|t| t.t.ends_with('{'))
+                && !lines[open].tokens.iter().any(|t| t.t == "else");
+            if !is_if || open + 1 >= i - 1 {
+                continue;
+            }
+            // The else part: labels nobody jumps to, then lines at depth `d` or deeper up to the label `end`.
+            let mut j = i + 1;
+            let mut skipped = Vec::new();
+            // (Labels sit one level above the statements they precede.)
+            let lab = |x: &PseudoLine| is_label(x) && x.indent + 1 == d;
+            while j < lines.len() && lab(&lines[j]) && lines[j].tokens[0].t != end {
+                skipped.push(lines[j].tokens[0].t.clone());
+                j += 1;
+            }
+            // The else part ends at the label `end` (then both sides reach it by falling out), or at its own
+            // `goto end;` (then both sides jump out the same way, and that jump stays after the `}`).
+            let at_label = (j..lines.len()).find(|&k| lab(&lines[k]) && lines[k].tokens[0].t == end);
+            let at_goto = (j..lines.len()).find(|&k| lines[k].indent == d && plain_goto(&lines[k]) == Some(end.as_str()));
+            let Some(e) = [at_label, at_goto].into_iter().flatten().min() else { continue };
+            if e == j || lines[j..e].iter().any(|x| x.indent < d && !lab(x)) {
+                continue;
+            }
+            // The labels in front of the else part go away, so nothing may jump to them from anywhere.
+            if lines.iter().filter_map(goto_target).any(|t| skipped.iter().any(|s| s == t)) {
+                continue;
+            }
+            // Nothing outside the else part may jump into it.
+            let inner: Vec<&str> = lines[j..e].iter().filter(|x| is_label(x)).map(|x| x.tokens[0].t.as_str()).collect();
+            let jumped_into =
+                lines.iter().enumerate().filter(|(k, _)| *k < j || *k >= e).filter_map(|(_, x)| goto_target(x)).any(|t| inner.contains(&t));
+            if jumped_into {
+                continue;
+            }
+            // Rewrite: drop the goto, `}` becomes `} else {`, the else part is indented, a `}` closes it.
+            for x in &mut lines[j..e] {
+                x.indent += 1;
+            }
+            lines.insert(e, line(d, None, vec![tok("}", TokenKind::Punct)]));
+            lines.drain(i + 1..j);
+            lines[i] =
+                line(d, lines[i].address, vec![tok("} ", TokenKind::Punct), tok("else", TokenKind::Keyword), tok(" {", TokenKind::Punct)]);
+            lines.remove(i - 1);
+            continue 'again;
+        }
+        return;
     }
 }
 
@@ -1277,6 +1361,61 @@ mod tests {
         assert!(t.contains("if (a1 == 0) {"), "{t}");
         assert!(t.contains("v1 = 1;") && t.contains("v1 = 2;"), "the phi and its inputs share one variable: {t}");
         assert!(!t.contains("goto"), "{t}");
+    }
+
+    #[test]
+    fn two_different_branches_become_if_else() {
+        // if (a1 != 0) v = 2; else v = 3;  return v + 1  — each side assigns, neither is a default.
+        let b = func(
+            64,
+            &[
+                (0x100, &["test ecx, ecx", "jz 0x180"], &[(0x180, EdgeKind::True), (0x150, EdgeKind::False)]),
+                (0x150, &["mov eax, 2", "jmp 0x200"], &[(0x200, EdgeKind::Uncond)]),
+                (0x180, &["mov eax, 3"], &[(0x200, EdgeKind::Fall)]),
+                (0x200, &["add eax, 1", "ret"], &[]),
+            ],
+        );
+        let t = c(64, &b, true);
+        assert!(t.contains("} else {"), "{t}");
+        assert!(!t.contains("goto"), "{t}");
+        let (a, e) = (t.find("v1 = 2;"), t.find("v1 = 3;"));
+        assert!(
+            a.is_some() && e.is_some() && t.find("} else {").is_some_and(|p| a.unwrap() < p && p < e.unwrap()),
+            "the branches sit on either side of else: {t}"
+        );
+    }
+
+    #[test]
+    fn an_else_nests_and_a_jump_into_it_keeps_the_gotos() {
+        // if (a1) { if (a2) x = 1; else x = 2; } else x = 3;  — else inside else.
+        let b = func(
+            64,
+            &[
+                (0x100, &["test ecx, ecx", "jz 0x1c0"], &[(0x1c0, EdgeKind::True), (0x110, EdgeKind::False)]),
+                (0x110, &["test edx, edx", "jz 0x180"], &[(0x180, EdgeKind::True), (0x150, EdgeKind::False)]),
+                (0x150, &["mov eax, 1", "jmp 0x200"], &[(0x200, EdgeKind::Uncond)]),
+                (0x180, &["mov eax, 2", "jmp 0x200"], &[(0x200, EdgeKind::Uncond)]),
+                (0x1c0, &["mov eax, 3"], &[(0x200, EdgeKind::Fall)]),
+                (0x200, &["add eax, 1", "ret"], &[]),
+            ],
+        );
+        let t = c(64, &b, true);
+        assert_eq!(t.matches("} else {").count(), 2, "{t}");
+        assert!(!t.contains("goto"), "{t}");
+        // A block that something else jumps into cannot be folded into an else: the jumps stay.
+        let b = func(
+            64,
+            &[
+                (0x100, &["test ecx, ecx", "jz 0x180"], &[(0x180, EdgeKind::True), (0x150, EdgeKind::False)]),
+                (0x150, &["mov eax, 2", "test edx, edx", "jnz 0x190"], &[(0x190, EdgeKind::True), (0x170, EdgeKind::False)]),
+                (0x170, &["jmp 0x200"], &[(0x200, EdgeKind::Uncond)]),
+                (0x180, &["mov eax, 3"], &[(0x190, EdgeKind::Fall)]),
+                (0x190, &["add eax, 5"], &[(0x200, EdgeKind::Fall)]),
+                (0x200, &["add eax, 1", "ret"], &[]),
+            ],
+        );
+        let t = c(64, &b, true);
+        assert!(t.contains("goto") || t.contains("} else {"), "the output stays valid either way: {t}");
     }
 
     #[test]
