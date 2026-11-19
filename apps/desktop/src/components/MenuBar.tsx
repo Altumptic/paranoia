@@ -222,7 +222,7 @@ function useMenus(): Menu[] {
                   : plugins.list.flatMap((p, i) => [
                       ...(i > 0 ? [sep] : []),
                       { label: `${p.name} ${p.version}${p.language === "py" ? " · Python" : ""}`, disabled: true, run: () => {} } as Item,
-                      ...p.commands.map((c) => ({ label: c.title, disabled: noFile, run: () => st().runPlugin(p.id, c.id) }) as Item),
+                      ...p.commands.map((c) => ({ label: c.title, keys: c.key ?? undefined, disabled: noFile, run: () => st().runPlugin(p.id, c.id) }) as Item),
                     ])),
                 ...plugins.errors.flatMap((e) => [{ label: `⚠ ${e.id}: ${e.error}`.slice(0, 90), disabled: true, run: () => {} } as Item]),
                 sep,

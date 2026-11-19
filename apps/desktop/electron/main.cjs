@@ -24,9 +24,10 @@ app.setAppUserModelId("app.paranoia.desktop");
 // All local data lives in %APPDATA%\Paranoia (documented in docs/SECURITY-DESIGN.md).
 // Builds before 0.5.1 used the npm package name; move that folder over once.
 {
-  const dataDir = path.join(app.getPath("appData"), "Paranoia");
+  // PARANOIA_DATA_DIR keeps tests and portable setups out of the real data folder.
+  const dataDir = process.env.PARANOIA_DATA_DIR ? path.resolve(process.env.PARANOIA_DATA_DIR) : path.join(app.getPath("appData"), "Paranoia");
   const legacy = path.join(app.getPath("appData"), "@paranoia", "desktop");
-  if (!fs.existsSync(dataDir) && fs.existsSync(legacy)) {
+  if (!process.env.PARANOIA_DATA_DIR && !fs.existsSync(dataDir) && fs.existsSync(legacy)) {
     try {
       fs.renameSync(legacy, dataDir);
     } catch {
@@ -547,6 +548,18 @@ handle("plugins:run", async (_e, id, commandId) => {
     }
   }
   return { language: plugin.language, name: plugin.name, code: script };
+});
+
+// Event hooks run without a click, so only a plugin version the user already trusted ("Always run this
+// version") may run one; anything else is skipped silently. The page supplies only the event and a little
+// plain data about it, never code.
+handle("plugins:hook", (_e, id, event, data) => {
+  if (typeof id !== "string" || typeof event !== "string" || !plugins.EVENTS.includes(event)) throw new Error("invalid plugin event");
+  const payload = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  if (JSON.stringify(payload).length > 2000) throw new Error("the event data is too large");
+  const { plugin, code, hash } = plugins.load(pluginsDir(), id);
+  if (!plugins.readTrust(pluginTrustFile()).has(hash)) throw new Error("this version of the plugin is not trusted yet: run one of its commands and choose Always run this version");
+  return { language: plugin.language, name: plugin.name, code: plugins.hookInvocation(plugin, event, payload, code) };
 });
 
 handle("dialog:open", async () => {

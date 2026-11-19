@@ -27,11 +27,47 @@ function write(root, id, m, code = "async function main() { print(1); }") {
   if (m && typeof m.entry === "string") fs.writeFileSync(path.join(dir, m.entry), code);
 }
 
+const hookManifest = (extra) => ({ id: "p", name: "P", version: "1", language: "js", entry: "main.js", commands: [{ id: "a", title: "A", key: "ctrl+alt+h" }], ...extra });
+
+test("hotkeys need Ctrl or Alt, a single key, and not one the app uses", () => {
+  assert.equal(P.normalizeKey("ctrl+alt+h"), "Ctrl+Alt+H");
+  assert.equal(P.normalizeKey("Alt+F6"), "Alt+F6");
+  assert.equal(P.normalizeKey("Ctrl+Shift+7"), "Ctrl+Shift+7");
+  for (const bad of ["H", "Shift+H", "Ctrl+", "Ctrl+Alt", "Ctrl+Enter", "Ctrl+Ctrl+H", "Win+H", "Ctrl+O", "ctrl+k", "F7", "Alt+Q", "Ctrl+HH", "Ctrl+F13", 5, null, "Ctrl+" + "x".repeat(30)]) {
+    assert.equal(P.normalizeKey(bad), null, String(bad));
+  }
+  const v = P.validate(hookManifest({}), "p");
+  assert.ok(v.ok);
+  assert.equal(v.plugin.commands[0].key, "Ctrl+Alt+H");
+  assert.match(P.validate(hookManifest({ commands: [{ id: "a", title: "A", key: "H" }] }), "p").error, /key/);
+  assert.match(P.validate(hookManifest({ commands: [{ id: "a", title: "A", key: "Ctrl+Alt+H" }, { id: "b", title: "B", key: "alt+ctrl+h" }] }), "p").error, /already used/);
+});
+
+test("hooks: known events only, bounded, and the script gets the event as plain data", () => {
+  const ok = P.validate(hookManifest({ hooks: [{ event: "open", run: "onOpen" }, { event: "rename" }] }), "p");
+  assert.ok(ok.ok);
+  assert.deepEqual(ok.plugin.hooks, [{ event: "open", run: "onOpen" }, { event: "rename", run: null }]);
+  assert.equal(P.validate(hookManifest({}), "p").plugin.hooks.length, 0);
+  for (const hooks of [[{ event: "keypress" }], [{ event: "open", run: "a b" }], [{ event: "open", run: 5 }], "open", Array.from({ length: 9 }, () => ({ event: "open" })), [null]]) {
+    assert.equal(P.validate(hookManifest({ hooks }), "p").ok, false, JSON.stringify(hooks));
+  }
+  const js = P.hookInvocation(ok.plugin, "open", { file: "a\"b'; process.exit()//", sha256: "x" }, "// code");
+  assert.match(js, /^globalThis\.event = JSON\.parse\(/);
+  assert.match(js, /;await onOpen\(event\);/);
+  // The data is a JSON string inside a JSON string: it cannot break out into code.
+  const arg = js.split("JSON.parse(")[1].split(");\n")[0];
+  assert.equal(JSON.parse(JSON.parse(arg)).file, "a\"b'; process.exit()//");
+  const py = P.hookInvocation({ ...ok.plugin, language: "py" }, "open", { file: "x" }, "# code");
+  assert.match(py, /^import json\nevent = json\.loads\(/);
+  assert.throws(() => P.hookInvocation(ok.plugin, "save", {}, ""), /does not hook/);
+});
+
 test("a valid manifest is accepted and normalised", () => {
   const v = P.validate(manifest({ description: "  hi  " }), "demo");
   assert.equal(v.ok, true);
   assert.equal(v.plugin.description, "hi");
-  assert.deepEqual(v.plugin.commands, [{ id: "go", title: "Go", run: "main" }]);
+  assert.deepEqual(v.plugin.commands, [{ id: "go", title: "Go", run: "main", key: null }]);
+  assert.deepEqual(v.plugin.hooks, []);
 });
 
 test("bad manifests are refused with a reason", () => {

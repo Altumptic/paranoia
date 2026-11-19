@@ -129,6 +129,8 @@ interface State {
   closeCompare(): Promise<void>;
   loadPlugins(): Promise<void>;
   runPlugin(id: string, commandId: string): Promise<void>;
+  /** Runs the plugins' hooks for an event (trusted plugins only; never nested). */
+  runPluginHooks(event: "open" | "rename", data: Record<string, unknown>): Promise<void>;
   print(text: string, kind?: "info" | "error" | "out"): void;
   set<K extends keyof State>(key: K, value: State[K]): void;
   toast(text: string, kind?: Toast["kind"]): void;
@@ -156,6 +158,12 @@ export interface BatchName {
 }
 
 let toastSeq = 0;
+/** A hook is running: events it causes are not delivered again, so a plugin cannot trigger itself. */
+let hookBusy = false;
+/** Consecutive failures per plugin; a hook that fails three times is switched off for the session. */
+const hookFails = new Map<string, number>();
+/** The plugin list has been read at least once (a file given on the command line opens before the first read finishes). */
+let pluginsRead = false;
 
 export const useStore = create<State>((set, get) => ({
   session: null,
@@ -248,6 +256,7 @@ export const useStore = create<State>((set, get) => ({
         openedAt: Date.now(),
       });
       get().loadRecent();
+      void get().runPluginHooks("open", { file: info.file_name, sha256: info.hashes.sha256, format: info.format, arch: info.arch });
     } catch (e) {
       set({ loading: null });
       const message = e instanceof Error ? e.message : String(e);
@@ -341,6 +350,7 @@ export const useStore = create<State>((set, get) => ({
     await session.rename(va, name);
     await get().afterEdit(false);
     set({ functions: await session.functions() });
+    void get().runPluginHooks("rename", { address: va, new_name: name });
   },
 
   async comment(va, text) {
@@ -628,6 +638,7 @@ export const useStore = create<State>((set, get) => ({
     if (!desktop) return;
     try {
       const r = await desktop.plugins.list();
+      pluginsRead = true;
       set({ plugins: { dir: r.dir, list: r.plugins, errors: r.errors } });
     } catch (e) {
       get().toast(e instanceof Error ? e.message : String(e), "error");
@@ -656,6 +667,36 @@ export const useStore = create<State>((set, get) => ({
       const msg = e instanceof Error ? e.message : String(e);
       if (!/cancelled/i.test(msg)) get().print(`${title}: ${msg}`, "error");
       get().toast(msg, /cancelled/i.test(msg) ? undefined : "error");
+    }
+  },
+
+  async runPluginHooks(event, data) {
+    const { session } = get();
+    if (!desktop || !session || hookBusy) return;
+    if (!pluginsRead) await get().loadPlugins();
+    const list = get().plugins.list.filter((p) => p.trusted && p.hooks?.some((h) => h.event === event) && (hookFails.get(p.id) ?? 0) < 3);
+    if (list.length === 0) return;
+    hookBusy = true;
+    try {
+      for (const p of list) {
+        try {
+          const r = await desktop.plugins.hook(p.id, event, data);
+          get().print(`› ${r.name}: on ${event}`, "info");
+          if (r.language === "py") await desktop.python.run(r.code, session.handle, get().cursor ?? 0);
+          else {
+            const out = await runScript(r.code, (...a: unknown[]) => get().print(a.map((v) => (typeof v === "string" ? v : JSON.stringify(v))).join(" ")));
+            if (out !== undefined) get().print(typeof out === "string" ? out : JSON.stringify(out));
+          }
+          hookFails.delete(p.id);
+        } catch (e) {
+          const n = (hookFails.get(p.id) ?? 0) + 1;
+          hookFails.set(p.id, n);
+          const msg = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+          get().print(`${p.name}, on ${event}: ${msg}${n >= 3 ? " (switched off until the app restarts)" : ""}`, "error");
+        }
+      }
+    } finally {
+      hookBusy = false;
     }
   },
 

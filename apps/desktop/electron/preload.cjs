@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld("paranoia", {
     list: () => ipcRenderer.invoke("plugins:list"),
     folder: () => ipcRenderer.invoke("plugins:folder"),
     run: (id, commandId) => ipcRenderer.invoke("plugins:run", id, commandId),
+    hook: (id, event, data) => ipcRenderer.invoke("plugins:hook", id, event, data),
   },
   onEngineRestarted: (cb) => {
     const h = (_e, r) => cb(r);
