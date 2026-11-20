@@ -23,6 +23,7 @@ This is the one place the engine opens a socket. Only when you ask:
 - the desktop app shows the host and port in a **native** confirmation first (a page cannot answer it); a server that is not on this computer gets a stronger warning, because the protocol is not encrypted;
 - the main process checks the address (a host name or IP and a port, nothing else) before the engine sees it;
 - the engine connects to that one address and sends debugger packets only: no files, no analysis results, nothing from your workspace.
+- what the server sends is not trusted for size: a packet is at most 1 MiB and unpacks to at most 2 MiB, noise that is not a packet is dropped, a target description may list at most 4096 registers of at most 8192 bits and is read in at most 4096 parts, and every wait has a time limit. A server that breaks a limit is disconnected, not obeyed. A test runs a server that never stops talking.
 
 A GDB server is trusted by design: it decides what runs, and what Paranoia shows is what it reports. Do not connect to a server you do not control or trust. See [SECURITY-DESIGN.md](SECURITY-DESIGN.md#remote-debugging).
 
