@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 
 use crate::analysis::Analysis;
 use crate::disasm::Disassembler;
-use crate::model::{Arch, Flow, Format};
+use crate::model::{Arch, Flow, Format, SymbolKind};
 use crate::Binary;
 
 /// Rounds of "scan, then analyse again". A round's new functions call others that the next
@@ -36,7 +36,11 @@ const TRIAL_INSTRUCTIONS: usize = 16;
 
 /// `(start, end)` of everything the analysis covered, sorted and merged.
 fn covered(a: &Analysis) -> Vec<(u64, u64)> {
-    let mut v: Vec<(u64, u64)> = a.block_index.iter().map(|(&s, &(e, _))| (s, e)).collect();
+    merge(a.block_index.iter().map(|(&s, &(e, _))| (s, e)).collect())
+}
+
+/// Sorted, non-overlapping ranges covering the same bytes.
+fn merge(mut v: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     v.sort_unstable();
     let mut out: Vec<(u64, u64)> = Vec::with_capacity(v.len());
     for (s, e) in v {
@@ -318,7 +322,15 @@ impl Binary {
             Arch::Thumb => 2,
             _ => 4,
         };
-        let covered = covered(a);
+        // Data the image names (a Cortex-M vector table) is not code, whatever it decodes as.
+        let mut covered = covered(a);
+        covered.extend(
+            self.symbols
+                .iter()
+                .filter(|s| s.kind == SymbolKind::Object && s.size > 0)
+                .map(|s| (s.address, s.address.saturating_add(s.size))),
+        );
+        let covered = merge(covered);
         let mut found: BTreeSet<u64> = BTreeSet::new();
         for range in self.ranges.iter().filter(|r| r.perms.x) {
             let Some(bytes) = self.bytes_at(range.vaddr) else { continue };
@@ -337,6 +349,18 @@ impl Binary {
                     // Padding is not a function, however it decodes (zero words are `movs r0, r0` on Thumb and
                     // `andeq` on ARM): the first bytes must not be one repeated value.
                     if !varied(&section[off..]) {
+                        continue;
+                    }
+                    // And a function does not start with an erased word, a zero word or a padding byte.
+                    let first = &section[off..];
+                    let head = match arch {
+                        Arch::Thumb => 2,
+                        Arch::X86_64 => 1,
+                        _ => 4,
+                    };
+                    if first.len() >= head
+                        && (first[..head].iter().all(|b| *b == 0 || *b == 0xff) || (arch == Arch::X86_64 && first[0] == 0xcc))
+                    {
                         continue;
                     }
                     let va = range.vaddr + off as u64;
