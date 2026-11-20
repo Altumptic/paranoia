@@ -570,6 +570,19 @@ mod tests {
     }
 
     #[test]
+    fn memory_shifts_and_stores_read_like_c() {
+        // ldr r2, [r0, #4]; ldrb r3, [r1]; lsls r3, r3, #2; adds r2, r2, r3; str r2, [r0]; movs r0, #0; bx lr
+        let b = blocks(&[(0x4000, &[0x6842, 0x780b, 0x009b, 0x18d2, 0x6002, 0x2000, 0x4770], &[])]);
+        let c = c_text(&build(0x4000, &b), true);
+        eprintln!("{c}");
+        assert!(c.contains("*(uint32_t *)(a1 + 4)"), "{c}");
+        assert!(c.contains("*(uint8_t *)a2") || c.contains("*(uint8_t *)(a2"), "{c}");
+        assert!(c.contains("<< 2"), "{c}");
+        assert!(c.contains("*(uint32_t *)(a1) =") || c.contains("*(uint32_t *)a1 ="), "{c}");
+        assert!(c.contains("return 0;"), "{c}");
+    }
+
+    #[test]
     fn an_it_block_keeps_its_instructions_as_text_with_the_condition() {
         // cmp r0, #0; it eq; moveq r0, #1; bx lr
         let b = blocks(&[(0x1000, &[0x2800, 0xbf08, 0x2001, 0x4770], &[])]);
