@@ -101,7 +101,7 @@ What it does not do, and where to be careful:
 - Instructions inside an `it` block are kept as text with their condition (`/* if e */`) instead of being turned into an `if`; a conditional branch in a block is modelled. So a function full of `it` blocks reads like assembly in those places.
 - Instructions the lifter has no model for (VFP, bit-field and saturating instructions, `ldm`/`stm` other than `push`/`pop`, `tbb`/`tbh` jump tables) are kept as text with the registers they read and write; a jump table is a bare indirect jump.
 - A function the analysis found in ARM mode (a mixed image), and big-endian images, get no pseudocode and a note saying so.
-- It is tested on hand-encoded functions, on a synthetic Cortex-M image, and by lifting 30,000 random decodable instruction words without a panic. It has **not** been compared with the source of real firmware, so treat it as experimental and check it against the listing, as the badge says.
+- It is tested on hand-encoded functions, on a synthetic Cortex-M image, by lifting 30,000 random decodable instruction words without a panic, and by **running** it: random functions of the supported instructions execute in QEMU and as the generated C, and 40 000 of them agree ([VERIFICATION.md](VERIFICATION.md), including what it does not cover). It has **not** been compared with the source of real firmware, so treat it as experimental and check it against the listing, as the badge says.
 
 ## Not yet
 

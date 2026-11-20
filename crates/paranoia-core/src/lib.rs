@@ -45,6 +45,8 @@ mod pseudo_opt;
 mod pseudo_ssa;
 mod pseudo_structs;
 mod pseudo_types;
+#[cfg(test)]
+mod qemu_diff;
 mod riscv;
 mod sigs;
 mod ssa;
