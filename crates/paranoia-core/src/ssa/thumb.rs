@@ -285,9 +285,6 @@ fn lift(i: &Instruction, ip: u64, it: Option<ConditionCode>) -> Lifted {
                 O::BIC => ("&", a, Expr::Un("~", Box::new(b))),
                 _ => ("-", b, a), // rsb: op2 - rn
             };
-            if i.opcode == O::SUB && i.s {
-                return vec![(Kind::Flags { test: false, a: a.clone(), b: b.clone() }, true), (assign(d, bin(op, a, b)), false)];
-            }
             // `add rd, sp, #0` and `adds rd, rn, #0` are moves.
             if matches!(i.opcode, O::ADD | O::SUB | O::ORR) && b == Expr::Const(0) {
                 return vec![(assign(d, a), i.s)];
@@ -555,6 +552,21 @@ mod tests {
         eprintln!("{c}");
         assert!(c.contains("else"), "both sides assign, so this is an if/else: {c}");
         assert!(!c.contains("r4"), "the saved register is bookkeeping: {c}");
+    }
+
+    #[test]
+    fn a_counting_loop_is_a_loop() {
+        // movs r1, #0; L: adds r1, r1, r0; subs r0, r0, #1; bne L; mov r0, r1; bx lr
+        let b = blocks(&[
+            (0x3000, &[0x2100], &[(0x3002, EdgeKind::Fall)]),
+            (0x3002, &[0x1809, 0x3801, 0xd1fc], &[(0x3002, EdgeKind::True), (0x3008, EdgeKind::False)]),
+            (0x3008, &[0x4608, 0x4770], &[]),
+        ]);
+        let c = c_text(&build(0x3000, &b), true);
+        assert!(c.contains("while") || c.contains("for ("), "a backward conditional branch is a loop: {c}");
+        assert!(!c.contains("goto"), "{c}");
+        assert!(c.contains("a1 != 0") || c.contains("a1 - 1") || c.contains("--"), "the counter is a1: {c}");
+        assert!(c.contains("return"), "{c}");
     }
 
     #[test]
