@@ -511,27 +511,33 @@ impl Expr {
         }
     }
 
-    fn eval(&self, consts: &HashMap<(Var, u32), i64>) -> Option<i64> {
+    /// The value of a constant expression. With `bits == 32` every step is done on 32-bit values (kept as
+    /// sign-extended `i64`, so `(x << 24) >> 24` sign-extends a byte); otherwise on 64-bit ones.
+    fn eval(&self, consts: &HashMap<(Var, u32), i64>, bits: u32) -> Option<i64> {
+        let w = |v: i64| if bits == 32 { v as i32 as i64 } else { v };
         Some(match self {
-            Expr::Const(c) => *c,
-            Expr::Use(v, n) => *consts.get(&(*v, *n))?,
+            Expr::Const(c) => w(*c),
+            Expr::Use(v, n) => w(*consts.get(&(*v, *n))?),
             Expr::Bin(op, a, b) => {
-                let (x, y) = (a.eval(consts)?, b.eval(consts)?);
+                let (x, y) = (a.eval(consts, bits)?, b.eval(consts, bits)?);
                 match *op {
-                    "+" => x.wrapping_add(y),
-                    "-" => x.wrapping_sub(y),
-                    "*" => x.wrapping_mul(y),
+                    "+" => w(x.wrapping_add(y)),
+                    "-" => w(x.wrapping_sub(y)),
+                    "*" => w(x.wrapping_mul(y)),
                     "&" => x & y,
                     "|" => x | y,
                     "^" => x ^ y,
+                    "<<" if bits == 32 => w(if (0..32).contains(&y) { ((x as u32) << y) as i64 } else { 0 }),
+                    ">>" if bits == 32 => w(if (0..32).contains(&y) { ((x as u32) >> y) as i64 } else { 0 }),
+                    ">>s" if bits == 32 => (x as i32 >> y.clamp(0, 31)) as i64,
                     "<<" => x.wrapping_shl((y & 63) as u32),
                     ">>" => ((x as u64).wrapping_shr((y & 63) as u32)) as i64,
                     ">>s" => x.wrapping_shr((y & 63) as u32),
                     _ => return None,
                 }
             }
-            Expr::Un("-", a) => a.eval(consts)?.wrapping_neg(),
-            Expr::Un("~", a) => !a.eval(consts)?,
+            Expr::Un("-", a) => w(a.eval(consts, bits)?.wrapping_neg()),
+            Expr::Un("~", a) => w(!a.eval(consts, bits)?),
             _ => return None,
         })
     }
@@ -972,7 +978,7 @@ impl SsaFunction {
                         if self.consts.contains_key(&(*def, *ver)) {
                             continue;
                         }
-                        if let Some(v) = expr.eval(&self.consts) {
+                        if let Some(v) = expr.eval(&self.consts, self.bits) {
                             self.consts.insert((*def, *ver), mask(v, *width));
                             changed = true;
                         }
@@ -980,11 +986,47 @@ impl SsaFunction {
                 }
             }
         }
+        // Values a phi joins share one C variable (a loop counter, a merged result). Copying from such a value
+        // is only safe when the copy is itself in that variable: `mov r2, r0` (r2 uses `a1`) followed by an
+        // assignment to the same variable (`a1 = ...`) would read the new value where the old one was meant.
+        let mut classes: HashMap<(Var, u32), (Var, u32)> = HashMap::new();
+        fn root(m: &mut HashMap<(Var, u32), (Var, u32)>, k: (Var, u32)) -> (Var, u32) {
+            let mut r = k;
+            while let Some(n) = m.get(&r).copied().filter(|n| *n != r) {
+                r = n;
+            }
+            r
+        }
+        for b in &self.blocks {
+            for p in &b.phis {
+                for (_, n) in &p.args {
+                    let (a, c) = (root(&mut classes, (p.var, p.ver)), root(&mut classes, (p.var, *n)));
+                    if a != c {
+                        classes.insert(a, c);
+                    }
+                }
+            }
+        }
+        let mut size: HashMap<(Var, u32), usize> = HashMap::new();
+        let members: Vec<(Var, u32)> = classes.keys().copied().chain(classes.values().copied()).collect();
+        for k in members {
+            let r = root(&mut classes, k);
+            size.entry(r).or_default();
+        }
+        let all: Vec<(Var, u32)> = classes.keys().copied().chain(classes.values().copied()).collect::<HashSet<_>>().into_iter().collect();
+        for k in all {
+            let r = root(&mut classes, k);
+            *size.entry(r).or_default() += 1;
+        }
         for b in &self.blocks {
             for s in &b.stmts {
                 if let Kind::Assign { def, ver, expr: Expr::Use(v, n), width } = &s.kind {
                     if *width as u32 == self.bits || (*width == 64 && self.bits == 64) {
-                        self.copies.insert((*def, *ver), (*v, *n));
+                        let src = root(&mut classes, (*v, *n));
+                        let shared = size.get(&src).copied().unwrap_or(1) > 1;
+                        if !shared || root(&mut classes, (*def, *ver)) == src {
+                            self.copies.insert((*def, *ver), (*v, *n));
+                        }
                     }
                 }
             }
@@ -1047,6 +1089,13 @@ impl SsaFunction {
                 }
                 for s in b.stmts.iter().filter(|s| !s.dead) {
                     used.extend(s.kind.uses());
+                }
+                // A conditional branch reads the flags: the result of the instruction that set them is used,
+                // even when nothing else reads it (`sub eax, 5; jz`, `subs r2, r2, #5; bne`).
+                if matches!(b.stmts.last().map(|s| &s.kind), Some(Kind::Branch { cond: Some(_), .. })) {
+                    if let Some(Stmt { kind: Kind::Assign { def, ver, .. }, dead: false, .. }) = b.stmts.iter().rev().find(|s| s.flags) {
+                        used.insert((*def, *ver));
+                    }
                 }
             }
             let mut killed = false;

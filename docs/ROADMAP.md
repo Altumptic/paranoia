@@ -96,6 +96,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] More prototypes: 146 for POSIX/bionic, Objective-C runtime, libdispatch, Core Foundation, Mach, Security, IOKit, dyld and Android (log, properties, assets, native window, JNI entry points)
 - [ ] A corpus of clang and Rust arm64 binaries on CI
 - [x] C·SSA recovers `else` (nested too), `while`, `do … while` and `for`, and writes a jump table as `switch (index) { case N: goto …; }`; well-formedness (balanced braces, every `goto` has its label, no unused label) is checked on 3 393 real functions from three files (763 have an `else`), and all 31 functions whose jump table the line-based pseudocode finds get a `switch` in C·SSA too
+- [ ] The QEMU comparison for AArch64 (`qemu-system-aarch64`, or QEMU user mode) and x86-64: the generator, driver and interpreter are Thumb-specific today ([VERIFICATION.md](VERIFICATION.md))
 - [ ] Make C·SSA the default on x86/x64: it still lacks what the line-based view has (variable types you set, struct member access, API constants, bodies inside `case`s instead of `goto`s), so it stays the second view
 
 ### 0.11: Linux and macOS packaging
@@ -116,7 +117,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 - [x] Guess the CPU of other raw images from machine-code patterns (36 of 37 real files right, none wrong; MIPS, PowerPC, RISC-V, ARM and Thumb only on synthetic data)
 - [x] Function discovery in raw x86-64, AArch64, ARM and Thumb images: 95–99.8 % of the functions on six of the seven dumps measured, 64 % on MinGW Rust ([FIRMWARE.md](FIRMWARE.md))
 - [ ] Measure the base-address guess and the Cortex-M logic on real firmware images
-- [x] Thumb-2 pseudocode, experimental, built from the SSA form like AArch64's (`it` blocks and unmodelled instructions stay as text); tested on hand-encoded code and a synthetic Cortex-M image, not yet compared with real firmware source ([FIRMWARE.md](FIRMWARE.md))
+- [x] Thumb-2 pseudocode, experimental, built from the SSA form like AArch64's (`it` blocks and unmodelled instructions stay as text). Checked by executing it against QEMU's Cortex-M model: 40 000 random functions of the supported instructions agree ([VERIFICATION.md](VERIFICATION.md)); not yet compared with real firmware source ([FIRMWARE.md](FIRMWARE.md))
 - [x] SVD files: peripheral and register names in ARM / Thumb listings ([FIRMWARE.md](FIRMWARE.md)); tested on a hand-written file, not yet on vendors' files
 - [x] Named memory regions (yours, plus the Cortex-M map), the Cortex-M system registers, and SVD bit-field names in the Inspector
 

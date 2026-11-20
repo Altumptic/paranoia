@@ -107,7 +107,8 @@ fn mem(op: &Operand, ip: u64) -> Option<Mem> {
         Operand::RegDerefPreindexOffset(r, off, add, wback) => {
             let addr = plus(base(&r), signed(add, i64::from(off)));
             if wback {
-                Mem { addr: addr.clone(), pre: Some((var(r.number()), addr)), post: None }
+                // The base is updated first, so the access is at the new base itself (not at base + offset again).
+                Mem { addr: base(&r), pre: Some((var(r.number()), addr)), post: None }
             } else {
                 Mem { addr, pre: None, post: None }
             }
@@ -277,12 +278,23 @@ fn lift(i: &Instruction, ip: u64, it: Option<ConditionCode>) -> Lifted {
             }
             out
         }
+        O::SXTB | O::SXTH => match (dst(&ops[0]), reg(&ops[1], ip)) {
+            (Some(d), Some(v)) => vec![(assign(d, sign_extend(v, if i.opcode == O::SXTB { 8 } else { 16 })), false)],
+            _ => generic(None),
+        },
+        O::MLA | O::MLS => match (dst(&ops[0]), reg(&ops[1], ip), reg(&ops[2], ip), reg(&ops[3], ip)) {
+            (Some(d), Some(a), Some(b), Some(c)) => {
+                let product = bin("*", a, b);
+                vec![(assign(d, if i.opcode == O::MLA { bin("+", product, c) } else { bin("-", c, product) }), false)]
+            }
+            _ => generic(None),
+        },
         O::UXTB | O::UXTH => match (dst(&ops[0]), reg(&ops[1], ip)) {
             (Some(d), Some(v)) => vec![(assign(d, bin("&", v, Expr::Const(if i.opcode == O::UXTB { 0xff } else { 0xffff }))), false)],
             _ => generic(None),
         },
         O::UDIV | O::SDIV => match (dst(&ops[0]), reg(&ops[1], ip), reg(&ops[2], ip)) {
-            (Some(d), Some(a), Some(b)) => vec![(assign(d, bin("/", a, b)), false)],
+            (Some(d), Some(a), Some(b)) => vec![(assign(d, bin(if i.opcode == O::UDIV { "/u" } else { "/" }, a, b)), false)],
             _ => generic(None),
         },
         O::MOV | O::MVN => match (dst(&ops[0]), src(&ops[1], ip)) {
@@ -357,8 +369,12 @@ fn lift(i: &Instruction, ip: u64, it: Option<ConditionCode>) -> Lifted {
                 O::LDRH | O::LDRSH => 2,
                 _ => 4,
             };
+            let signed = matches!(i.opcode, O::LDRSB | O::LDRSH);
             match (dst(&ops[0]), mem(&ops[1], ip)) {
-                (Some(d), Some(m)) => with_writeback(m, |addr| vec![(assign(d, Expr::Load(size, Box::new(addr))), false)]),
+                (Some(d), Some(m)) => with_writeback(m, |addr| {
+                    let load = Expr::Load(size, Box::new(addr));
+                    vec![(assign(d, if signed { sign_extend(load, size * 8) } else { load }), false)]
+                }),
                 _ => generic(None),
             }
         }
@@ -391,6 +407,12 @@ fn lift(i: &Instruction, ip: u64, it: Option<ConditionCode>) -> Lifted {
         O::NOP | O::HINT | O::DMB | O::DSB | O::ISB | O::IT | O::BKPT | O::YIELD | O::SEV | O::WFE | O::WFI => Vec::new(),
         _ => generic(None),
     }
+}
+
+/// The low `bits` bits of `e`, sign-extended to 32: `(e << 24) >> 24` for a byte.
+fn sign_extend(e: Expr, bits: u8) -> Expr {
+    let by = Expr::Const(i64::from(32 - bits));
+    bin(">>s", bin("<<", e, by.clone()), by)
 }
 
 /// `push {…}`: the stack pointer drops, then the registers are stored from the new top upwards.

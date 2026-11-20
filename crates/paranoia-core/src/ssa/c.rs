@@ -201,12 +201,40 @@ impl Gen<'_> {
             Expr::Bin("+" | "-", ..) if self.const_value(e, 0).is_some() => {
                 out.push(num(self.const_value(e, 0).unwrap_or_default()));
             }
+            // Signed division: an operand that C would type as unsigned must be cast back to int.
+            Expr::Bin("/", a, b) if self.has_big_const(a) || self.has_big_const(b) => {
+                if !top {
+                    out.push(tok("(", TokenKind::Punct));
+                }
+                for (k, x) in [(&**a), (&**b)].into_iter().enumerate() {
+                    if k == 1 {
+                        out.push(tok(" / ", TokenKind::Punct));
+                    }
+                    let x = self.signed_operand(x);
+                    if self.has_big_const(&x) && !matches!(x, Expr::Const(_)) {
+                        out.push(tok("(int)", TokenKind::Keyword));
+                    }
+                    self.expr(&x, false, out);
+                }
+                if !top {
+                    out.push(tok(")", TokenKind::Punct));
+                }
+            }
             Expr::Bin(op, a, b) => {
                 if !top {
                     out.push(tok("(", TokenKind::Punct));
                 }
+                // A logical shift right on an `int` would be arithmetic in C: say it is unsigned.
+                if *op == "/u" || (*op == ">>" && !matches!(**a, Expr::Const(c) if c >= 0)) {
+                    out.push(tok("(unsigned)", TokenKind::Keyword));
+                }
+                // An arithmetic shift of an expression that mentions a literal like 0xd81b0000 would be logical in C,
+                // because such a literal is unsigned and makes the whole expression unsigned: say it is an int.
+                if *op == ">>s" && self.has_big_const(a) {
+                    out.push(tok("(int)", TokenKind::Keyword));
+                }
                 self.expr(a, false, out);
-                out.push(tok(format!(" {} ", op.trim_end_matches('s')), TokenKind::Punct));
+                out.push(tok(format!(" {} ", if *op == "/u" { "/" } else { op.trim_end_matches('s') }), TokenKind::Punct));
                 self.expr(b, false, out);
                 if !top {
                     out.push(tok(")", TokenKind::Punct));
@@ -260,6 +288,32 @@ impl Gen<'_> {
         v
     }
 
+    /// Whether the expression would be `unsigned` in C: it mentions a 32-bit literal with the top bit set, a
+    /// logical shift or unsigned division (written with an `(unsigned)` cast), or a 32-bit load (`uint32_t`).
+    /// A signed operation on it (an arithmetic shift, `<`, `< 0`) needs an `(int)` cast to mean what the code does.
+    fn has_big_const(&self, e: &Expr) -> bool {
+        if self.f.bits != 32 {
+            return false;
+        }
+        match e {
+            Expr::Const(c) => (0x8000_0000..0x1_0000_0000).contains(c),
+            Expr::Bin(op, a, b) => matches!(*op, ">>" | "/u") || self.has_big_const(a) || self.has_big_const(b),
+            Expr::Un(_, a) => self.has_big_const(a),
+            Expr::Load(size, _) => *size == 4,
+            // A value written in place is printed as its expression.
+            Expr::Use(v, n) => self.inline.get(&(*v, *n)).is_some_and(|x| self.has_big_const(x)),
+            _ => false,
+        }
+    }
+
+    /// A comparison operand as a signed value: constants of a 32-bit CPU above `0x7fffffff` become negative.
+    fn signed_operand(&self, e: &Expr) -> Expr {
+        match e {
+            Expr::Const(c) if self.f.bits == 32 && (0x8000_0000..0x1_0000_0000).contains(c) => Expr::Const(c - 0x1_0000_0000),
+            _ => e.clone(),
+        }
+    }
+
     /// The condition a branch at the end of `b` tests, from the last flag setter before it.
     fn condition(&self, b: &Block, cc: &str) -> Vec<Token> {
         let setter = b.stmts.iter().rev().find(|s| s.flags);
@@ -285,16 +339,28 @@ impl Gen<'_> {
                     if unsigned {
                         out.push(tok("(unsigned)", TokenKind::Keyword));
                     }
-                    self.expr(a, false, &mut out);
+                    // In a signed comparison a 32-bit constant with the top bit set is negative: `x >= 0xffffffcc`
+                    // would be unsigned in C.
+                    let (a, b) = if unsigned { (a.clone(), b.clone()) } else { (self.signed_operand(a), self.signed_operand(b)) };
+                    if !unsigned && self.has_big_const(&a) && !matches!(a, Expr::Const(_)) {
+                        out.push(tok("(int)", TokenKind::Keyword));
+                    }
+                    self.expr(&a, false, &mut out);
                     out.push(tok(format!(" {o} "), TokenKind::Punct));
-                    self.expr(b, false, &mut out);
+                    self.expr(&b, false, &mut out);
                     return out;
                 }
                 if cc == "s" || cc == "ns" {
+                    let (a, b) = (self.signed_operand(a), self.signed_operand(b));
                     out.push(tok("(", TokenKind::Punct));
-                    self.expr(a, false, &mut out);
+                    if (self.has_big_const(&a) && !matches!(a, Expr::Const(_))) || (self.has_big_const(&b) && !matches!(b, Expr::Const(_)))
+                    {
+                        // `(int)` binds to what follows: write the subtraction as an int
+                        out.insert(0, tok("(int)", TokenKind::Keyword));
+                    }
+                    self.expr(&a, false, &mut out);
                     out.push(tok(" - ", TokenKind::Punct));
-                    self.expr(b, false, &mut out);
+                    self.expr(&b, false, &mut out);
                     out.push(tok(if cc == "s" { ") < 0" } else { ") >= 0" }, TokenKind::Punct));
                     return out;
                 }
@@ -304,13 +370,17 @@ impl Gen<'_> {
                 let rel = match cc {
                     "e" => Some(" == 0"),
                     "ne" => Some(" != 0"),
-                    "s" if same => Some(" < 0"),
-                    "ns" if same => Some(" >= 0"),
+                    "s" => Some(" < 0"),
+                    "ns" => Some(" >= 0"),
                     "le" if same => Some(" <= 0"),
                     "g" if same => Some(" > 0"),
                     _ => None,
                 };
                 if let Some(r) = rel {
+                    // A literal like 0xffffffcc makes `x & 0xffffffcc` unsigned in C, and `< 0` never true.
+                    if matches!(cc, "s" | "ns" | "le" | "g") && (self.has_big_const(a) || self.has_big_const(b)) {
+                        out.push(tok("(int)", TokenKind::Keyword));
+                    }
                     if same {
                         self.expr(a, false, &mut out);
                     } else {
@@ -333,6 +403,9 @@ impl Gen<'_> {
                     _ => None,
                 };
                 if let Some(r) = rel {
+                    if matches!(cc, "s" | "ns") && self.has_big_const(&Expr::Use(*def, *ver)) {
+                        out.push(tok("(int)", TokenKind::Keyword));
+                    }
                     self.expr(&Expr::Use(*def, *ver), false, &mut out);
                     out.push(tok(r, TokenKind::Punct));
                     return out;
@@ -506,24 +579,41 @@ impl SsaFunction {
                 };
                 let loads = {
                     let mut l = false;
-                    fn has_load(e: &Expr, l: &mut bool) {
+                    // A value already written in place stands for its expression, loads included.
+                    fn has_load(e: &Expr, l: &mut bool, inline: &HashMap<(Var, u32), Expr>) {
                         match e {
                             Expr::Load(..) => *l = true,
                             Expr::Bin(_, a, b) => {
-                                has_load(a, l);
-                                has_load(b, l);
+                                has_load(a, l, inline);
+                                has_load(b, l, inline);
                             }
-                            Expr::Un(_, a) => has_load(a, l),
+                            Expr::Un(_, a) => has_load(a, l, inline),
+                            Expr::Use(v, n) => {
+                                if let Some(x) = inline.get(&(*v, *n)) {
+                                    has_load(x, l, inline);
+                                }
+                            }
                             _ => {}
                         }
                     }
-                    has_load(expr, &mut l);
+                    has_load(expr, &mut l, &g.inline);
                     l
                 };
                 // Reads of registers the expression uses must not be redefined in between. In SSA they
                 // cannot be; memory can.
-                let clobbered = loads
+                let memory_clobbered = loads
                     && b.stmts[i + 1..j].iter().any(|t| matches!(t.kind, Kind::Store { .. } | Kind::Call { .. } | Kind::Other { .. }));
+                // Values that share a C variable (a phi class) are not independent: moving the expression past
+                // an assignment to that variable would read the new value (`lsrs r2, r0, #3; movs r0, #5; orrs r2, r0`).
+                let mut inputs = Vec::new();
+                expr.uses(&mut inputs);
+                let classes: Vec<(Var, u32)> = inputs.iter().map(|k| dsu.find(*k)).collect();
+                let mut variable_clobbered = false;
+                for t in b.stmts[i + 1..j].iter().filter(|t| !t.dead) {
+                    let mut k = t.kind.clone();
+                    k.defs_mut(&mut |v, n| variable_clobbered |= classes.contains(&dsu.find((*v, *n))));
+                }
+                let clobbered = memory_clobbered || variable_clobbered;
                 // Conditions are rendered at the branch, after every statement: keep flag inputs inline
                 // only when used by the flags statement right before the branch.
                 if !clobbered {
@@ -1477,6 +1567,22 @@ mod tests {
         let t = c(64, &b, true);
         assert!(t.contains("f(int a1)"), "the loop counter arrives as the first argument: {t}");
         assert!(t.contains("while"), "{t}");
+    }
+
+    #[test]
+    fn a_flag_setting_result_that_only_feeds_the_branch_is_still_written() {
+        // eax = ecx - 5 (nobody reads eax afterwards); jz skips the mov; return 1
+        let b = func(
+            64,
+            &[
+                (0x100, &["mov eax, ecx", "sub eax, 5", "jz 0x120"], &[(0x120, EdgeKind::True), (0x110, EdgeKind::False)]),
+                (0x110, &["mov edx, 7"], &[(0x120, EdgeKind::Fall)]),
+                (0x120, &["mov eax, 1", "ret"], &[]),
+            ],
+        );
+        let t = c(64, &b, true);
+        assert!(!t.contains("rax") && !t.contains("eax"), "no raw register leaks into the C: {t}");
+        assert!(t.contains("a1 - 5") || t.contains("a1 != 5") || t.contains("a1 == 5"), "the condition is about a1 - 5: {t}");
     }
 
     #[test]
