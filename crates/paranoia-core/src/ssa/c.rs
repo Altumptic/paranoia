@@ -387,6 +387,8 @@ impl SsaFunction {
     pub(crate) fn to_c(&self, o: &COptions<'_>) -> Vec<PseudoLine> {
         let f = self;
         let saved = callee_saved(f.isa);
+        // 32-bit x86 passes arguments on the stack (pushes before the call); the other CPUs use registers.
+        let stack_args = f.bits == 32 && f.isa == Isa::X86;
         // Stack pointer offsets.
         let mut rsp: HashMap<u32, i64> = HashMap::from([(0, 0)]);
         let mut changed = true;
@@ -704,7 +706,7 @@ impl SsaFunction {
             let mut pending_push: Vec<usize> = Vec::new();
             let mut skip: HashSet<usize> = HashSet::new();
             let mut push_args: HashMap<usize, Vec<usize>> = HashMap::new();
-            if f.bits == 32 {
+            if stack_args {
                 for (i, s) in b.stmts.iter().enumerate() {
                     if s.push {
                         pending_push.push(i);
@@ -812,7 +814,7 @@ impl SsaFunction {
                         }
                         t.push(tok("(", TokenKind::Punct));
                         let mut list: Vec<Vec<Token>> = Vec::new();
-                        if f.bits == 32 {
+                        if stack_args {
                             for &pi in push_args.get(&i).map(Vec::as_slice).unwrap_or(&[]) {
                                 if let Kind::Store { val, .. } = &b.stmts[pi].kind {
                                     list.push(g.e(val));

@@ -549,8 +549,8 @@ mod tests {
             (0x216e, &[0xf7ff, 0xffc7, 0xbd10], &[]),
         ]);
         let c = c_text(&build(0x2160, &b), true);
-        eprintln!("{c}");
-        assert!(c.contains("else"), "both sides assign, so this is an if/else: {c}");
+        assert!(c.contains("} else {") && !c.contains("goto"), "both sides assign, so this is an if/else: {c}");
+        assert!(c.contains("sub_2100(v1)"), "the merged r0 is the call's argument: {c}");
         assert!(!c.contains("r4"), "the saved register is bookkeeping: {c}");
     }
 
