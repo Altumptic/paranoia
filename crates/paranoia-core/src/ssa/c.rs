@@ -13,12 +13,19 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{Block, Expr, Kind, SsaFunction, Var, RSP};
+use super::{Block, Expr, Isa, Kind, SsaFunction, Var, RSP};
 use crate::model::{Token, TokenKind};
 use crate::pseudo::PseudoLine;
 
-/// rbx, rbp, rsi, rdi, r12–r15: preserved across calls; their saves and restores are bookkeeping.
-const CALLEE_SAVED: [Var; 8] = [3, 5, 6, 7, 12, 13, 14, 15];
+/// The registers a call preserves: their saves and restores in the prologue and epilogue are bookkeeping.
+/// x86: rbx, rbp, rsi, rdi, r12–r15. AArch64: x19–x30. Thumb (AAPCS): r4–r11 and lr, where `r4` is variable 31.
+fn callee_saved(isa: Isa) -> &'static [Var] {
+    match isa {
+        Isa::X86 => &[3, 5, 6, 7, 12, 13, 14, 15],
+        Isa::A64 => &[19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
+        Isa::Thumb => &[31, 5, 6, 7, 8, 9, 10, 11, 14],
+    }
+}
 
 /// What the caller knows about the function.
 pub(crate) struct COptions<'a> {
@@ -379,6 +386,7 @@ impl SsaFunction {
     /// The function as C-like lines generated from this SSA form.
     pub(crate) fn to_c(&self, o: &COptions<'_>) -> Vec<PseudoLine> {
         let f = self;
+        let saved = callee_saved(f.isa);
         // Stack pointer offsets.
         let mut rsp: HashMap<u32, i64> = HashMap::from([(0, 0)]);
         let mut changed = true;
@@ -604,7 +612,7 @@ impl SsaFunction {
         for b in &f.blocks {
             for s in b.stmts.iter().filter(|s| !s.dead) {
                 if let Kind::Store { addr, val: Expr::Use(v, 0), .. } = &s.kind {
-                    if CALLEE_SAVED.contains(v) && g.stack_off(addr).is_some() {
+                    if saved.contains(v) && g.stack_off(addr).is_some() {
                         continue;
                     }
                 }
@@ -681,7 +689,8 @@ impl SsaFunction {
                 }
             }
             // 64-bit call arguments: argument registers set in this block since the last call.
-            let mut set_since: HashSet<Var> = HashSet::new();
+            // Argument registers that merge several values here (a phi) were set on the way in.
+            let mut set_since: HashSet<Var> = b.phis.iter().map(|p| p.var).filter(|v| o.args.contains(v)).collect();
             for (i, s) in b.stmts.iter().enumerate() {
                 if s.dead && !matches!(s.kind, Kind::Assign { .. }) {
                     continue;
@@ -696,7 +705,7 @@ impl SsaFunction {
                             continue;
                         }
                         // Restoring a callee-saved register in the epilogue: a stack load nobody reads.
-                        if CALLEE_SAVED.contains(def)
+                        if saved.contains(def)
                             && !read_classes.contains(&dsu.find((*def, *ver)))
                             && matches!(expr, Expr::Load(_, a) if g.stack_off(a).is_some())
                         {
@@ -716,7 +725,7 @@ impl SsaFunction {
                         }
                         // Saving a callee-saved register's entry value in the prologue.
                         if let (Expr::Use(v, 0), Some(_)) = (val, g.stack_off(addr)) {
-                            if CALLEE_SAVED.contains(v) {
+                            if saved.contains(v) {
                                 continue;
                             }
                         }
@@ -1033,7 +1042,16 @@ impl SsaFunction {
 
         // Signature and declarations.
         let mut sig = vec![
-            tok(if o.returns { "__int64" } else { "void" }, TokenKind::Keyword),
+            tok(
+                if !o.returns {
+                    "void"
+                } else if f.bits == 32 {
+                    "int"
+                } else {
+                    "__int64"
+                },
+                TokenKind::Keyword,
+            ),
             tok(" ", TokenKind::Text),
             tok(o.name, TokenKind::Symbol),
             tok("(", TokenKind::Punct),

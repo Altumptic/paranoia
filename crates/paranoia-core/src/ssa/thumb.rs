@@ -153,11 +153,12 @@ fn cond_from_number(n: u8) -> ConditionCode {
     [C::EQ, C::NE, C::HS, C::LO, C::MI, C::PL, C::VS, C::VC, C::HI, C::LS, C::GE, C::LT, C::GT, C::LE, C::AL][usize::from(n.min(14))]
 }
 
-/// The branch target: Thumb offsets are in halfwords, from the end of the instruction.
+/// The branch target: Thumb offsets are in halfwords from `pc`, which reads as the instruction's address plus 4
+/// (whatever its length); `blx` to ARM code rounds that down to a word first.
 fn target(i: &Instruction, ip: u64) -> Option<u64> {
-    let len = if i.wide { 4 } else { 2 };
+    let base = if i.opcode == Opcode::BLX { (ip + 4) & !3 } else { ip + 4 };
     i.operands.iter().find_map(|o| match *o {
-        Operand::BranchThumbOffset(off) => Some((ip + len).wrapping_add((i64::from(off) * 2) as u64)),
+        Operand::BranchThumbOffset(off) => Some(base.wrapping_add((i64::from(off) * 2) as u64)),
         _ => None,
     })
 }
@@ -539,6 +540,21 @@ mod tests {
         assert!(ssa.contains("*(u32 *)0x1010"), "the literal-pool address is folded: {ssa}");
         let c = c_text(&f, true);
         assert!(c.contains("return"), "{c}");
+    }
+
+    #[test]
+    fn a_two_sided_branch_becomes_if_else() {
+        // push {r4, lr}; mov r4, r0; cmp r1, #0; beq L1; adds r0, r4, r1; b L2; L1: movs r0, #1; L2: bl; pop {r4, pc}
+        let b = blocks(&[
+            (0x2160, &[0xb510, 0x4604, 0x2900, 0xd001], &[(0x216c, EdgeKind::True), (0x2168, EdgeKind::False)]),
+            (0x2168, &[0x1860, 0xe000], &[(0x216e, EdgeKind::Uncond)]),
+            (0x216c, &[0x2001], &[(0x216e, EdgeKind::Fall)]),
+            (0x216e, &[0xf7ff, 0xffc7, 0xbd10], &[]),
+        ]);
+        let c = c_text(&build(0x2160, &b), true);
+        eprintln!("{c}");
+        assert!(c.contains("else"), "both sides assign, so this is an if/else: {c}");
+        assert!(!c.contains("r4"), "the saved register is bookkeeping: {c}");
     }
 
     #[test]

@@ -25,6 +25,8 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 - The GDB client no longer trusts the server's sizes: a packet is at most 1 MiB and unpacks to at most 2 MiB (run-length encoding could multiply it by 113), noise without a packet is discarded, a target description may list at most 4096 registers of at most 8192 bits, and a description that never ends or sends empty parts is refused. A test runs a server that never stops talking.
 
 ### Fixed
+- Thumb pseudocode: a short unconditional `b` jumped to the wrong place (it used the instruction's end instead of `pc`, the address plus 4), so an `if`/`else` lost its jump and ran both sides; registers `r4`–`r11` and `lr` are treated as saved across calls (before, the x86 set was used, which hid the argument register `r3` and showed saved registers); 32-bit functions return `int`; arguments that arrive through a join are passed to the next call. AArch64 now treats `x19`–`x30` as the saved registers instead of `x3`, `x5`–`x7` (arguments).
+- Raw images: the Cortex-M vector table and zero or erased words are no longer reported as functions.
 - SVD files with addresses near the top of the address space, huge `dim` increments or registers below their peripheral no longer overflow the arithmetic (found by new tests that damage a valid file thousands of ways). New tests also damage Intel HEX and S-record files, feed random images to every CPU's analysis and pseudocode, and feed random text to the prototype parser, without a panic.
 
 ## 0.10.0 — 2026-11-14

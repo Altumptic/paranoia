@@ -892,6 +892,23 @@ mod tests {
     }
 
     #[test]
+    fn the_vector_table_is_not_scanned_for_functions() {
+        // A real table has many different handler addresses; as "code" they decode to plausible instructions.
+        let base = 0x0800_0000u32;
+        let mut img = cortex_image(base, 0x400);
+        for i in 4..15 {
+            let w = (base + 0x160 + (i as u32) * 0x10) | 1;
+            img[i * 4..i * 4 + 4].copy_from_slice(&w.to_le_bytes());
+        }
+        let opts = RawOptions::for_arch("thumb", base as u64).unwrap();
+        let mut b = crate::Binary::load_raw("fw.bin", img, &opts).unwrap();
+        b.analyze();
+        let inside: Vec<u64> =
+            b.functions().into_iter().map(|f| f.address).filter(|a| (base as u64..base as u64 + 0x50).contains(a)).collect();
+        assert!(inside.is_empty(), "functions found inside the vector table: {inside:x?}");
+    }
+
+    #[test]
     fn a_cortex_m_image_is_analysed_from_its_vector_table() {
         let base = 0x0800_0000u32;
         let img = cortex_image(base, 0x400);
