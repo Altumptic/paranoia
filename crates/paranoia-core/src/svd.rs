@@ -338,7 +338,12 @@ fn dim_names(node: &Node, name: &str) -> Result<Vec<(String, u64)>, String> {
         .iter()
         .take(dim as usize)
         .enumerate()
-        .map(|(k, l)| (if name.contains("%s") { name.replace("[%s]", l).replace("%s", l) } else { format!("{name}{l}") }, k as u64 * inc))
+        .map(|(k, l)| {
+            (
+                if name.contains("%s") { name.replace("[%s]", l).replace("%s", l) } else { format!("{name}{l}") },
+                (k as u64).wrapping_mul(inc),
+            )
+        })
         .collect())
 }
 
@@ -432,7 +437,8 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
                 walk(regs, &n, at, bits, &mut ctx)?;
             }
             let block = p.child("addressBlock").and_then(|a| a.text_of("size")).and_then(number);
-            let end = ctx.registers.iter().map(|r| r.address + (r.bits as u64).div_ceil(8)).max().unwrap_or(at + 4);
+            let end =
+                ctx.registers.iter().map(|r| r.address.saturating_add((r.bits as u64).div_ceil(8))).max().unwrap_or(at.saturating_add(4));
             let size = block.unwrap_or_else(|| end.saturating_sub(at)).max(end.saturating_sub(at));
             svd.peripherals.push(Peripheral {
                 name: n.clone(),
@@ -444,7 +450,9 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
                 let rel = ctx
                     .registers
                     .iter()
-                    .map(|r| (r.name[n.len() + 1..].to_string(), r.address - at, r.bits, r.description.clone(), r.fields.clone()))
+                    .map(|r| {
+                        (r.name[n.len() + 1..].to_string(), r.address.wrapping_sub(at), r.bits, r.description.clone(), r.fields.clone())
+                    })
                     .collect();
                 own.insert(n.clone(), (at, rel));
             }
@@ -463,7 +471,7 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
         for (rname, rel, bits, desc, fields) in regs {
             svd.registers.push(Register {
                 name: format!("{name}_{rname}"),
-                address: base + rel,
+                address: base.wrapping_add(*rel),
                 bits: *bits,
                 description: desc.clone(),
                 fields: fields.clone(),
@@ -471,7 +479,8 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
         }
         // A derived peripheral is as big as the one it copies.
         if let Some(per) = svd.peripherals.iter_mut().find(|q| q.name == name) {
-            per.size = per.size.max(regs.iter().map(|(_, rel, bits, _, _)| rel + (*bits as u64).div_ceil(8)).max().unwrap_or(0));
+            per.size =
+                per.size.max(regs.iter().map(|(_, rel, bits, _, _)| rel.saturating_add((*bits as u64).div_ceil(8))).max().unwrap_or(0));
         }
     }
     if svd.peripherals.is_empty() {
@@ -485,6 +494,68 @@ pub fn parse(bytes: &[u8]) -> Result<Svd, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A small deterministic generator, so a failure can be reproduced.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+    }
+
+    #[test]
+    fn hostile_files_do_not_panic_or_run_away() {
+        let start = std::time::Instant::now();
+        let mut rng = Rng(0x5eed_1234_abcd_ef01);
+        // Every truncation of a valid file.
+        for n in 0..SAMPLE.len() {
+            if SAMPLE.is_char_boundary(n) {
+                let _ = parse(&SAMPLE.as_bytes()[..n]);
+            }
+        }
+        // Random damage: bytes replaced, deleted and duplicated.
+        for _ in 0..3000 {
+            let mut b = SAMPLE.as_bytes().to_vec();
+            for _ in 0..1 + rng.below(8) {
+                let at = rng.below(b.len());
+                match rng.below(3) {
+                    0 => b[at] = rng.next() as u8,
+                    1 => {
+                        b.remove(at);
+                    }
+                    _ => b.insert(at, b[rng.below(b.len())]),
+                }
+            }
+            let _ = parse(&b);
+        }
+        // Pure noise.
+        for _ in 0..500 {
+            let b: Vec<u8> = (0..rng.below(2000)).map(|_| rng.next() as u8).collect();
+            let _ = parse(&b);
+        }
+        // Nesting far beyond the limit, an unterminated tag, and a huge dim array.
+        let _ = parse(&"<a>".repeat(100_000).into_bytes());
+        let _ = parse(&format!("<device><peripherals>{}", "<peripheral>".repeat(50_000)).into_bytes());
+        let big = |dim: &str| {
+            format!(
+                "<device><name>x</name><peripherals><peripheral><name>P%s</name><baseAddress>0x1000</baseAddress><dim>{dim}</dim><dimIncrement>4</dimIncrement>\
+                 <registers><register><name>R%s</name><addressOffset>0</addressOffset></register></registers></peripheral></peripherals></device>"
+            )
+        };
+        for dim in ["4000000000", "18446744073709551615", "-1", "0x7fffffff"] {
+            let _ = parse(big(dim).as_bytes());
+        }
+        // Addresses at the top of the address space must not overflow.
+        let top = SAMPLE.replace("0x40020000", "0xFFFFFFFFFFFFFFF0");
+        let _ = parse(top.as_bytes());
+        assert!(start.elapsed() < std::time::Duration::from_secs(60), "parsing took {:?}", start.elapsed());
+    }
 
     const SAMPLE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <!-- A made-up part -->

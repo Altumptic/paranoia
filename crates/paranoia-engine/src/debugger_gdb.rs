@@ -141,6 +141,15 @@ impl Drop for Remote {
 // Packets
 // ------------------------------------------------------------------------------------------------
 
+/// The most a server may send before a packet is complete, and the most one packet may unpack to
+/// (run-length encoding makes two bytes into up to 226). A server is not trusted: without these a
+/// hostile or broken one could make the engine allocate without end.
+const MAX_PACKET: usize = 1 << 20;
+const MAX_UNPACKED: usize = 2 << 20;
+/// The most registers a target description may list, and the widest one (bits).
+const MAX_REGS: usize = 4096;
+const MAX_REG_BITS: usize = 8192;
+
 fn checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |a, b| a.wrapping_add(*b))
 }
@@ -169,6 +178,7 @@ fn unescape(data: &[u8]) -> Vec<u8> {
                 out.push(data[i + 1] ^ 0x20);
                 i += 2;
             }
+            _ if out.len() >= MAX_UNPACKED => break,
             b'*' if i + 1 < data.len() && !out.is_empty() => {
                 let n = (data[i + 1] as usize).saturating_sub(29).min(255);
                 let last = *out.last().unwrap();
@@ -247,6 +257,9 @@ impl Conn {
             Ok(0) => Err("the server closed the connection".into()),
             Ok(n) => {
                 self.buf.extend_from_slice(&chunk[..n]);
+                if self.buf.len() > MAX_PACKET {
+                    return Err("the server sent more than a packet can hold".into());
+                }
                 Ok(())
             }
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => Ok(()),
@@ -258,8 +271,8 @@ impl Conn {
     fn take_packet(&mut self) -> Result<Option<Vec<u8>>, String> {
         loop {
             let Some(start) = self.buf.iter().position(|b| *b == b'$') else {
-                // Only acknowledgements and noise so far.
-                self.buf.retain(|b| *b != b'+' && *b != b'-');
+                // Only acknowledgements and noise so far: none of it is kept.
+                self.buf.clear();
                 return Ok(None);
             };
             self.buf.drain(..start);
@@ -324,8 +337,9 @@ impl Layout {
         let Some(raw) = from_hex(reply) else { return Vec::new() };
         let (mut at, mut out) = (0usize, Vec::new());
         for r in &self.regs {
-            let Some(b) = raw.get(at..at + r.bytes) else { break };
-            at += r.bytes;
+            let Some(end) = at.checked_add(r.bytes) else { break };
+            let Some(b) = raw.get(at..end) else { break };
+            at = end;
             if r.bytes <= 8 {
                 out.push((r.name.clone(), b.iter().rev().fold(0u64, |a, x| a << 8 | *x as u64)));
             }
@@ -376,7 +390,12 @@ fn layout_from_xml(xml: &str) -> Layout {
             let v = &tag[p + k.len() + 2..];
             Some(&v[..v.find('"')?])
         };
-        if let (Some(name), Some(bits)) = (attr("name"), attr("bitsize").and_then(|b| b.parse::<usize>().ok())) {
+        if regs.len() >= MAX_REGS {
+            break;
+        }
+        if let (Some(name), Some(bits)) =
+            (attr("name"), attr("bitsize").and_then(|b| b.parse::<usize>().ok()).filter(|b| (1..=MAX_REG_BITS).contains(b)))
+        {
             regs.push((attr("regnum").and_then(|n| n.parse().ok()), RegDesc { name: name.to_string(), bytes: bits.div_ceil(8) }));
         }
     }
@@ -592,13 +611,16 @@ impl Worker {
 
     fn xfer(&mut self, name: &str) -> Result<String, String> {
         let mut out = Vec::new();
+        let mut last = false;
         let chunk = (self.packet_size.saturating_sub(16)).clamp(64, 4000);
-        loop {
+        for _ in 0..4096 {
             let r = self.request(&format!("qXfer:features:read:{name}:{:x},{:x}", out.len(), chunk))?;
             match r.first() {
+                Some(b'm') if r.len() == 1 => return Err(format!("the server sent an empty part of {name}")),
                 Some(b'm') => out.extend_from_slice(&r[1..]),
                 Some(b'l') => {
                     out.extend_from_slice(&r[1..]);
+                    last = true;
                     break;
                 }
                 _ => return Err(format!("the server refused {name}")),
@@ -606,6 +628,12 @@ impl Worker {
             if out.len() > 4 << 20 {
                 return Err("the target description is too large".into());
             }
+        }
+        if !last {
+            return Err(format!("{name} has too many parts"));
+        }
+        if out.is_empty() {
+            return Err(format!("the server sent no {name}"));
         }
         String::from_utf8(out).map_err(|_| "the target description is not text".into())
     }
@@ -653,13 +681,14 @@ impl Worker {
         let step = (self.packet_size / 2).saturating_sub(16).clamp(16, 2048);
         while out.len() < len {
             let n = step.min(len - out.len());
-            let r = self.request(&format!("m{:x},{:x}", rt + out.len() as u64, n))?;
+            let at = rt.wrapping_add(out.len() as u64);
+            let r = self.request(&format!("m{at:x},{n:x}"))?;
             if r.first() == Some(&b'E') || r.is_empty() {
-                return Err(format!("cannot read {:#x}", rt + out.len() as u64));
+                return Err(format!("cannot read {at:#x}"));
             }
             let b = from_hex(&r).ok_or("the server answered a memory read with something that is not hex")?;
             if b.is_empty() {
-                return Err(format!("cannot read {:#x}", rt + out.len() as u64));
+                return Err(format!("cannot read {at:#x}"));
             }
             out.extend_from_slice(&b);
         }
@@ -1118,6 +1147,49 @@ mod tests {
         let packets = seen.lock().unwrap().clone();
         assert!(packets.iter().any(|p| p.starts_with("Z0,1010,4")), "{packets:?}");
         assert!(packets.iter().any(|p| p == "s") && packets.iter().any(|p| p == "c"));
+    }
+
+    #[test]
+    fn a_hostile_server_cannot_make_the_engine_allocate_without_end() {
+        // Run-length encoding: `0*~` is '0' repeated 97 more times; a long run of them stays bounded.
+        let bomb: Vec<u8> = std::iter::once(b'0').chain(std::iter::repeat_n([b'*', b'~'], 2 << 20).flatten()).collect();
+        assert!(unescape(&bomb).len() <= MAX_UNPACKED + 255);
+        // A target description with a huge register, or too many registers, is cut down, not trusted.
+        let huge = format!(r#"<reg name="a" bitsize="{}"/><reg name="b" bitsize="32"/>"#, usize::MAX);
+        let l = layout_from_xml(&huge);
+        assert_eq!(l.regs.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["b"]);
+        let many = r#"<reg name="r" bitsize="8"/>"#.repeat(MAX_REGS + 100);
+        assert_eq!(layout_from_xml(&many).regs.len(), MAX_REGS);
+        let wide = Layout { regs: vec![RegDesc { name: "x".into(), bytes: usize::MAX }, RegDesc { name: "y".into(), bytes: 4 }] };
+        assert!(wide.parse(b"00000000").is_empty());
+
+        // A server that never stops talking and never sends a packet: the connection is dropped.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let junk = [b'A'; 65536];
+            for _ in 0..4096 {
+                if s.write_all(&junk).is_err() {
+                    break;
+                }
+            }
+        });
+        let e = Remote::connect(ConnectArgs {
+            host: "127.0.0.1".into(),
+            port,
+            arch: Arch::X86_64,
+            delta: 0,
+            image_base: 0,
+            image_size: 0,
+            entry: 0,
+            breakpoints: vec![],
+            break_on_entry: false,
+        })
+        .err()
+        .expect("must fail");
+        assert!(e.contains("more than a packet can hold"), "{e}");
+        server.join().unwrap();
     }
 
     #[test]

@@ -21,6 +21,12 @@ Notable changes in each release. The format follows [Keep a Changelog](https://k
 - Firmware and raw images: a flat `.bin`, Intel HEX and Motorola S-record open with the architecture (`--arch x86 … riscv64`, or a dialog in the app) and, for a `.bin`, the load address. Checksums are verified, every segment keeps its own address, and Cortex-M images get `Reset_Handler`, the exception and interrupt handlers and a `__vectors` table from their vector table. `paranoia guess` (and the dialog) suggest the CPU and base from the vector table or from pointers to strings. See [docs/FIRMWARE.md](docs/FIRMWARE.md).
 - Raw images of any CPU: `--arch auto` (and `paranoia guess`, the dialog and the MCP tool) guess the CPU from machine-code patterns, 36 of 37 real files right and none wrong, and a raw x86-64, AArch64, ARM or Thumb image gets its functions from a scan for function starts (95–99.8 % of the functions on most real dumps measured). `paranoia mcp`'s `open_binary` opens firmware with `arch`, `base` and `entry`.
 
+### Security
+- The GDB client no longer trusts the server's sizes: a packet is at most 1 MiB and unpacks to at most 2 MiB (run-length encoding could multiply it by 113), noise without a packet is discarded, a target description may list at most 4096 registers of at most 8192 bits, and a description that never ends or sends empty parts is refused. A test runs a server that never stops talking.
+
+### Fixed
+- SVD files with addresses near the top of the address space, huge `dim` increments or registers below their peripheral no longer overflow the arithmetic (found by new tests that damage a valid file thousands of ways). New tests also damage Intel HEX and S-record files, feed random images to every CPU's analysis and pseudocode, and feed random text to the prototype parser, without a panic.
+
 ## 0.10.0 — 2026-11-14
 
 A release process with release candidates, an opt-in update check, the debugger on Linux ARM64, user types in AArch64 pseudocode, and CI that starts every packaged desktop app for real.
