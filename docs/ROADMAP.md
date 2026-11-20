@@ -122,7 +122,7 @@ Moved to the next releases: redaction of symbol and function names on request. S
 
 ### 0.13: remote debugging
 
-- [x] GDB remote protocol client: `gdbserver` and QEMU's gdbstub, register layout from `target.xml`, breakpoints, step, step over ([REMOTE-DEBUGGING.md](REMOTE-DEBUGGING.md)); tested against a fake server, not yet a real one
+- [x] GDB remote protocol client: `gdbserver` and QEMU's gdbstub, register layout from `target.xml`, breakpoints, step, step over ([REMOTE-DEBUGGING.md](REMOTE-DEBUGGING.md)); tested against a fake server in CI and by hand against a real `gdbserver` (x86-64) and QEMU (Cortex-M); other servers untested
 - [x] The first socket the engine opens: only when the user asks, confirmed in a native dialog (host and port, a stronger warning for another machine), validated by the main process, documented in SECURITY-DESIGN before shipping
 
 ### Function memory, next steps

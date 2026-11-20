@@ -420,7 +420,11 @@ enum Stop {
 
 fn parse_stop(p: &[u8]) -> Option<Stop> {
     let s = std::str::from_utf8(p).ok()?;
-    let byte = |t: &str| u8::from_str_radix(t.get(..2)?, 16).ok();
+    // The number is the leading hex digits: `W00`, but a server with the multiprocess extension also says `W0;process:121`.
+    let byte = |t: &str| {
+        let n = t.bytes().take_while(u8::is_ascii_hexdigit).count().min(2);
+        u8::from_str_radix(t.get(..n).filter(|d| !d.is_empty())?, 16).ok()
+    };
     match s.chars().next()? {
         'T' | 'S' => Some(Stop::Signal(byte(&s[1..])?)),
         'W' => Some(Stop::Exited(byte(&s[1..])? as u32)),
@@ -503,13 +507,15 @@ impl Worker {
         };
         w.shared.lock().unwrap().base = (a.image_base as i64).wrapping_add(a.delta) as u64;
         w.handshake()?;
+        // Where is the target? Stopped, normally (gdbserver at the program's start, QEMU with -S). Asked before
+        // any breakpoint is set, as GDB does: QEMU never reports a stop to a `c` that follows breakpoints set
+        // before the first `?`.
+        let stop = w.request("?")?;
+        let first = parse_stop(&stop);
         for b in w.user_bps.keys().copied().collect::<Vec<_>>() {
             let ok = w.insert_bp(b);
             w.user_bps.insert(b, ok);
         }
-        // Where is the target? Stopped, normally (gdbserver at the program's start, QEMU with -S).
-        let stop = w.request("?")?;
-        let first = parse_stop(&stop);
         w.log(format!("Connected to {}:{}", a.host, a.port));
         if let Some(Stop::Exited(c)) = first {
             w.finish(c);
@@ -572,6 +578,8 @@ impl Worker {
             }
         }
         if sup.contains("qXfer:features:read+") {
+            // Like GDB: select a thread first. Without it, gdbserver has no current thread to describe and aborts.
+            let _ = self.request("Hg0");
             match self.read_xml("target.xml", 0) {
                 Ok(l) if !l.regs.is_empty() => self.layout = l,
                 Ok(_) => self.log("the target description lists no registers; using the standard layout"),
@@ -1061,6 +1069,11 @@ mod tests {
         assert_eq!(parse_stop(b"S0b"), Some(Stop::Signal(11)));
         assert_eq!(parse_stop(b"W2a"), Some(Stop::Exited(42)));
         assert_eq!(parse_stop(b"X09"), Some(Stop::Killed(9)));
+        assert_eq!(parse_stop(b"W0;process:121"), Some(Stop::Exited(0)));
+        assert_eq!(parse_stop(b"W2a;process:ff"), Some(Stop::Exited(42)));
+        assert_eq!(parse_stop(b"X9;process:1"), Some(Stop::Killed(9)));
+        assert_eq!(parse_stop(b"W;process:1"), None);
+        assert_eq!(parse_stop(b"T"), None);
         assert_eq!(parse_stop(b"OK"), None);
     }
 
@@ -1190,6 +1203,76 @@ mod tests {
         .expect("must fail");
         assert!(e.contains("more than a packet can hold"), "{e}");
         server.join().unwrap();
+    }
+
+    /// Against a real server, when one is running: `PARANOIA_REAL_GDB=127.0.0.1:1234 PARANOIA_REAL_GDB_ARCH=x86-64 cargo test
+    /// real_gdb_server -- --nocapture` (arch: x86-64, thumb, arm64, ...). Skipped otherwise. Steps a few times and, for a
+    /// gdbserver, runs the program to its end.
+    #[test]
+    fn real_gdb_server() {
+        let Ok(addr) = std::env::var("PARANOIA_REAL_GDB") else { return };
+        let arch = match std::env::var("PARANOIA_REAL_GDB_ARCH").unwrap_or_default().as_str() {
+            "thumb" => Arch::Thumb,
+            "arm64" => Arch::Arm64,
+            "arm" => Arch::Arm,
+            _ => Arch::X86_64,
+        };
+        let (host, port) = addr.rsplit_once(':').unwrap();
+        let r = Remote::connect(ConnectArgs {
+            host: host.into(),
+            port: port.parse().unwrap(),
+            arch,
+            delta: 0,
+            image_base: 0,
+            image_size: 0x1000,
+            entry: 0,
+            breakpoints: std::env::var("PARANOIA_REAL_GDB_BP")
+                .ok()
+                .and_then(|b| u64::from_str_radix(b.trim_start_matches("0x"), 16).ok())
+                .into_iter()
+                .collect(),
+            break_on_entry: false,
+        })
+        .unwrap();
+        let s = wait_for(&r, &["paused", "exited"]);
+        eprintln!("connected: state {} reason {} pc {:x?} regs {}", s.state, s.reason, s.pc_runtime, s.regs.len());
+        eprintln!("registers: {:?}", s.regs.iter().take(8).collect::<Vec<_>>());
+        assert_eq!(s.state, "paused", "{s:?}");
+        assert!(!s.regs.is_empty() && s.pc_runtime != 0, "{s:?}");
+        let code = r.read(s.pc_runtime, 8).expect("memory at pc");
+        eprintln!("bytes at pc: {code:02x?}");
+        if let Ok(bp) = std::env::var("PARANOIA_REAL_GDB_BP") {
+            // A breakpoint set at connect time stops a continue there.
+            let want = u64::from_str_radix(bp.trim_start_matches("0x"), 16).unwrap();
+            assert!(s.breakpoints.contains(&want), "the server accepted the breakpoint: {s:?}");
+            r.command("continue", None).unwrap();
+            let s = wait_for(&r, &["paused", "exited"]);
+            eprintln!("continue: {} pc {:x} ({})", s.state, s.pc_runtime, s.reason);
+            assert_eq!((s.state.as_str(), s.pc_runtime), ("paused", want), "{s:?}");
+            return;
+        }
+        let mut pc = s.pc_runtime;
+        for n in 0..3 {
+            r.command("step_into", None).unwrap();
+            let s = wait_for(&r, &["paused", "exited"]);
+            eprintln!("step {n}: {} pc {:x} ({})", s.state, s.pc_runtime, s.reason);
+            if s.state == "exited" {
+                return;
+            }
+            assert_ne!(s.pc_runtime, pc, "a step moves pc");
+            pc = s.pc_runtime;
+        }
+        if std::env::var("PARANOIA_REAL_GDB_RUN").is_ok() {
+            r.command("continue", None).unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+            let s = r.snapshot();
+            eprintln!(
+                "after continue: {} {} exit {:?}
+log: {:#?}",
+                s.state, s.reason, s.exit_code, s.log
+            );
+            assert_eq!(s.state, "exited");
+        }
     }
 
     #[test]
