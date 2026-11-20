@@ -229,34 +229,62 @@ fn lift(i: &Instruction, ip: u64, it: Option<ConditionCode>) -> Lifted {
                 vec![(Kind::Branch { cond: None, uses, target: None }, false)]
             }
         },
-        O::PUSH => {
-            let regs = list(&ops[0]);
-            let n = regs.len() as i64;
-            let mut out: Lifted = vec![(assign(RSP, bin("-", Expr::Use(RSP, 0), Expr::Const(4 * n))), false)];
-            for (k, r) in regs.iter().enumerate() {
-                let val = if *r == PC { Expr::Const(ip as i64) } else { Expr::Use(var(*r), 0) };
-                out.push((Kind::Store { size: 4, addr: plus(Expr::Use(RSP, 0), 4 * k as i64), val }, false));
+        O::PUSH => push(&list(&ops[0]), ip),
+        O::POP => pop(&list(&ops[0])),
+        // The 32-bit encodings of push and pop (`push.w {r4-r11, lr}`) and the other load/store-multiple forms.
+        // The two flags say the direction: `add` is increment, `pre` is before (for decrement, `pre` = db, else da).
+        O::LDM(add, pre, _, _) | O::STM(add, pre, _, _) => {
+            let load = matches!(i.opcode, O::LDM(..));
+            let (base, wback) = match &ops[0] {
+                Operand::RegWBack(r, w) => (*r, *w),
+                Operand::Reg(r) => (*r, false),
+                _ => return generic(None),
+            };
+            let regs = list(&ops[1]);
+            if regs.is_empty() || base.number() == PC {
+                return generic(None);
             }
-            out
-        }
-        O::POP => {
-            let regs = list(&ops[0]);
-            let n = regs.len() as i64;
+            if base.number() == 13 && wback && ((load && add) || (!load && !add && pre)) {
+                return if load { pop(&regs) } else { push(&regs, ip) };
+            }
+            let n = 4 * regs.len() as i64;
+            let b = Expr::Use(var(base.number()), 0);
+            let start = match (add, pre) {
+                (true, _) => 0,
+                (false, true) => -n,
+                (false, false) => 4 - n,
+            };
             let mut out: Lifted = Vec::new();
             let mut returns = false;
             for (k, r) in regs.iter().enumerate() {
-                if *r == PC {
-                    returns = true;
+                let addr = plus(b.clone(), start + 4 * k as i64);
+                if load {
+                    if *r == PC {
+                        returns = true;
+                    } else {
+                        out.push((assign(var(*r), Expr::Load(4, Box::new(addr))), false));
+                    }
                 } else {
-                    out.push((assign(var(*r), Expr::Load(4, Box::new(plus(Expr::Use(RSP, 0), 4 * k as i64)))), false));
+                    let val = if *r == PC { Expr::Const(ip as i64) } else { Expr::Use(var(*r), 0) };
+                    out.push((Kind::Store { size: 4, addr, val }, false));
                 }
             }
-            out.push((assign(RSP, bin("+", Expr::Use(RSP, 0), Expr::Const(4 * n))), false));
+            if wback && !(load && regs.contains(&base.number())) {
+                out.push((assign(var(base.number()), plus(b, if add { n } else { -n })), false));
+            }
             if returns {
                 out.push((Kind::Return { val: Some(Expr::Use(0, 0)) }, false));
             }
             out
         }
+        O::UXTB | O::UXTH => match (dst(&ops[0]), reg(&ops[1], ip)) {
+            (Some(d), Some(v)) => vec![(assign(d, bin("&", v, Expr::Const(if i.opcode == O::UXTB { 0xff } else { 0xffff }))), false)],
+            _ => generic(None),
+        },
+        O::UDIV | O::SDIV => match (dst(&ops[0]), reg(&ops[1], ip), reg(&ops[2], ip)) {
+            (Some(d), Some(a), Some(b)) => vec![(assign(d, bin("/", a, b)), false)],
+            _ => generic(None),
+        },
         O::MOV | O::MVN => match (dst(&ops[0]), src(&ops[1], ip)) {
             (Some(d), Some(v)) => {
                 let v = if i.opcode == O::MVN { Expr::Un("~", Box::new(v)) } else { v };
@@ -365,6 +393,36 @@ fn lift(i: &Instruction, ip: u64, it: Option<ConditionCode>) -> Lifted {
     }
 }
 
+/// `push {…}`: the stack pointer drops, then the registers are stored from the new top upwards.
+fn push(regs: &[u8], ip: u64) -> Lifted {
+    let n = regs.len() as i64;
+    let mut out: Lifted = vec![(assign(RSP, bin("-", Expr::Use(RSP, 0), Expr::Const(4 * n))), false)];
+    for (k, r) in regs.iter().enumerate() {
+        let val = if *r == PC { Expr::Const(ip as i64) } else { Expr::Use(var(*r), 0) };
+        out.push((Kind::Store { size: 4, addr: plus(Expr::Use(RSP, 0), 4 * k as i64), val }, false));
+    }
+    out
+}
+
+/// `pop {…}`: loads from the top upwards, then the stack pointer rises; `pc` in the list is a return.
+fn pop(regs: &[u8]) -> Lifted {
+    let n = regs.len() as i64;
+    let mut out: Lifted = Vec::new();
+    let mut returns = false;
+    for (k, r) in regs.iter().enumerate() {
+        if *r == PC {
+            returns = true;
+        } else {
+            out.push((assign(var(*r), Expr::Load(4, Box::new(plus(Expr::Use(RSP, 0), 4 * k as i64)))), false));
+        }
+    }
+    out.push((assign(RSP, bin("+", Expr::Use(RSP, 0), Expr::Const(4 * n))), false));
+    if returns {
+        out.push((Kind::Return { val: Some(Expr::Use(0, 0)) }, false));
+    }
+    out
+}
+
 fn with_writeback(m: Mem, access: impl FnOnce(Expr) -> Lifted) -> Lifted {
     let mut out = Vec::new();
     if let Some((v, e)) = m.pre {
@@ -389,7 +447,9 @@ fn generic(i: &Instruction, under: Option<ConditionCode>) -> Lifted {
             Operand::Reg(r) if r.number() == PC => Vec::new(),
             Operand::Reg(r) => vec![(var(r.number()), k == 0 && writes_first)],
             Operand::RegWBack(r, _) => vec![(var(r.number()), false)],
-            Operand::RegList(m) => (0..16u8).filter(|r| m & (1 << r) != 0 && *r != PC).map(|r| (var(r), name == "POP")).collect(),
+            Operand::RegList(m) => {
+                (0..16u8).filter(|r| m & (1 << r) != 0 && *r != PC).map(|r| (var(r), name == "POP" || name.starts_with("LDM"))).collect()
+            }
             Operand::RegDeref(r) | Operand::RegDerefPreindexOffset(r, ..) | Operand::RegDerefPostindexOffset(r, ..) => {
                 vec![(var(r.number()), false)]
             }
@@ -462,6 +522,7 @@ pub(crate) fn returns_value(blocks: &Blocks) -> bool {
         let ends = v.last().is_some_and(|(_, l)| {
             matches!(l.opcode, Opcode::BX) && matches!(l.operands[0], Operand::Reg(r) if r.number() == LR)
                 || matches!(l.opcode, Opcode::POP) && matches!(l.operands[0], Operand::RegList(m) if m & (1 << PC) != 0)
+                || matches!(l.opcode, Opcode::LDM(..)) && matches!(l.operands[1], Operand::RegList(m) if m & (1 << PC) != 0)
         });
         ends && v.iter().rev().skip(1).take(6).any(|(_, i)| {
             matches!(i.opcode, Opcode::BL | Opcode::BLX)
@@ -574,12 +635,37 @@ mod tests {
         // ldr r2, [r0, #4]; ldrb r3, [r1]; lsls r3, r3, #2; adds r2, r2, r3; str r2, [r0]; movs r0, #0; bx lr
         let b = blocks(&[(0x4000, &[0x6842, 0x780b, 0x009b, 0x18d2, 0x6002, 0x2000, 0x4770], &[])]);
         let c = c_text(&build(0x4000, &b), true);
-        eprintln!("{c}");
         assert!(c.contains("*(uint32_t *)(a1 + 4)"), "{c}");
         assert!(c.contains("*(uint8_t *)a2") || c.contains("*(uint8_t *)(a2"), "{c}");
         assert!(c.contains("<< 2"), "{c}");
         assert!(c.contains("*(uint32_t *)(a1) =") || c.contains("*(uint32_t *)a1 ="), "{c}");
         assert!(c.contains("return 0;"), "{c}");
+    }
+
+    #[test]
+    fn constants_wrap_at_32_bits() {
+        // movs r0, #0; subs r0, r0, #1; bx lr  — the result is 0xffffffff, never a 64-bit value
+        let b = blocks(&[(0x5000, &[0x2000, 0x3801, 0x4770], &[])]);
+        let c = c_text(&build(0x5000, &b), true);
+        assert!(c.contains("return -1;") || c.contains("return 0xffffffff;") || c.contains("return 4294967295;"), "{c}");
+        // movs r0, #1; lsls r0, r0, #31; lsls r0, r0, #1; bx lr — shifted out of 32 bits: zero
+        let b = blocks(&[(0x5100, &[0x2001, 0x07c0, 0x0040, 0x4770], &[])]);
+        let c = c_text(&build(0x5100, &b), true);
+        assert!(c.contains("return 0;"), "a 32-bit shift loses the bit: {c}");
+    }
+
+    #[test]
+    fn wide_push_pop_and_load_multiple_are_modelled() {
+        // push.w {r4-r11, lr}; mov r4, r0; ldmia r0!, {r1-r3}; adds r0, r1, r2; stmia r4!, {r0, r1}; pop.w {r4-r11, pc}
+        let b = blocks(&[(0x6000, &[0xe92d, 0x4ff0, 0x4604, 0xc80e, 0x1888, 0xc403, 0xe8bd, 0x8ff0], &[])]);
+        let c = c_text(&build(0x6000, &b), true);
+        assert!(!c.contains("__asm"), "every instruction has a model: {c}");
+        assert!(
+            c.contains("*(uint32_t *)(a1)") && c.contains("*(uint32_t *)(a1 + 4)") && c.contains("*(uint32_t *)(a1 + 8)"),
+            "the loads read the buffer in order: {c}"
+        );
+        assert!(c.contains("return"), "pop with pc returns: {c}");
+        assert!(!c.contains("sp") && !c.contains("var_"), "the frame is bookkeeping: {c}");
     }
 
     #[test]
