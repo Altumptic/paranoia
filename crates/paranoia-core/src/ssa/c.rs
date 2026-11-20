@@ -558,6 +558,34 @@ impl SsaFunction {
                 }
             }
         }
+        // An entry value that only flows into a loop's phi is still a parameter when something reads the merged
+        // value (`for (i = n; i; i--)`): follow the phis from the values statements read back to their inputs.
+        let mut needed: HashSet<(Var, u32)> = HashSet::new();
+        for b in &f.blocks {
+            for s in b.stmts.iter().filter(|s| !s.dead && !matches!(s.kind, Kind::Call { .. } | Kind::Branch { .. })) {
+                needed.extend(s.kind.uses());
+            }
+        }
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for b in &f.blocks {
+                for p in b.phis.iter().filter(|p| p.var != RSP && !p.dead) {
+                    if !needed.contains(&(p.var, p.ver)) {
+                        continue;
+                    }
+                    for (_, n) in &p.args {
+                        if *n == 0 {
+                            if !used_entry.contains(&p.var) {
+                                used_entry.push(p.var);
+                            }
+                        } else {
+                            grew |= needed.insert((p.var, *n));
+                        }
+                    }
+                }
+            }
+        }
         let mut param_regs: Vec<Var> = o.args.iter().copied().filter(|a| used_entry.contains(a)).collect();
         // An argument implies the ones before it.
         if let Some(last) = param_regs.last().and_then(|l| o.args.iter().position(|a| a == l)) {
@@ -1431,6 +1459,22 @@ mod tests {
         assert!(t.contains("if (a1 == 0) {"), "{t}");
         assert!(t.contains("v1 = 1;") && t.contains("v1 = 2;"), "the phi and its inputs share one variable: {t}");
         assert!(!t.contains("goto"), "{t}");
+    }
+
+    #[test]
+    fn an_argument_that_only_feeds_a_loop_is_still_a_parameter() {
+        // eax = 0; do { eax += ecx; ecx--; } while (ecx != 0); return eax;  — ecx is read only through the loop's phi
+        let b = func(
+            64,
+            &[
+                (0x100, &["xor eax, eax"], &[(0x110, EdgeKind::Fall)]),
+                (0x110, &["add eax, ecx", "dec ecx", "jnz 0x110"], &[(0x110, EdgeKind::True), (0x120, EdgeKind::False)]),
+                (0x120, &["ret"], &[]),
+            ],
+        );
+        let t = c(64, &b, true);
+        assert!(t.contains("f(int a1)"), "the loop counter arrives as the first argument: {t}");
+        assert!(t.contains("while"), "{t}");
     }
 
     #[test]
