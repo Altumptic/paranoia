@@ -306,6 +306,68 @@ pub(crate) fn apply(lines: &mut Vec<PseudoLine>, p: &Proto) {
 
 #[cfg(test)]
 mod tests {
+    /// A small deterministic generator, so a failure can be reproduced.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+    }
+
+    #[test]
+    fn hostile_text_does_not_panic() {
+        let pieces = [
+            "int",
+            "char",
+            "*",
+            "const",
+            "struct",
+            "foo",
+            "(",
+            ")",
+            ",",
+            ";",
+            "...",
+            "[",
+            "]",
+            "10",
+            "__stdcall",
+            " ",
+            "\u{e9}",
+            "\0",
+            "(*",
+            "fn)",
+            "void",
+            "unsigned",
+            "long",
+            "long",
+            "{",
+            "}",
+            "//",
+            "/*",
+        ];
+        let mut rng = Rng(0xfeed_5eed_0102_0304);
+        for _ in 0..20_000 {
+            let n = 1 + (rng.next() % 24) as usize;
+            let text: String = (0..n)
+                .map(|_| pieces[(rng.next() % pieces.len() as u64) as usize])
+                .collect::<Vec<_>>()
+                .join(if rng.next() & 1 == 0 { " " } else { "" });
+            if let Ok(p) = parse(&text) {
+                let _ = p.names();
+                let _ = p.types();
+                let mut lines = Vec::new();
+                apply(&mut lines, &p);
+            }
+        }
+        let _ = parse(&"(".repeat(100_000));
+        let _ = parse(&"int *".repeat(100_000));
+        let _ = parse(&format!("int f({})", "int a,".repeat(100_000)));
+    }
+
     use super::*;
 
     fn p(s: &str) -> Proto {

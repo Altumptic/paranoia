@@ -611,6 +611,114 @@ mod tests {
         format!("S{ty}{}", b.iter().map(|x| format!("{x:02X}")).collect::<String>())
     }
 
+    /// A small deterministic generator, so a failure can be reproduced.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+    }
+
+    #[test]
+    fn hostile_images_do_not_panic_or_run_away() {
+        let start = std::time::Instant::now();
+        let mut rng = Rng(0x0bad_5eed_f00d_1234);
+        let img = cortex_image(0x0800_0000, 0x400);
+        let hex = as_intel_hex(&img, 0x0800_0000, Some(0x0800_0101));
+        let srec =
+            [srec_line('0', 2, 0, b"hi"), srec_line('3', 4, 0x0800_0000, &img[..32]), srec_line('7', 4, 0x0800_0101, &[])].join("\n");
+        for seed in [hex.as_bytes(), srec.as_bytes()] {
+            // Damage a valid file in place: a changed byte breaks a checksum or a field, which must be an error.
+            for _ in 0..2000 {
+                let mut b = seed.to_vec();
+                for _ in 0..1 + rng.below(6) {
+                    let at = rng.below(b.len());
+                    match rng.below(3) {
+                        0 => b[at] = b"0123456789ABCDEF:S\r\n"[rng.below(20)],
+                        1 => {
+                            b.remove(at);
+                        }
+                        _ => b.insert(at, b[rng.below(b.len())]),
+                    }
+                }
+                let _ = sniff(&b);
+                if let Some(Ok(d)) = decode(&b) {
+                    // Whatever decodes is bounded and its segments do not overlap.
+                    assert!(d.segments.iter().map(|s| s.data.len()).sum::<usize>() <= (256 << 20));
+                }
+            }
+            for n in 0..seed.len().min(400) {
+                let _ = decode(&seed[..n]);
+            }
+        }
+        // Records at the edges of the address space, and sparse far-apart ones.
+        let edge = [
+            hex_line(0, 0x04, &[0xff, 0xff]),
+            hex_line(0xfff0, 0x00, &[1; 16]),
+            hex_line(0, 0x04, &[0x00, 0x00]),
+            hex_line(0, 0x00, &[2; 16]),
+            hex_line(0, 0x01, &[]),
+        ]
+        .join("\n");
+        let _ = decode(edge.as_bytes());
+        let far = [hex_line(0, 0x02, &[0xf0, 0x00]), hex_line(0xffff, 0x00, &[9]), hex_line(0, 0x01, &[])].join("\n");
+        let _ = decode(far.as_bytes());
+        let s_edge = [srec_line('3', 4, 0xffff_fff0, &[1; 16]), srec_line('3', 4, 0, &[2; 16])].join("\n");
+        let _ = decode(s_edge.as_bytes());
+        // The guesses on noise, and on noise that starts like a vector table.
+        for _ in 0..300 {
+            let mut b: Vec<u8> = (0..rng.below(8192)).map(|_| rng.next() as u8).collect();
+            if rng.below(2) == 0 && b.len() > 64 {
+                b[..4].copy_from_slice(&0x2000_8000u32.to_le_bytes());
+                for i in 1..16 {
+                    b[i * 4..i * 4 + 4].copy_from_slice(&(0x0800_0100u32 + (rng.below(64) as u32) * 2 + 1).to_le_bytes());
+                }
+            }
+            let g = guess(&b);
+            let _ = crate::archguess::guess_arch(&b);
+            if let Some(a) = g.arch {
+                let _ = a;
+            }
+        }
+        // Whole-image analysis of random bytes as code, for every CPU: no panic, and every function the
+        // analysis finds can be turned into pseudocode (all three views).
+        for name in ARCH_NAMES {
+            for round in 0..6 {
+                let len = 512 + rng.below(6000);
+                let mut code: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+                if round % 2 == 0 {
+                    // Make it look like code: frames and returns at 2- or 4-byte steps.
+                    let (frame, ret): (&[u8], &[u8]) = match *name {
+                        "thumb" | "arm" => (&[0x80, 0xb5], &[0x80, 0xbd]),
+                        "arm64" => (&[0xfd, 0x7b, 0xbf, 0xa9], &[0xc0, 0x03, 0x5f, 0xd6]),
+                        "x86" | "x86-64" => (&[0x55, 0x48, 0x89, 0xe5], &[0x5d, 0xc3]),
+                        _ => (&[0, 0, 0, 0], &[0, 0, 0, 0]),
+                    };
+                    for k in (0..len.saturating_sub(64)).step_by(96) {
+                        code[k..k + frame.len()].copy_from_slice(frame);
+                        let r = k + 40;
+                        code[r..r + ret.len()].copy_from_slice(ret);
+                    }
+                }
+                let Ok(opts) = RawOptions::for_arch(name, 0x1000) else { continue };
+                let Ok(mut bin) = crate::Binary::load_raw("fuzz.bin", code, &opts) else { continue };
+                bin.analyze();
+                for f in bin.functions().into_iter().take(40) {
+                    let _ = bin.pseudocode(f.address);
+                    let _ = bin.pseudocode_from_ssa(f.address);
+                    let _ = bin.ssa(f.address);
+                }
+            }
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(120), "took {:?}", start.elapsed());
+    }
+
     /// A tiny Cortex-M image at `base`: vector table (reset, NMI, HardFault, SysTick, two IRQs that share
     /// a handler) then code, with a few strings and pointers to them.
     fn cortex_image(base: u32, size: usize) -> Vec<u8> {

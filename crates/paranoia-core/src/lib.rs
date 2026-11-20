@@ -1063,7 +1063,7 @@ impl Binary {
         }
         for p in &svd.peripherals {
             self.svd_names.entry(p.base).or_insert_with(|| p.name.clone());
-            self.svd_ranges.push((p.base, p.base + p.size.max(1), p.name.clone()));
+            self.svd_ranges.push((p.base, p.base.saturating_add(p.size.max(1)), p.name.clone()));
         }
         self.svd_ranges.sort();
         self.svd_ranges.dedup();
